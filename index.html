@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>F.R.E.J.A. // Neural Interface</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Orbitron:wght@400;600;800;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+    <!-- FontAwesome for futuristic icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="theme-cyan">
+    <!-- Grid overlay and Scanlines for futuristic screen effect -->
+    <div class="grid-overlay"></div>
+    <div class="scanlines"></div>
+    <div class="ambient-glow"></div>
+
+    <div class="hud-container">
+        <!-- HEADER -->
+        <header class="hud-header">
+            <div class="header-left">
+                <div class="logo-container">
+                    <span class="logo-bracket">[</span>
+                    <span class="logo-text">F.R.E.J.A.</span>
+                    <span class="logo-bracket">]</span>
+                </div>
+                <div class="status-indicator">
+                    <div class="pulse-dot"></div>
+                    <span class="status-text">SYSTEM UPLINK: ONLINE</span>
+                </div>
+            </div>
+            
+            <div class="header-center">
+                <div class="system-time" id="system-time">00:00:00</div>
+                <div class="system-date" id="system-date">2026-06-02</div>
+            </div>
+
+            <div class="header-right">
+                <button id="btn-memory" class="hud-btn-icon" title="Memory Vault">
+                    <i class="fa-solid fa-brain"></i>
+                </button>
+                <button id="btn-theme-toggle" class="hud-btn-icon" title="Change Theme">
+                    <i class="fa-solid fa-palette"></i>
+                </button>
+                <button id="btn-settings" class="hud-btn-icon" title="Settings">
+                    <i class="fa-solid fa-sliders"></i>
+                </button>
+                <div class="voice-badge">
+                    <span class="badge-label">V.O.C.A.L.</span>
+                    <span class="badge-status" id="vocal-status">STANDBY</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- MAIN LAYOUT -->
+        <main class="hud-main">
+            <!-- LEFT PANEL: DIAGNOSTICS & SYSTEM CONFIG -->
+            <section class="hud-panel left-panel">
+                <div class="panel-header">
+                    <i class="fa-solid fa-gauge-high icon-accent"></i>
+                    <h2>SYSTEM DIAGNOSTICS</h2>
+                </div>
+                <div class="panel-content">
+                    <!-- Gauge animations -->
+                    <div class="diag-group">
+                        <div class="diag-label">
+                            <span>CORES LOAD</span>
+                            <span class="diag-val" id="val-cpu">24%</span>
+                        </div>
+                        <div class="progress-bar-container">
+                            <div class="progress-bar" id="bar-cpu" style="width: 24%"></div>
+                        </div>
+                    </div>
+
+                    <div class="diag-group">
+                        <div class="diag-label">
+                            <span>NEURAL TEMP</span>
+                            <span class="diag-val" id="val-temp">42.8 °C</span>
+                        </div>
+                        <div class="progress-bar-container">
+                            <div class="progress-bar" id="bar-temp" style="width: 42.8%"></div>
+                        </div>
+                    </div>
+
+                    <div class="diag-group">
+                        <div class="diag-label">
+                            <span>COGNITIVE RAM</span>
+                            <span class="diag-val" id="val-ram">6.2 GB / 16 GB</span>
+                        </div>
+                        <div class="progress-bar-container">
+                            <div class="progress-bar" id="bar-ram" style="width: 38.7%"></div>
+                        </div>
+                    </div>
+
+                    <div class="diag-group">
+                        <div class="diag-label">
+                            <span>NETWORK LATENCY</span>
+                            <span class="diag-val" id="val-ping">12 ms</span>
+                        </div>
+                        <div class="progress-bar-container">
+                            <div class="progress-bar" id="bar-ping" style="width: 12%"></div>
+                        </div>
+                    </div>
+
+                    <hr class="panel-divider">
+
+                    <!-- Visual Scanner Widget -->
+                    <div class="visual-scanner">
+                        <h3><i class="fa-solid fa-eye"></i> NEURAL OPTICS SCANNER</h3>
+                        <div class="webcam-container">
+                            <video id="webcam-video" autoplay playsinline muted></video>
+                            <div class="scanner-overlay">
+                                <div class="scanner-line"></div>
+                                <div class="scanner-reticle"></div>
+                                <span class="scanner-status" id="scanner-status">OPTICS OFFLINE</span>
+                            </div>
+                        </div>
+                        <div class="control-row" style="margin-top: 10px;">
+                            <label for="select-camera">Camera Input</label>
+                            <select id="select-camera" class="hud-select">
+                                <option value="off" selected>Scanner avstängd</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <hr class="panel-divider">
+
+                    <!-- Vector Grid Widget -->
+                    <div class="widget-matrix">
+                        <h3>ACTIVE CAPABILITIES</h3>
+                        <div class="capability-grid">
+                            <div class="cap-item active">
+                                <i class="fa-solid fa-microphone"></i>
+                                <span>SPEECH REC</span>
+                            </div>
+                            <div class="cap-item active">
+                                <i class="fa-solid fa-volume-high"></i>
+                                <span>SYNTH VOICE</span>
+                            </div>
+                            <div class="cap-item active" id="cap-gemini">
+                                <i class="fa-solid fa-brain"></i>
+                                <span>GEMINI 2.5</span>
+                            </div>
+                            <div class="cap-item active">
+                                <i class="fa-solid fa-wave-square"></i>
+                                <span>AUDIO ANALYSER</span>
+                            </div>
+                            <div class="cap-item" id="cap-memory">
+                                <i class="fa-solid fa-microchip"></i>
+                                <span>NEURAL MEM</span>
+                            </div>
+                            <div class="cap-item" id="cap-camera">
+                                <i class="fa-solid fa-eye"></i>
+                                <span>OPTICS FEED</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <hr class="panel-divider">
+
+                    <!-- Speech Settings Shortcuts -->
+                    <div class="quick-settings">
+                        <h3>QUICK CONTROLS</h3>
+                        <div class="control-row">
+                            <label for="select-lang-quick">Language</label>
+                            <select id="select-lang-quick" class="hud-select">
+                                <option value="sv-SE" selected>Svenska (SE)</option>
+                                <option value="en-US">English (US)</option>
+                            </select>
+                        </div>
+                        <div class="control-row-toggle">
+                            <span>Auto-Speak Responses</span>
+                            <label class="hud-switch">
+                                <input type="checkbox" id="chk-autospeak" checked>
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                <div class="panel-footer">
+                    <span>SECTOR: 09A64FAF</span>
+                </div>
+            </section>
+
+            <!-- CENTER PANEL: ARC REACTOR CORE & CONTROLS -->
+            <section class="center-panel">
+                <!-- Arc Reactor Visualizer -->
+                <div class="arc-container">
+                    <canvas id="arc-canvas" width="400" height="400"></canvas>
+                    <div class="arc-core-inner">
+                        <i class="fa-solid fa-brain glow-brain"></i>
+                    </div>
+                </div>
+
+                <div class="voice-trigger-container">
+                    <button id="btn-mic" class="btn-mic" title="Start Listening">
+                        <i class="fa-solid fa-microphone" id="mic-icon"></i>
+                    </button>
+                    <p class="voice-hint" id="voice-hint">Klicka för att prata med FREJA</p>
+                    <div class="voice-bars-container" id="voice-bars">
+                        <!-- Sound bars show up when listening/speaking -->
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                    </div>
+                </div>
+
+                <!-- QUICK INPUT BOX (For typing queries) -->
+                <div class="text-input-container">
+                    <input type="text" id="text-query" placeholder="Mata in ett textkommando till FREJA..." class="hud-input">
+                    <button id="btn-send-text" class="hud-btn-send" title="Skicka">
+                        <i class="fa-solid fa-paper-plane"></i>
+                    </button>
+                </div>
+            </section>
+
+            <!-- RIGHT PANEL: CHAT HUB & TERMINAL LOG -->
+            <section class="hud-panel right-panel">
+                <div class="panel-header">
+                    <i class="fa-solid fa-comments icon-accent"></i>
+                    <h2>NEURAL CHAT HUB</h2>
+                </div>
+                
+                <!-- Chats will be listed here -->
+                <div class="chat-history" id="chat-history">
+                    <div class="chat-msg system-msg">
+                        <div class="msg-sender">[SYS]</div>
+                        <div class="msg-content">System startat. Välkommen operatör. Klicka på mikrofonen eller skriv ett meddelande nedan för att initiera konversation. Se till att lägga in din Gemini API-nyckel i inställningarna.</div>
+                    </div>
+                </div>
+
+                <div class="panel-header second-header">
+                    <i class="fa-solid fa-terminal icon-accent"></i>
+                    <h2>TERMINAL CONSOLE</h2>
+                </div>
+
+                <!-- Futuristic terminal logs -->
+                <div class="terminal-container">
+                    <div class="terminal-log" id="terminal-log">
+                        <div class="log-line"><span class="log-time">08:12:00</span> <span class="log-tag tag-sys">[SYS]</span> INITIALIZING INTEL CORE PROTCOLS</div>
+                        <div class="log-line"><span class="log-time">08:12:01</span> <span class="log-tag tag-sys">[SYS]</span> AUDIO ANALYSER STAGE ACTIVE</div>
+                        <div class="log-line"><span class="log-time">08:12:02</span> <span class="log-tag tag-sys">[SYS]</span> SPEECH SYNTHESIS ENGINE LOADED</div>
+                        <div class="log-line"><span class="log-time">08:12:02</span> <span class="log-tag tag-warn">[WARN]</span> GEMINI API KEY MISSING. USING OFFLINE MOCK MODE.</div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- SETTINGS MODAL -->
+    <div class="hud-modal" id="modal-settings">
+        <div class="modal-content glass-morphic">
+            <div class="modal-header">
+                <h2><i class="fa-solid fa-gear"></i> INTERFACE SETTINGS</h2>
+                <button class="modal-close" id="btn-close-settings">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="settings-group">
+                    <label for="input-api-key">Gemini API Key</label>
+                    <div class="input-password-container">
+                        <input type="password" id="input-api-key" placeholder="AIzaSy..." class="hud-input">
+                        <button type="button" id="btn-toggle-key" class="btn-toggle-input"><i class="fa-solid fa-eye"></i></button>
+                    </div>
+                    <p class="settings-help">Din API-nyckel sparas säkert i din lokala webbläsare (localStorage). Du kan skaffa en gratis nyckel i <a href="https://aistudio.google.com/" target="_blank" class="hud-link">Google AI Studio</a>.</p>
+                </div>
+
+                <div class="settings-group">
+                    <label for="select-voice">Voice Output Character (Native Browser)</label>
+                    <select id="select-voice" class="hud-select">
+                        <!-- Loaded dynamically -->
+                        <option value="">Laddar röster...</option>
+                    </select>
+                </div>
+
+                <hr class="panel-divider">
+                <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); margin-bottom: 5px; letter-spacing: 1px;">ELEVENLABS NEURAL TTS (OPTIONAL)</h3>
+
+                <div class="settings-group">
+                    <label for="input-eleven-key">ElevenLabs API Key</label>
+                    <div class="input-password-container">
+                        <input type="password" id="input-eleven-key" placeholder="Skriv xi-api-key..." class="hud-input">
+                        <button type="button" id="btn-toggle-eleven-key" class="btn-toggle-input"><i class="fa-solid fa-eye"></i></button>
+                    </div>
+                    <p class="settings-help">Lämnas tom för att fortsätta använda gratis webbläsarröst. Köp/skaffa nyckel på <a href="https://elevenlabs.io/" target="_blank" class="hud-link">ElevenLabs</a>.</p>
+                </div>
+
+                <div class="settings-group">
+                    <label for="select-eleven-voice">ElevenLabs Voice Presets</label>
+                    <select id="select-eleven-voice" class="hud-select">
+                        <option value="21m00Tcm4TlvDq8ikWAM" selected>Rachel (Varm & Tydlig - Kvinna)</option>
+                        <option value="ErXwobaYiN019PkySvjV">Antoni (Professionell & Djup - Man)</option>
+                        <option value="EXAVITQu4vr4xnSDxMaL">Bella (Klar & Naturlig - Kvinna)</option>
+                        <option value="pNInz6obpm5mJsZJQIEX">Adam (Klassisk röst - Man)</option>
+                        <option value="custom">-- Ange eget Voice ID --</option>
+                    </select>
+                </div>
+
+                <div class="settings-group" id="group-eleven-custom" style="display: none;">
+                    <label for="input-eleven-custom-voice">Eget ElevenLabs Voice ID</label>
+                    <input type="text" id="input-eleven-custom-voice" placeholder="Mata in voice_id..." class="hud-input">
+                </div>
+
+                <hr class="panel-divider">
+                <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); margin-bottom: 5px; letter-spacing: 1px;">MEM0 NEURAL MEMORY (OPTIONAL)</h3>
+
+                <div class="settings-group">
+                    <label for="input-mem0-key">Mem0 API Key</label>
+                    <div class="input-password-container">
+                        <input type="password" id="input-mem0-key" placeholder="Mata in Token..." class="hud-input">
+                        <button type="button" id="btn-toggle-mem0-key" class="btn-toggle-input"><i class="fa-solid fa-eye"></i></button>
+                    </div>
+                    <p class="settings-help">Skapa ett gratis konto på <a href="https://mem0.ai/" target="_blank" class="hud-link">mem0.ai</a> för att skaffa en API-nyckel. Om tomt körs minnet i ett lokalt sandlådeläge.</p>
+                </div>
+
+                <div class="settings-group-toggle" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <span style="font-size: 11px; color: var(--color-text-muted);">Aktivera neuralt minne</span>
+                    <label class="hud-switch">
+                        <input type="checkbox" id="chk-use-mem0" checked>
+                        <span class="slider"></span>
+                    </label>
+                </div>
+
+                <div class="settings-group">
+                    <div class="slider-row">
+                        <label for="slider-rate">Voice Rate (Hastighet)</label>
+                        <span class="slider-val" id="val-rate">1.0</span>
+                    </div>
+                    <input type="range" id="slider-rate" min="0.5" max="2" step="0.1" value="1.0" class="hud-range">
+                </div>
+
+                <div class="settings-group">
+                    <div class="slider-row">
+                        <label for="slider-pitch">Voice Pitch (Tonläge)</label>
+                        <span class="slider-val" id="val-pitch">1.0</span>
+                    </div>
+                    <input type="range" id="slider-pitch" min="0.5" max="1.5" step="0.1" value="1.0" class="hud-range">
+                </div>
+
+                <div class="settings-group">
+                    <label for="textarea-persona">System Prompt (Jarvis Persona)</label>
+                    <textarea id="textarea-persona" rows="4" class="hud-textarea">Du är FREJA, en extremt intelligent, artig och kvick AI-assistent. Du pratar med "sir" eller "doktorn" på ett artigt, lojalt och sofistikerat sätt. Svara kortfattat och slagkraftigt, idealiskt för tal. Svara alltid på det språk som användaren pratar eller skriver (svenska eller engelska).</textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="btn-reset-settings" class="hud-btn btn-secondary">ÅTERSTÄLL ALLT</button>
+                <button id="btn-save-settings" class="hud-btn btn-primary">SPARA KONFIGURERING</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- THEME MODAL (QUICK CHOICE) -->
+    <div class="hud-modal" id="modal-theme">
+        <div class="modal-content glass-morphic theme-modal-content">
+            <div class="modal-header">
+                <h2><i class="fa-solid fa-palette"></i> ACCENT SYSTEMS</h2>
+                <button class="modal-close" id="btn-close-theme">&times;</button>
+            </div>
+            <div class="modal-body select-theme-grid">
+                <button class="theme-choice-card cyan active" data-theme="cyan">
+                    <div class="color-preview"></div>
+                    <span>CYAN MATRIX (DEFAULT)</span>
+                </button>
+                <button class="theme-choice-card amber" data-theme="amber">
+                    <div class="color-preview"></div>
+                    <span>STARK GOLD (AMBER)</span>
+                </button>
+                <button class="theme-choice-card crimson" data-theme="crimson">
+                    <div class="color-preview"></div>
+                    <span>HULKBUSTER (CRIMSON)</span>
+                </button>
+                <button class="theme-choice-card emerald" data-theme="emerald">
+                    <div class="color-preview"></div>
+                    <span>SHIELD EMERALD</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- NEURAL MEMORY VAULT MODAL -->
+    <div class="hud-modal" id="modal-memory">
+        <div class="modal-content glass-morphic">
+            <div class="modal-header">
+                <h2><i class="fa-solid fa-brain"></i> NEURAL MEMORY VAULT</h2>
+                <button class="modal-close" id="btn-close-memory">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="memory-status-banner">
+                    <span class="status-label">ENGINE STATUS:</span>
+                    <span class="status-val" id="memory-engine-status">OFFLINE (VIRTUAL SANDBOX)</span>
+                </div>
+                <p class="settings-help" style="margin-bottom: 15px; font-size: 11px;">
+                    Här lagras och struktureras dina personliga preferenser och minnen som FREJA extraherar under era samtal. De återanvänds automatiskt för att ge personliga svar.
+                </p>
+
+                <!-- New Memory Manual Entry -->
+                <div class="add-memory-container" style="display: flex; gap: 8px; margin-bottom: 15px;">
+                    <input type="text" id="input-new-memory" placeholder="Mata in ett minne manuellt... (t.ex. 'Gillar starkt kaffe')" class="hud-input" style="flex: 1; font-size: 12px; height: 32px;">
+                    <button id="btn-add-memory-manual" class="hud-btn btn-primary" style="padding: 0 15px; font-size: 11px; height: 32px; font-family: var(--font-display);"><i class="fa-solid fa-plus"></i> LÄGG TILL</button>
+                </div>
+
+                <div class="memories-list-container" style="display: flex; flex-direction: column; flex: 1; min-height: 250px; max-height: 350px;">
+                    <h3 class="section-title" style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); margin-bottom: 8px; letter-spacing: 1px;">MINNES-ENGRAM (<span id="memory-count">0</span>)</h3>
+                    <div class="memories-list" id="memories-list" style="flex: 1; overflow-y: auto; background: rgba(0,0,0,0.3); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px;">
+                        <div class="memory-loading-msg" style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Laddar minnen...</div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="btn-wipe-memory" class="hud-btn btn-secondary" style="border-color: #ff3b30; color: #ff3b30;"><i class="fa-solid fa-trash-can"></i> RADERA ALLT MINNE</button>
+                <button id="btn-refresh-memory" class="hud-btn btn-primary"><i class="fa-solid fa-rotate"></i> SYNKRONISERA</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Audio initialization helper banner (browsers block audio until interaction) -->
+    <div class="interaction-shield" id="interaction-shield">
+        <div class="shield-prompt">
+            <div class="reactor-logo-small"></div>
+            <h1>F.R.E.J.A. COGNITIVE NETWORK</h1>
+            <p>Klicka på skärmen för att starta det neurala gränssnittet och initiera ljudenheterna.</p>
+            <button id="btn-initialize-audio" class="hud-btn-huge">STARTA GRÄNSSNITTET</button>
+        </div>
+    </div>
+
+    <script src="sound.js"></script>
+    <script src="visualizer.js"></script>
+    <script src="speech.js"></script>
+    <script src="memory.js"></script>
+    <script src="gemini.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
