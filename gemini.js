@@ -81,11 +81,11 @@ class GeminiClient {
     /**
      * Sends the prompt along with the latest webcam snapshots (if optics is active) to Gemini.
      */
-    async generateResponse(userMessage) {
+    async generateResponse(userMessage, attachImage = false) {
         console.log("[GEMINI] Requesting response for message:", userMessage);
         
-        // Capture snapshot if the scanner feeds are active
-        const webcamBase64 = this.captureWebcamSnapshot();
+        // Capture snapshot if requested and scanner is active
+        const webcamBase64 = attachImage ? this.captureWebcamSnapshot() : null;
         
         // Clean older multimodal images from context to avoid token bloat and API quota exhaustion
         this.history.forEach(h => {
@@ -146,40 +146,88 @@ class GeminiClient {
             }
         };
 
+        // Attach registered tools to the payload
+        const toolsPayload = [];
+        if (window.FrejaTools) {
+            const declarations = Object.values(window.FrejaTools).map(t => t.declaration);
+            if (declarations.length > 0) {
+                toolsPayload.push({ functionDeclarations: declarations });
+            }
+        }
+        if (toolsPayload.length > 0) {
+            payload.tools = toolsPayload;
+        }
+
         try {
-            const response = await fetch(endpoint, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify(payload)
-            });
+            let hasFunctionCall = true;
+            let finalReply = "";
 
-            if (!response.ok) {
-                const errData = await response.json();
-                throw new Error(errData.error?.message || `HTTP ${response.status}`);
+            while (hasFunctionCall) {
+                const response = await fetch(endpoint, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    const errData = await response.json();
+                    throw new Error(errData.error?.message || `HTTP ${response.status}`);
+                }
+
+                const data = await response.json();
+                const candidate = data.candidates?.[0];
+                const part = candidate?.content?.parts?.[0];
+
+                if (part && part.functionCall) {
+                    const call = part.functionCall;
+                    console.log("[GEMINI] Function Call Requested:", call);
+
+                    // 1. Append model functionCall message to history
+                    this.history.push(candidate.content);
+
+                    // 2. Execute local tool function (checks permission or prompts user)
+                    const result = await window.uiController.handleToolCall(call);
+
+                    // 3. Append functionResponse message to history
+                    this.history.push({
+                        role: "function",
+                        parts: [{
+                            functionResponse: {
+                                name: call.name,
+                                response: result
+                            }
+                        }]
+                    });
+
+                    // Update content in payload for next iteration
+                    payload.contents = this.history;
+                } else {
+                    hasFunctionCall = false;
+                    finalReply = part?.text;
+                    if (!finalReply) {
+                        throw new Error("Empty candidate response from Gemini neural node.");
+                    }
+
+                    // Append final text model response to history
+                    this.history.push(candidate.content);
+                }
             }
 
-            const data = await response.json();
-            const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
-            
-            if (!textResponse) {
-                throw new Error("Empty candidate response from Gemini neural node.");
-            }
-
-            // Append assistant response to history
-            this.history.push({
-                role: "model",
-                parts: [{ text: textResponse }]
-            });
-
-            return textResponse;
+            return finalReply;
         } catch (e) {
             console.error("[GEMINI] API Request failure:", e);
             soundSynth.playError();
             
-            // Evacuate the failed user prompt so it doesn't corrupt subsequent context calls
-            this.history.pop();
+            // Clean up the failed context states by removing history back to the user prompt
+            while (this.history.length > 0) {
+                const last = this.history[this.history.length - 1];
+                this.history.pop();
+                if (last.role === 'user') {
+                    break;
+                }
+            }
             
             return `[ANOMALY] Neural Uplink Failed. Det gick inte att kontakta Gemini. Fel: ${e.message}. Kontrollera din internetanslutning eller din API-nyckel i inställningarna.`;
         }

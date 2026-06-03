@@ -168,7 +168,7 @@ class FrejaSpeechEngine {
         // Suspend speech recognition so F.R.E.J.A. does not hear its own voice feedback
         const wasListening = this.isListening;
         if (wasListening) {
-            this.recognition.stop();
+            this.recognition.abort();
         }
 
         // Stop any currently running native voice
@@ -177,7 +177,16 @@ class FrejaSpeechEngine {
         }
 
         // Strip formatting characters from prompt text
-        const cleanText = text.replace(/[*_`#]/g, '');
+        let cleanText = text.replace(/[*_`#]/g, '');
+        
+        // Translate "m/s" to "meter per sekund" for proper spoken pronunciation
+        cleanText = cleanText.replace(/(\b|(?<=\d))m\s*\/\s*s\b/gi, 'meter per sekund');
+
+        // Translate decimal numbers (e.g. 25.5 -> 25 komma 5) for natural Swedish speech
+        cleanText = cleanText.replace(/\b(\d+)\.(\d+)\b/g, '$1 komma $2');
+
+        // Translate "°C" to "grader celsius" for proper spoken pronunciation
+        cleanText = cleanText.replace(/\s*°\s*C\b/gi, ' grader celsius');
 
         if (this.elevenApiKey) {
             return this.speakElevenLabs(cleanText, wasListening);

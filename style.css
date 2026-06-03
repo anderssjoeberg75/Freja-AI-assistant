@@ -784,11 +784,42 @@ body {
     background: #02050b;
     border: 1px solid rgba(255,255,255,0.05);
     padding: 8px;
+    padding-right: 36px;
     border-radius: 4px;
     overflow-x: auto;
     font-family: var(--font-mono);
     font-size: 11px;
     margin: 6px 0;
+    position: relative;
+}
+
+.copy-code-btn {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    background: rgba(0, 0, 0, 0.5);
+    border: 1px solid var(--color-border);
+    color: var(--color-primary);
+    border-radius: 3px;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 10px;
+    opacity: 0;
+    transition: opacity 0.2s ease, background 0.2s ease;
+}
+
+.msg-content pre:hover .copy-code-btn {
+    opacity: 0.8;
+}
+
+.copy-code-btn:hover {
+    background: var(--color-primary);
+    color: var(--color-text-dark);
+    opacity: 1 !important;
 }
 
 .msg-content code {
@@ -1487,4 +1518,41 @@ body {
         width: 280px;
         height: 280px;
     }
+}
+
+/* CUSTOM SCROLLBARS */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 3px;
+}
+::-webkit-scrollbar-thumb {
+    background: var(--color-border);
+    border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: var(--color-primary);
+    box-shadow: 0 0 6px var(--color-primary);
+}
+
+/* HEADER BUTTON FOR CLEAR CHAT */
+.panel-header-btn {
+    background: none;
+    border: none;
+    color: var(--color-text-muted);
+    cursor: pointer;
+    font-size: 12px;
+    margin-left: auto;
+    transition: color 0.2s ease, transform 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px;
+}
+.panel-header-btn:hover {
+    color: #ff3b30;
+    transform: scale(1.1);
 }

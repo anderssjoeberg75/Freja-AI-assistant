@@ -124,6 +124,13 @@
                                 <option value="off" selected>Scanner avstängd</option>
                             </select>
                         </div>
+                        <div class="control-row-toggle" style="margin-top: 8px;">
+                            <span style="font-size: 11px; color: var(--color-text-muted);">Auto-skicka bildström</span>
+                            <label class="hud-switch">
+                                <input type="checkbox" id="chk-auto-optics" checked>
+                                <span class="slider"></span>
+                            </label>
+                        </div>
                     </div>
 
                     <hr class="panel-divider">
@@ -227,6 +234,9 @@
                 <div class="panel-header">
                     <i class="fa-solid fa-comments icon-accent"></i>
                     <h2>NEURAL CHAT HUB</h2>
+                    <button id="btn-clear-chat" class="panel-header-btn" title="Rensa chatthistorik">
+                        <i class="fa-solid fa-trash-can"></i>
+                    </button>
                 </div>
                 
                 <!-- Chats will be listed here -->
@@ -272,12 +282,17 @@
                     <p class="settings-help">Din API-nyckel sparas säkert i din lokala webbläsare (localStorage). Du kan skaffa en gratis nyckel i <a href="https://aistudio.google.com/" target="_blank" class="hud-link">Google AI Studio</a>.</p>
                 </div>
 
-                <div class="settings-group">
+                 <div class="settings-group">
                     <label for="select-voice">Voice Output Character (Native Browser)</label>
-                    <select id="select-voice" class="hud-select">
-                        <!-- Loaded dynamically -->
-                        <option value="">Laddar röster...</option>
-                    </select>
+                    <div style="display: flex; gap: 8px;">
+                        <select id="select-voice" class="hud-select" style="flex: 1;">
+                            <!-- Loaded dynamically -->
+                            <option value="">Laddar röster...</option>
+                        </select>
+                        <button type="button" id="btn-test-voice" class="hud-btn btn-secondary" style="padding: 0 12px; height: 32px;" title="Testa vald röst">
+                            <i class="fa-solid fa-volume-high"></i>
+                        </button>
+                    </div>
                 </div>
 
                 <hr class="panel-divider">
@@ -347,6 +362,17 @@
                 <div class="settings-group">
                     <label for="textarea-persona">System Prompt (Jarvis Persona)</label>
                     <textarea id="textarea-persona" rows="4" class="hud-textarea">Du är FREJA, en extremt intelligent, artig och kvick AI-assistent. Du pratar med "sir" eller "doktorn" på ett artigt, lojalt och sofistikerat sätt. Svara kortfattat och slagkraftigt, idealiskt för tal. Svara alltid på det språk som användaren pratar eller skriver (svenska eller engelska).</textarea>
+                </div>
+
+                <hr class="panel-divider">
+                <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); margin-bottom: 5px; letter-spacing: 1px;">SYSTEMBEHÖRIGHETER (VERKTYG)</h3>
+                
+                <div class="settings-group-toggle" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <span style="font-size: 11px; color: var(--color-text-muted);">Tillåt Väderverktyg (get_weather)</span>
+                    <label class="hud-switch">
+                        <input type="checkbox" id="chk-tool-get_weather">
+                        <span class="slider"></span>
+                    </label>
                 </div>
             </div>
             <div class="modal-footer">
@@ -430,11 +456,12 @@
         </div>
     </div>
 
-    <script src="sound.js"></script>
-    <script src="visualizer.js"></script>
-    <script src="speech.js"></script>
-    <script src="memory.js"></script>
-    <script src="gemini.js"></script>
-    <script src="app.js"></script>
+    <script src="sound.js?v=3"></script>
+    <script src="visualizer.js?v=3"></script>
+    <script src="speech.js?v=3"></script>
+    <script src="memory.js?v=3"></script>
+    <script src="gemini.js?v=3"></script>
+    <script src="tools/weather.js?v=3"></script>
+    <script src="app.js?v=3"></script>
 </body>
 </html>

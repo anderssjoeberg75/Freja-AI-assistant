@@ -83,6 +83,23 @@ class FrejaUIController {
         this.memory.enabled = mem0Enabled;
         this.memory.updateCapBadge();
 
+        // Load camera settings
+        const savedCam = localStorage.getItem("freja_camera_device_id") || "off";
+        const autoOptics = localStorage.getItem("freja_auto_optics") !== "false";
+        
+        const chkAutoOptics = document.getElementById('chk-auto-optics');
+        if (chkAutoOptics) {
+            chkAutoOptics.checked = autoOptics;
+        }
+        this.savedCameraId = savedCam;
+
+        // Load tool permissions
+        const weatherAllowed = localStorage.getItem("freja_tool_get_weather_allowed") === "true";
+        const chkWeather = document.getElementById('chk-tool-get_weather');
+        if (chkWeather) {
+            chkWeather.checked = weatherAllowed;
+        }
+
         this.applyTheme(theme);
     }
 
@@ -218,7 +235,51 @@ class FrejaUIController {
                 self.loadCameraDevices();
             });
             selectCamera.addEventListener('change', () => {
-                self.startCameraStream(selectCamera.value);
+                const val = selectCamera.value;
+                self.startCameraStream(val);
+                localStorage.setItem("freja_camera_device_id", val);
+            });
+        }
+
+        // Auto optics checkbox event listener
+        const chkAutoOptics = document.getElementById('chk-auto-optics');
+        if (chkAutoOptics) {
+            chkAutoOptics.addEventListener('change', () => {
+                localStorage.setItem("freja_auto_optics", chkAutoOptics.checked);
+                soundSynth.playClick();
+                self.writeLog(`OPTICS AUTO-STREAM: ${chkAutoOptics.checked ? "ON" : "OFF"}`, "sys");
+            });
+        }
+
+        // Clear Chat button click trigger
+        const btnClearChat = document.getElementById('btn-clear-chat');
+        if (btnClearChat) {
+            btnClearChat.addEventListener('click', () => {
+                soundSynth.playError();
+                if (confirm("Vill du rensa chatthistoriken? Detta tar bort meddelandena från skärmen och nollställer samtalskontexten.")) {
+                    self.gemini.clearHistory();
+                    const chatHistory = document.getElementById('chat-history');
+                    chatHistory.innerHTML = `
+                        <div class="chat-msg system-msg">
+                            <div class="msg-sender">[SYS]</div>
+                            <div class="msg-content">Samtalskontext återställd. Chatten rensad.</div>
+                        </div>
+                    `;
+                    self.writeLog("NEURAL CONTEXT RESET & CHAT CLEARED", "sys");
+                }
+            });
+        }
+
+        // Test Voice button click trigger
+        const btnTestVoice = document.getElementById('btn-test-voice');
+        if (btnTestVoice) {
+            btnTestVoice.addEventListener('click', () => {
+                soundSynth.playClick();
+                const sv = self.speech.lang === 'sv-SE';
+                const testMsg = sv 
+                    ? "Detta är en testsekvens för Frejas röstgränssnitt."
+                    : "This is a diagnostic vocal sequence for Freya.";
+                self.speech.speak(testMsg);
             });
         }
 
@@ -411,6 +472,12 @@ class FrejaUIController {
             
             self.memory.saveSettings(mem0Key, mem0Enabled);
 
+            // Save tool permissions
+            const chkWeather = document.getElementById('chk-tool-get_weather');
+            if (chkWeather) {
+                localStorage.setItem("freja_tool_get_weather_allowed", chkWeather.checked);
+            }
+
             modalSettings.classList.remove('active');
             self.writeLog("INTERFACE NETWORK CONFIGURATIONS SECURED", "sys");
             soundSynth.playNotify();
@@ -587,8 +654,32 @@ class FrejaUIController {
         
         this.writeLog("NEURAL COGNITION UPLINK ENGAGED", "gemini");
         
+        // Determine whether to attach webcam snapshot
+        let attachImage = false;
+        const selectCam = document.getElementById('select-camera');
+        if (selectCam && selectCam.value !== 'off') {
+            const chkAutoOptics = document.getElementById('chk-auto-optics');
+            const autoOptics = chkAutoOptics ? chkAutoOptics.checked : true;
+            
+            if (autoOptics) {
+                attachImage = true;
+            } else {
+                // Heuristic vision keywords check
+                const visionKeywords = [
+                    'se', 'titta', 'kamera', 'bild', 'vad är det', 'vem är det',
+                    'look', 'see', 'camera', 'picture', 'photo', 'what is this', 'who is this',
+                    'scanna', 'scan', 'analysera bild', 'analyze picture'
+                ];
+                const cleanText = text.toLowerCase();
+                attachImage = visionKeywords.some(keyword => cleanText.includes(keyword));
+                if (attachImage) {
+                    this.writeLog("OPTICS KEYWORD DETECTED. ATTACHING CAMERA FRAME", "sys");
+                }
+            }
+        }
+        
         // Request response from Google Gemini Client
-        const response = await this.gemini.generateResponse(text);
+        const response = await this.gemini.generateResponse(text, attachImage);
         
         this.writeLog("RESPONSE SECURED. INITIATING AUDIO SYNTHESIS", "gemini");
         this.appendChatMessage("assistant", response);
@@ -635,28 +726,187 @@ class FrejaUIController {
      * Translates custom bold lists, ticks, and code block formatting to raw HTML tags.
      */
     parseMarkdown(text) {
+        // Temporary store for code blocks
+        const codeBlocks = [];
         let html = text;
         
-        // Parse code blocks
+        // 1. Extract and escape code blocks
         html = html.replace(/```([\s\S]*?)```/g, (match, p1) => {
-            return `<pre><code>${this.escapeHTML(p1.trim())}</code></pre>`;
+            const id = `__CODE_BLOCK_${codeBlocks.length}__`;
+            const escaped = this.escapeHTML(p1.trim());
+            codeBlocks.push(`<pre><code>${escaped}</code><button class="copy-code-btn" title="Kopiera kod" onclick="window.uiController.copyCode(this)"><i class="fa-solid fa-copy"></i></button></pre>`);
+            return id;
         });
         
-        // Parse inline code ticks
+        // 2. Parse inline code ticks
         html = html.replace(/`([^`]+)`/g, (match, p1) => {
             return `<code>${this.escapeHTML(p1)}</code>`;
         });
         
-        // Parse bold symbols
+        // 3. Parse bold symbols
         html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
         
-        // Parse list items
-        html = html.replace(/^\*\s+(.+)$/gm, '• $1<br>');
+        // 4. Parse italics
+        html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
         
-        // Parse linebreaks
+        // 5. Parse links: [label](url)
+        html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" class="hud-link">$1 <i class="fa-solid fa-arrow-up-right-from-square" style="font-size: 8px;"></i></a>');
+        
+        // 6. Parse list items (lines starting with * or - or •)
+        html = html.replace(/^[-*•]\s+(.+)$/gm, '• $1');
+        
+        // 7. Replace newlines with <br>
         html = html.replace(/\n/g, '<br>');
         
+        // 8. Restore code blocks
+        codeBlocks.forEach((block, index) => {
+            html = html.replace(`__CODE_BLOCK_${index}__`, block);
+        });
+        
         return html;
+    }
+
+    /**
+     * Copies code content from code blocks to user clipboard.
+     */
+    copyCode(button) {
+        const pre = button.parentElement;
+        const code = pre.querySelector('code');
+        if (!code) return;
+        
+        navigator.clipboard.writeText(code.innerText).then(() => {
+            soundSynth.playNotify();
+            const originalHTML = button.innerHTML;
+            button.innerHTML = '<i class="fa-solid fa-check" style="color: var(--color-primary);"></i>';
+            this.writeLog("CODE COPIED TO SYSTEM CLIPBOARD", "sys");
+            setTimeout(() => {
+                button.innerHTML = originalHTML;
+            }, 2000);
+        }).catch(err => {
+            console.error("Failed to copy code: ", err);
+            soundSynth.playError();
+        });
+    }
+
+    /**
+     * Handles tool calls requested by Gemini.
+     * Checks permissions, prompts the user if permission is missing, and executes the tool.
+     */
+    async handleToolCall(call) {
+        this.writeLog(`TOOL CALL REQUESTED: ${call.name}`, "sys");
+        
+        const tool = window.FrejaTools ? window.FrejaTools[call.name] : null;
+        if (!tool) {
+            this.writeLog(`ERROR: Tool '${call.name}' not registered in systems`, "err");
+            return { error: `Tool '${call.name}' not registered.` };
+        }
+        
+        // Check permission (either true/false from localStorage)
+        const isAllowed = localStorage.getItem(tool.permissionKey) === "true";
+        
+        if (isAllowed) {
+            this.writeLog(`EXECUTING TOOL: ${tool.name}`, "sys");
+            try {
+                const result = await tool.execute(call.args);
+                this.writeLog(`TOOL EXECUTION SUCCESS: ${tool.name}`, "sys");
+                return result;
+            } catch (err) {
+                this.writeLog(`TOOL EXECUTION ERROR: ${err.message}`, "err");
+                return { error: `Execution failed: ${err.message}` };
+            }
+        } else {
+            // Permission is not granted, ask the user!
+            this.writeLog(`PERMISSION REQUIRED FOR TOOL: ${tool.name}`, "warn");
+            
+            // We return a Promise that resolves when the user allows or denies
+            const allowed = await new Promise((resolve) => {
+                this.appendPermissionRequest(tool, call.args, resolve);
+            });
+            
+            if (allowed) {
+                this.writeLog(`EXECUTING TOOL POST-APPROVAL: ${tool.name}`, "sys");
+                try {
+                    const result = await tool.execute(call.args);
+                    this.writeLog(`TOOL EXECUTION SUCCESS: ${tool.name}`, "sys");
+                    return result;
+                } catch (err) {
+                    this.writeLog(`TOOL EXECUTION ERROR: ${err.message}`, "err");
+                    return { error: `Execution failed: ${err.message}` };
+                }
+            } else {
+                this.writeLog(`TOOL ACCESS DENIED BY USER: ${tool.name}`, "warn");
+                return { error: "User denied permission to run this tool." };
+            }
+        }
+    }
+
+    /**
+     * Renders a warning gateway permission request message in the chat.
+     */
+    appendPermissionRequest(tool, args, resolvePromise) {
+        const chatHistory = document.getElementById('chat-history');
+        const msgDiv = document.createElement('div');
+        msgDiv.className = 'chat-msg system-msg permission-request-msg';
+        
+        const argsStr = JSON.stringify(args, null, 2);
+        
+        msgDiv.innerHTML = `
+            <div class="msg-sender">[SÄKERHETS-GATEWAY]</div>
+            <div class="msg-content glass-morphic" style="border-color: #fdd663; padding: 12px; margin-top: 5px; background: rgba(25, 20, 10, 0.45);">
+                <h4 style="color: #fdd663; margin-top: 0; font-family: var(--font-display); font-size: 11px; letter-spacing: 1px;">
+                    <i class="fa-solid fa-shield-halved"></i> BEHÖRIGHETSBEGÄRAN KRÄVS
+                </h4>
+                <p style="font-size: 11px; margin: 6px 0; line-height: 1.4; color: #f8f9fa;">
+                    FREJA begär åtkomst till verktyget <strong>${tool.displayName || tool.name}</strong> för att slutföra din begäran.
+                </p>
+                <div style="background: rgba(0,0,0,0.6); border: 1px solid rgba(253, 214, 99, 0.2); border-radius: 4px; padding: 6px; font-family: var(--font-mono); font-size: 10px; color: #fdd663; margin-bottom: 10px; white-space: pre-wrap;">Argument: ${argsStr}</div>
+                <div style="display: flex; gap: 8px;">
+                    <button class="hud-btn btn-primary btn-allow-once" style="background: #fdd663; border-color: #fdd663; color: #000; font-size: 10px; padding: 4px 10px;">Tillåt denna gång</button>
+                    <button class="hud-btn btn-secondary btn-allow-always" style="font-size: 10px; padding: 4px 10px;">Tillåt alltid</button>
+                    <button class="hud-btn btn-secondary btn-deny" style="border-color: #ff3b30; color: #ff3b30; font-size: 10px; padding: 4px 10px;">Neka</button>
+                </div>
+            </div>
+        `;
+        
+        chatHistory.appendChild(msgDiv);
+        chatHistory.scrollTop = chatHistory.scrollHeight;
+        
+        // Speak warning notification sound or synthesize a voice warning
+        soundSynth.playNotify();
+        
+        const self = this;
+        
+        // Button Event Listeners
+        const btnAllowOnce = msgDiv.querySelector('.btn-allow-once');
+        const btnAllowAlways = msgDiv.querySelector('.btn-allow-always');
+        const btnDeny = msgDiv.querySelector('.btn-deny');
+        
+        btnAllowOnce.addEventListener('click', () => {
+            soundSynth.playClick();
+            msgDiv.remove();
+            self.writeLog(`TOOL PERMISSION GRANTED: ${tool.name} (ONCE)`, "sys");
+            resolvePromise(true);
+        });
+        
+        btnAllowAlways.addEventListener('click', () => {
+            soundSynth.playClick();
+            msgDiv.remove();
+            // Save always allowed
+            localStorage.setItem(tool.permissionKey, "true");
+            // Sync UI checkbox if settings modal is open or loaded
+            const chk = document.getElementById(`chk-tool-${tool.name}`);
+            if (chk) chk.checked = true;
+            
+            self.writeLog(`TOOL PERMISSION GRANTED: ${tool.name} (ALWAYS)`, "sys");
+            resolvePromise(true);
+        });
+        
+        btnDeny.addEventListener('click', () => {
+            soundSynth.playError();
+            msgDiv.remove();
+            self.writeLog(`TOOL PERMISSION DENIED: ${tool.name}`, "sys");
+            resolvePromise(false);
+        });
     }
 
     /**
@@ -739,8 +989,21 @@ class FrejaUIController {
                 const option = document.createElement('option');
                 option.value = device.deviceId;
                 option.textContent = device.label || `Kamera ${index + 1}`;
+                
+                if (this.savedCameraId && device.deviceId === this.savedCameraId) {
+                    option.selected = true;
+                }
+                
                 selectCam.appendChild(option);
             });
+            
+            // Auto start camera if we have a saved, active camera stream
+            if (this.savedCameraId && this.savedCameraId !== 'off' && !this.cameraStream) {
+                if (videoDevices.some(d => d.deviceId === this.savedCameraId)) {
+                    selectCam.value = this.savedCameraId;
+                    this.startCameraStream(this.savedCameraId);
+                }
+            }
             
             console.log("[CAMERA] Enumerated video input devices:", videoDevices);
         } catch (e) {
