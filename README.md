@@ -12,23 +12,19 @@ F.R.E.J.A. is built using pure modern web standards (Vanilla HTML5, CSS3, ES6 Ja
 
 Because F.R.E.J.A. accesses your webcam, microphone, and external AI APIs, we highly recommend running the application via a local web server (rather than double-clicking `index.html` directly). This guarantees that browser security protocols allow media capturing streams to initialize correctly.
 
-### Step 1: Spin Up a Local Server
-Open your terminal, navigate to the project directory, and run one of the following commands:
+### Step 1: Spin Up the Neural Server
+Open your terminal, navigate to the project directory, and run the Python backend server:
 
-#### Option A: Python (Simplest & Recommended)
 ```bash
-python3 -m http.server 8080
+python3 server.py
 ```
 
-#### Option B: Node.js / npm
-```bash
-npx http-server -p 8080
-```
+This starts the web server on port `8000` and initializes the secure SQLite database (`keys.db`) for API keys persistence.
 
 ### Step 2: Access the HUD Interface
 Open your web browser (Chrome, Edge, or Safari are recommended for optimal Speech Recognition support) and go to:
 ```
-http://localhost:8080/
+http://localhost:8000/
 ```
 
 ### Step 3: Initialize the Assistant

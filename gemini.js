@@ -132,6 +132,9 @@ class GeminiClient {
             }
         }
 
+        // Inject directive to explicitly cite Google when using the web search tool
+        dynamicSystemPrompt += "\n\n[DIRECTIVE: WEB SEARCH CITATION]\nNär du använder verktyget 'google_search' för att söka efter information eller fakta på webben, MÅSTE du alltid uttryckligen ange i ditt svar att källan är Google (t.ex. genom att skriva 'Källa: Google' eller 'Enligt sökresultat på Google' i slutet av din förklaring).";
+
         // Invoke Google API REST endpoint
         const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${this.apiKey}`;
         
@@ -178,10 +181,11 @@ class GeminiClient {
 
                 const data = await response.json();
                 const candidate = data.candidates?.[0];
-                const part = candidate?.content?.parts?.[0];
+                const parts = candidate?.content?.parts || [];
+                const functionCallPart = parts.find(p => p.functionCall);
 
-                if (part && part.functionCall) {
-                    const call = part.functionCall;
+                if (functionCallPart && functionCallPart.functionCall) {
+                    const call = functionCallPart.functionCall;
                     console.log("[GEMINI] Function Call Requested:", call);
 
                     // 1. Append model functionCall message to history
@@ -205,7 +209,8 @@ class GeminiClient {
                     payload.contents = this.history;
                 } else {
                     hasFunctionCall = false;
-                    finalReply = part?.text;
+                    const textPart = parts.find(p => p.text);
+                    finalReply = textPart?.text;
                     if (!finalReply) {
                         throw new Error("Empty candidate response from Gemini neural node.");
                     }

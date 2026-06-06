@@ -42,6 +42,12 @@
                 <button id="btn-memory" class="hud-btn-icon" title="Memory Vault">
                     <i class="fa-solid fa-brain"></i>
                 </button>
+                <button id="btn-garmin" class="hud-btn-icon" title="Garmin Fit Dashboard">
+                    <i class="fa-solid fa-heart-pulse"></i>
+                </button>
+                <button id="btn-strava" class="hud-btn-icon" title="Strava Activity Dashboard">
+                    <i class="fa-solid fa-person-running"></i>
+                </button>
                 <button id="btn-theme-toggle" class="hud-btn-icon" title="Change Theme">
                     <i class="fa-solid fa-palette"></i>
                 </button>
@@ -162,6 +168,14 @@
                             <div class="cap-item" id="cap-camera">
                                 <i class="fa-solid fa-eye"></i>
                                 <span>OPTICS FEED</span>
+                            </div>
+                            <div class="cap-item" id="cap-garmin">
+                                <i class="fa-solid fa-heart-pulse"></i>
+                                <span>GARMIN FIT</span>
+                            </div>
+                            <div class="cap-item" id="cap-strava">
+                                <i class="fa-solid fa-person-running"></i>
+                                <span>STRAVA FIT</span>
                             </div>
                         </div>
                     </div>
@@ -365,12 +379,76 @@
                 </div>
 
                 <hr class="panel-divider">
+                <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); margin-bottom: 5px; letter-spacing: 1px;">GARMIN CONNECT KONTO</h3>
+                
+                <div class="settings-group">
+                    <label for="input-garmin-email">Garmin E-post</label>
+                    <input type="email" id="input-garmin-email" placeholder="Skriv Garmin e-post..." class="hud-input">
+                </div>
+
+                <div class="settings-group">
+                    <label for="input-garmin-password">Garmin Lösenord</label>
+                    <div class="input-password-container">
+                        <input type="password" id="input-garmin-password" placeholder="Skriv Garmin lösenord..." class="hud-input">
+                        <button type="button" id="btn-toggle-garmin-password" class="btn-toggle-input"><i class="fa-solid fa-eye"></i></button>
+                    </div>
+                </div>
+
+                <hr class="panel-divider">
+                <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); margin-bottom: 5px; letter-spacing: 1px;">STRAVA API CONFIG</h3>
+                
+                <div class="settings-group">
+                    <label for="input-strava-client-id">Strava Client ID</label>
+                    <input type="text" id="input-strava-client-id" placeholder="Skriv Strava Client ID..." class="hud-input">
+                </div>
+
+                <div class="settings-group">
+                    <label for="input-strava-client-secret">Strava Client Secret</label>
+                    <div class="input-password-container">
+                        <input type="password" id="input-strava-client-secret" placeholder="Skriv Strava Client Secret..." class="hud-input">
+                        <button type="button" id="btn-toggle-strava-secret" class="btn-toggle-input"><i class="fa-solid fa-eye"></i></button>
+                    </div>
+                </div>
+
+                <div class="settings-group">
+                    <label for="input-strava-refresh-token">Strava Refresh Token</label>
+                    <div class="input-password-container">
+                        <input type="password" id="input-strava-refresh-token" placeholder="Skriv Strava Refresh Token..." class="hud-input">
+                        <button type="button" id="btn-toggle-strava-token" class="btn-toggle-input"><i class="fa-solid fa-eye"></i></button>
+                    </div>
+                </div>
+
+                <hr class="panel-divider">
                 <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); margin-bottom: 5px; letter-spacing: 1px;">SYSTEMBEHÖRIGHETER (VERKTYG)</h3>
                 
                 <div class="settings-group-toggle" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
                     <span style="font-size: 11px; color: var(--color-text-muted);">Tillåt Väderverktyg (get_weather)</span>
                     <label class="hud-switch">
                         <input type="checkbox" id="chk-tool-get_weather">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+
+                <div class="settings-group-toggle" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <span style="font-size: 11px; color: var(--color-text-muted);">Tillåt Google Sökning (google_search)</span>
+                    <label class="hud-switch">
+                        <input type="checkbox" id="chk-tool-google_search">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+
+                <div class="settings-group-toggle" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <span style="font-size: 11px; color: var(--color-text-muted);">Tillåt Garmin Hälsocoach (get_garmin_health)</span>
+                    <label class="hud-switch">
+                        <input type="checkbox" id="chk-tool-get_garmin_health">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+
+                <div class="settings-group-toggle" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <span style="font-size: 11px; color: var(--color-text-muted);">Tillåt Strava Träningscoach (get_strava_data)</span>
+                    <label class="hud-switch">
+                        <input type="checkbox" id="chk-tool-get_strava_data">
                         <span class="slider"></span>
                     </label>
                 </div>
@@ -446,6 +524,139 @@
         </div>
     </div>
 
+    <!-- GARMIN FIT DASHBOARD MODAL -->
+    <div class="hud-modal" id="modal-garmin">
+        <div class="modal-content glass-morphic">
+            <div class="modal-header">
+                <h2><i class="fa-solid fa-heart-pulse"></i> GARMIN FIT DASHBOARD</h2>
+                <button class="modal-close" id="btn-close-garmin">&times;</button>
+            </div>
+            <div class="modal-body" style="display: flex; flex-direction: column; gap: 15px;">
+                <!-- Form for entering data -->
+                <div class="garmin-form" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--color-border); border-radius: 4px; padding: 12px;">
+                    <div style="grid-column: span 2; display: flex; flex-direction: column; gap: 4px;">
+                        <label for="garmin-input-date" style="font-size: 11px; color: var(--color-text-muted);">Datum</label>
+                        <input type="date" id="garmin-input-date" class="hud-input" style="height: 32px; font-size: 12px; font-family: var(--font-mono);">
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 4px;">
+                        <label for="garmin-input-steps" style="font-size: 11px; color: var(--color-text-muted);">Steg</label>
+                        <input type="number" id="garmin-input-steps" placeholder="t.ex. 10000" class="hud-input" style="height: 32px; font-size: 12px;">
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 4px;">
+                        <label for="garmin-input-sleep" style="font-size: 11px; color: var(--color-text-muted);">Sömn (timmar)</label>
+                        <input type="number" step="0.1" id="garmin-input-sleep" placeholder="t.ex. 7.5" class="hud-input" style="height: 32px; font-size: 12px;">
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 4px;">
+                        <label for="garmin-input-hr" style="font-size: 11px; color: var(--color-text-muted);">Vilopuls (BPM)</label>
+                        <input type="number" id="garmin-input-hr" placeholder="t.ex. 58" class="hud-input" style="height: 32px; font-size: 12px;">
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 4px;">
+                        <label for="garmin-input-calories" style="font-size: 11px; color: var(--color-text-muted);">Aktiva kalorier</label>
+                        <input type="number" id="garmin-input-calories" placeholder="t.ex. 400" class="hud-input" style="height: 32px; font-size: 12px;">
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 4px;">
+                        <label for="garmin-input-workout-type" style="font-size: 11px; color: var(--color-text-muted);">Träningsform</label>
+                        <input type="text" id="garmin-input-workout-type" placeholder="t.ex. Löpning" class="hud-input" style="height: 32px; font-size: 12px;">
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 4px;">
+                        <label for="garmin-input-workout-duration" style="font-size: 11px; color: var(--color-text-muted);">Tid (minuter)</label>
+                        <input type="number" id="garmin-input-workout-duration" placeholder="t.ex. 45" class="hud-input" style="height: 32px; font-size: 12px;">
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 4px;">
+                        <label for="garmin-input-body-battery" style="font-size: 11px; color: var(--color-text-muted);">Body Battery (max)</label>
+                        <input type="number" id="garmin-input-body-battery" placeholder="t.ex. 85" class="hud-input" style="height: 32px; font-size: 12px;">
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 4px;">
+                        <label for="garmin-input-hrv" style="font-size: 11px; color: var(--color-text-muted);">HRV (Snitt ms)</label>
+                        <input type="number" id="garmin-input-hrv" placeholder="t.ex. 65" class="hud-input" style="height: 32px; font-size: 12px;">
+                    </div>
+                    <button id="btn-save-garmin-manual" class="hud-btn btn-primary" style="grid-column: span 2; height: 34px; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-floppy-disk"></i> SPARA DAGSLOGG</button>
+                </div>
+                
+                <!-- List of recent logs -->
+                <div class="garmin-list-container" style="display: flex; flex-direction: column; flex: 1; min-height: 200px; max-height: 250px;">
+                    <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); margin-bottom: 8px; letter-spacing: 1px;">HISTORIK (SENASTE 10 DAGARNA)</h3>
+                    <div class="garmin-list" id="garmin-list" style="flex: 1; overflow-y: auto; background: rgba(0,0,0,0.3); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px;">
+                        <div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Laddar historik...</div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer" style="display: flex; gap: 10px;">
+                <button id="btn-sync-garmin-dashboard" class="hud-btn btn-primary" style="flex: 1; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-arrows-rotate"></i> SYNKRONISERA ENHET</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- STRAVA ACTIVITY DASHBOARD MODAL -->
+    <div class="hud-modal" id="modal-strava">
+        <div class="modal-content glass-morphic">
+            <div class="modal-header">
+                <h2><i class="fa-solid fa-person-running"></i> STRAVA ACTIVITY DASHBOARD</h2>
+                <button class="modal-close" id="btn-close-strava">&times;</button>
+            </div>
+            <div class="modal-body" style="display: flex; flex-direction: column; gap: 15px;">
+                <!-- Form for entering data -->
+                <div class="strava-form" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--color-border); border-radius: 4px; padding: 12px;">
+                    <div style="grid-column: span 2; display: flex; flex-direction: column; gap: 4px;">
+                        <label for="strava-input-name" style="font-size: 11px; color: var(--color-text-muted);">Aktivitetsnamn</label>
+                        <input type="text" id="strava-input-name" placeholder="t.ex. Morgonlöpning" class="hud-input" style="height: 32px; font-size: 12px;">
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 4px;">
+                        <label for="strava-input-date" style="font-size: 11px; color: var(--color-text-muted);">Datum</label>
+                        <input type="date" id="strava-input-date" class="hud-input" style="height: 32px; font-size: 12px; font-family: var(--font-mono);">
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 4px;">
+                        <label for="strava-input-type" style="font-size: 11px; color: var(--color-text-muted);">Träningsform</label>
+                        <select id="strava-input-type" class="hud-select" style="height: 32px; font-size: 12px; padding: 0 8px;">
+                            <option value="Löpning">Löpning</option>
+                            <option value="Cykling">Cykling</option>
+                            <option value="Simning">Simning</option>
+                            <option value="Styrketräning">Styrketräning</option>
+                            <option value="Promenad">Promenad</option>
+                            <option value="Yoga">Yoga</option>
+                        </select>
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 4px;">
+                        <label for="strava-input-distance" style="font-size: 11px; color: var(--color-text-muted);">Distans (meter)</label>
+                        <input type="number" id="strava-input-distance" placeholder="t.ex. 5000" class="hud-input" style="height: 32px; font-size: 12px;">
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 4px;">
+                        <label for="strava-input-duration" style="font-size: 11px; color: var(--color-text-muted);">Tid (sekunder)</label>
+                        <input type="number" id="strava-input-duration" placeholder="t.ex. 1800" class="hud-input" style="height: 32px; font-size: 12px;">
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 4px;">
+                        <label for="strava-input-elevation" style="font-size: 11px; color: var(--color-text-muted);">Höjdmeter (m)</label>
+                        <input type="number" id="strava-input-elevation" placeholder="t.ex. 45" class="hud-input" style="height: 32px; font-size: 12px;">
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 4px;">
+                        <label for="strava-input-avg-hr" style="font-size: 11px; color: var(--color-text-muted);">Snittpuls (BPM)</label>
+                        <input type="number" id="strava-input-avg-hr" placeholder="t.ex. 145" class="hud-input" style="height: 32px; font-size: 12px;">
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 4px;">
+                        <label for="strava-input-max-hr" style="font-size: 11px; color: var(--color-text-muted);">Maxpuls (BPM)</label>
+                        <input type="number" id="strava-input-max-hr" placeholder="t.ex. 165" class="hud-input" style="height: 32px; font-size: 12px;">
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 4px;">
+                        <label for="strava-input-calories" style="font-size: 11px; color: var(--color-text-muted);">Kalorier (kcal)</label>
+                        <input type="number" id="strava-input-calories" placeholder="t.ex. 350" class="hud-input" style="height: 32px; font-size: 12px;">
+                    </div>
+                    <button id="btn-save-strava-manual" class="hud-btn btn-primary" style="grid-column: span 2; height: 34px; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-floppy-disk"></i> SPARA TRÄNINGSPASS</button>
+                </div>
+                
+                <!-- List of recent activities -->
+                <div class="strava-list-container" style="display: flex; flex-direction: column; flex: 1; min-height: 200px; max-height: 250px;">
+                    <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); margin-bottom: 8px; letter-spacing: 1px;">HISTORIK (SENASTE AKTIVITETERNA)</h3>
+                    <div class="strava-list" id="strava-list" style="flex: 1; overflow-y: auto; background: rgba(0,0,0,0.3); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px;">
+                        <div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Laddar historik...</div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer" style="display: flex; gap: 10px;">
+                <button id="btn-sync-strava-dashboard" class="hud-btn btn-primary" style="flex: 1; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-arrows-rotate"></i> SYNKRONISERA ENHET</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Audio initialization helper banner (browsers block audio until interaction) -->
     <div class="interaction-shield" id="interaction-shield">
         <div class="shield-prompt">
@@ -456,12 +667,15 @@
         </div>
     </div>
 
-    <script src="sound.js?v=3"></script>
-    <script src="visualizer.js?v=3"></script>
-    <script src="speech.js?v=3"></script>
-    <script src="memory.js?v=3"></script>
-    <script src="gemini.js?v=3"></script>
-    <script src="tools/weather.js?v=3"></script>
-    <script src="app.js?v=3"></script>
+    <script src="sound.js?v=4"></script>
+    <script src="visualizer.js?v=4"></script>
+    <script src="speech.js?v=4"></script>
+    <script src="memory.js?v=4"></script>
+    <script src="gemini.js?v=4"></script>
+    <script src="tools/weather.js?v=4"></script>
+    <script src="tools/google_search.js?v=4"></script>
+    <script src="tools/garmin_health.js?v=4"></script>
+    <script src="tools/strava_data.js?v=4"></script>
+    <script src="app.js?v=4"></script>
 </body>
 </html>

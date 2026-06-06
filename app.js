@@ -13,13 +13,92 @@ class FrejaUIController {
         this.memory = new FrejaMemoryEngine(this.gemini);
         this.speech = new FrejaSpeechEngine();
         
+        // Asynchronously load keys from SQLite and then initialize UI
+        this.initAsync();
+        
+        // Keep systems kronometer clocks in sync
+        setInterval(() => this.updateTimeAndDate(), 1000);
+    }
+
+    async initAsync() {
+        await this.loadKeysFromServer();
         this.initializeUI();
         this.bindEvents();
         this.startDiagnosticSimulation();
         this.updateTimeAndDate();
-        
-        // Keep systems kronometer clocks in sync
-        setInterval(() => this.updateTimeAndDate(), 1000);
+    }
+
+    /**
+     * Fetches API keys from the secure SQLite database server and saves them to local cache.
+     */
+    async loadKeysFromServer() {
+        try {
+            this.writeLog("CONNECTING TO SECURE DATABASE...", "sys");
+            const response = await fetch('/api/keys');
+            if (response.ok) {
+                const keys = await response.json();
+                if (keys.freja_gemini_apikey !== undefined) {
+                    localStorage.setItem("freja_gemini_apikey", keys.freja_gemini_apikey);
+                }
+                if (keys.freja_eleven_apikey !== undefined) {
+                    localStorage.setItem("freja_eleven_apikey", keys.freja_eleven_apikey);
+                }
+                if (keys.freja_mem0_apikey !== undefined) {
+                    localStorage.setItem("freja_mem0_apikey", keys.freja_mem0_apikey);
+                }
+                if (keys.freja_garmin_email !== undefined) {
+                    localStorage.setItem("freja_garmin_email", keys.freja_garmin_email);
+                }
+                if (keys.freja_garmin_password !== undefined) {
+                    localStorage.setItem("freja_garmin_password", keys.freja_garmin_password);
+                }
+                if (keys.freja_strava_client_id !== undefined) {
+                    localStorage.setItem("freja_strava_client_id", keys.freja_strava_client_id);
+                }
+                if (keys.freja_strava_client_secret !== undefined) {
+                    localStorage.setItem("freja_strava_client_secret", keys.freja_strava_client_secret);
+                }
+                if (keys.freja_strava_refresh_token !== undefined) {
+                    localStorage.setItem("freja_strava_refresh_token", keys.freja_strava_refresh_token);
+                }
+                
+                // Refresh components keys if already instantiated
+                if (this.gemini) this.gemini.loadApiKey();
+                if (this.memory) this.memory.loadSettings();
+                if (this.speech) this.speech.elevenApiKey = keys.freja_eleven_apikey || "";
+                
+                this.writeLog("API KEYS SYNCHRONIZED WITH DATABASE", "sys");
+            } else {
+                this.writeLog("SECURE UPLINK ERROR: FALLING BACK TO LOCAL CACHE", "warn");
+            }
+        } catch (e) {
+            console.error("[FREJA] Failed to load keys from server:", e);
+            this.writeLog("SECURE UPLINK ERROR: FALLING BACK TO LOCAL CACHE", "warn");
+        }
+    }
+
+    /**
+     * Saves API keys to the secure SQLite database server.
+     */
+    async saveKeysToServer(keys) {
+        try {
+            this.writeLog("SAVING API KEYS TO SECURE DATABASE...", "sys");
+            const response = await fetch('/api/keys', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(keys)
+            });
+            if (response.ok) {
+                this.writeLog("API KEYS SECURED IN DATABASE", "sys");
+            } else {
+                this.writeLog("API KEYS SAVE ERROR: DATABASE OFFLINE", "err");
+            }
+        } catch (e) {
+            console.error("[FREJA] Failed to save keys to server:", e);
+            this.writeLog("API KEYS SAVE ERROR: CONNECTION FAILED", "err");
+        }
     }
 
     /**
@@ -79,6 +158,23 @@ class FrejaUIController {
         document.getElementById('input-mem0-key').value = mem0Key;
         document.getElementById('chk-use-mem0').checked = mem0Enabled;
         
+        const garminEmail = localStorage.getItem("freja_garmin_email") || "";
+        const garminPassword = localStorage.getItem("freja_garmin_password") || "";
+        const inputGarminEmail = document.getElementById('input-garmin-email');
+        if (inputGarminEmail) inputGarminEmail.value = garminEmail;
+        const inputGarminPassword = document.getElementById('input-garmin-password');
+        if (inputGarminPassword) inputGarminPassword.value = garminPassword;
+        
+        const stravaClientId = localStorage.getItem("freja_strava_client_id") || "";
+        const stravaClientSecret = localStorage.getItem("freja_strava_client_secret") || "";
+        const stravaRefreshToken = localStorage.getItem("freja_strava_refresh_token") || "";
+        const inputStravaClientId = document.getElementById('input-strava-client-id');
+        if (inputStravaClientId) inputStravaClientId.value = stravaClientId;
+        const inputStravaClientSecret = document.getElementById('input-strava-client-secret');
+        if (inputStravaClientSecret) inputStravaClientSecret.value = stravaClientSecret;
+        const inputStravaRefreshToken = document.getElementById('input-strava-refresh-token');
+        if (inputStravaRefreshToken) inputStravaRefreshToken.value = stravaRefreshToken;
+        
         this.memory.apiKey = mem0Key;
         this.memory.enabled = mem0Enabled;
         this.memory.updateCapBadge();
@@ -98,6 +194,42 @@ class FrejaUIController {
         const chkWeather = document.getElementById('chk-tool-get_weather');
         if (chkWeather) {
             chkWeather.checked = weatherAllowed;
+        }
+
+        const searchAllowed = localStorage.getItem("freja_tool_google_search_allowed") === "true";
+        const chkSearch = document.getElementById('chk-tool-google_search');
+        if (chkSearch) {
+            chkSearch.checked = searchAllowed;
+        }
+
+        const garminAllowed = localStorage.getItem("freja_tool_get_garmin_health_allowed") === "true";
+        const chkGarmin = document.getElementById('chk-tool-get_garmin_health');
+        if (chkGarmin) {
+            chkGarmin.checked = garminAllowed;
+        }
+
+        const capGarmin = document.getElementById('cap-garmin');
+        if (capGarmin) {
+            if (garminAllowed) {
+                capGarmin.classList.add('active');
+            } else {
+                capGarmin.classList.remove('active');
+            }
+        }
+
+        const stravaAllowed = localStorage.getItem("freja_tool_get_strava_data_allowed") === "true";
+        const chkStrava = document.getElementById('chk-tool-get_strava_data');
+        if (chkStrava) {
+            chkStrava.checked = stravaAllowed;
+        }
+
+        const capStrava = document.getElementById('cap-strava');
+        if (capStrava) {
+            if (stravaAllowed) {
+                capStrava.classList.add('active');
+            } else {
+                capStrava.classList.remove('active');
+            }
         }
 
         this.applyTheme(theme);
@@ -338,6 +470,21 @@ class FrejaUIController {
             }
         });
 
+        const btnToggleGarminPassword = document.getElementById('btn-toggle-garmin-password');
+        const inputGarminPassword = document.getElementById('input-garmin-password');
+        if (btnToggleGarminPassword && inputGarminPassword) {
+            btnToggleGarminPassword.addEventListener('click', () => {
+                soundSynth.playClick();
+                if (inputGarminPassword.type === 'password') {
+                    inputGarminPassword.type = 'text';
+                    btnToggleGarminPassword.innerHTML = '<i class="fa-solid fa-eye-slash"></i>';
+                } else {
+                    inputGarminPassword.type = 'password';
+                    btnToggleGarminPassword.innerHTML = '<i class="fa-solid fa-eye"></i>';
+                }
+            });
+        }
+
         // Toggle Memory Vault Overlay modal
         const btnMemory = document.getElementById('btn-memory');
         const modalMemory = document.getElementById('modal-memory');
@@ -353,6 +500,237 @@ class FrejaUIController {
             soundSynth.playClick();
             modalMemory.classList.remove('active');
         });
+
+        // Toggle Garmin Fit Dashboard Modal
+        const btnGarmin = document.getElementById('btn-garmin');
+        const modalGarmin = document.getElementById('modal-garmin');
+        const btnCloseGarmin = document.getElementById('btn-close-garmin');
+        
+        if (btnGarmin && modalGarmin && btnCloseGarmin) {
+            btnGarmin.addEventListener('click', () => {
+                soundSynth.playClick();
+                modalGarmin.classList.add('active');
+                self.loadGarminDashboardUI();
+            });
+            
+            btnCloseGarmin.addEventListener('click', () => {
+                soundSynth.playClick();
+                modalGarmin.classList.remove('active');
+            });
+        }
+
+        // Save manual Garmin entry
+        const btnSaveGarminManual = document.getElementById('btn-save-garmin-manual');
+        if (btnSaveGarminManual) {
+            btnSaveGarminManual.addEventListener('click', async () => {
+                const dateInput = document.getElementById('garmin-input-date').value;
+                if (!dateInput) {
+                    self.writeLog("GARMIN DATA FAILURE: DATUM SAKNAS", "err");
+                    soundSynth.playError();
+                    alert("Ange ett giltigt datum.");
+                    return;
+                }
+                soundSynth.playClick();
+                     const payload = {
+                    date: dateInput,
+                    steps: parseInt(document.getElementById('garmin-input-steps').value) || 0,
+                    sleep_hours: parseFloat(document.getElementById('garmin-input-sleep').value) || 0.0,
+                    resting_hr: parseInt(document.getElementById('garmin-input-hr').value) || 0,
+                    active_calories: parseInt(document.getElementById('garmin-input-calories').value) || 0,
+                    workout_type: document.getElementById('garmin-input-workout-type').value.trim(),
+                    workout_duration: parseInt(document.getElementById('garmin-input-workout-duration').value) || 0,
+                    body_battery: document.getElementById('garmin-input-body-battery').value !== "" ? parseInt(document.getElementById('garmin-input-body-battery').value) : null,
+                    hrv: document.getElementById('garmin-input-hrv').value !== "" ? parseInt(document.getElementById('garmin-input-hrv').value) : null
+                };
+                
+                self.writeLog(`SAVING GARMIN LOG FOR ${dateInput}`, "sys");
+                try {
+                    const res = await fetch('/api/garmin/data', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    const resData = await res.json();
+                    if (res.ok && resData.status === 'success') {
+                        self.writeLog("GARMIN LOG SECURED IN DATABASE", "sys");
+                        soundSynth.playNotify();
+                        self.loadGarminDashboardUI();
+                        
+                        // Clear form input fields except date
+                        document.getElementById('garmin-input-steps').value = '';
+                        document.getElementById('garmin-input-sleep').value = '';
+                        document.getElementById('garmin-input-hr').value = '';
+                        document.getElementById('garmin-input-calories').value = '';
+                        document.getElementById('garmin-input-workout-type').value = '';
+                        document.getElementById('garmin-input-workout-duration').value = '';
+                        document.getElementById('garmin-input-body-battery').value = '';
+                    } else {
+                        throw new Error(resData.message || "Unknown error");
+                    }
+                } catch (err) {
+                    self.writeLog(`GARMIN SAVE ERROR: ${err.message}`, "err");
+                    soundSynth.playError();
+                }
+            });
+        }
+
+        // Sync Garmin device simulation from dashboard
+        const btnSyncGarminDashboard = document.getElementById('btn-sync-garmin-dashboard');
+        if (btnSyncGarminDashboard) {
+            btnSyncGarminDashboard.addEventListener('click', async () => {
+                soundSynth.playClick();
+                self.writeLog("INITIATING GARMIN DEVICE SYNCHRONIZATION", "sys");
+                try {
+                    const res = await fetch('/api/garmin/sync');
+                    const resData = await res.json();
+                    if (res.ok && resData.status === 'success') {
+                        self.writeLog("SYNCHRONIZATION COMPLETED: TODAY'S LOG UPDATED", "sys");
+                        soundSynth.playNotify();
+                        self.loadGarminDashboardUI();
+                    } else {
+                        throw new Error(resData.message || "Sync error");
+                    }
+                } catch (err) {
+                    self.writeLog(`GARMIN SYNC ERROR: ${err.message}`, "err");
+                    soundSynth.playError();
+                }
+            });
+        }
+
+        const btnToggleStravaSecret = document.getElementById('btn-toggle-strava-secret');
+        const inputStravaSecret = document.getElementById('input-strava-client-secret');
+        if (btnToggleStravaSecret && inputStravaSecret) {
+            btnToggleStravaSecret.addEventListener('click', () => {
+                soundSynth.playClick();
+                if (inputStravaSecret.type === 'password') {
+                    inputStravaSecret.type = 'text';
+                    btnToggleStravaSecret.innerHTML = '<i class="fa-solid fa-eye-slash"></i>';
+                } else {
+                    inputStravaSecret.type = 'password';
+                    btnToggleStravaSecret.innerHTML = '<i class="fa-solid fa-eye"></i>';
+                }
+            });
+        }
+
+        const btnToggleStravaToken = document.getElementById('btn-toggle-strava-token');
+        const inputStravaToken = document.getElementById('input-strava-refresh-token');
+        if (btnToggleStravaToken && inputStravaToken) {
+            btnToggleStravaToken.addEventListener('click', () => {
+                soundSynth.playClick();
+                if (inputStravaToken.type === 'password') {
+                    inputStravaToken.type = 'text';
+                    btnToggleStravaToken.innerHTML = '<i class="fa-solid fa-eye-slash"></i>';
+                } else {
+                    inputStravaToken.type = 'password';
+                    btnToggleStravaToken.innerHTML = '<i class="fa-solid fa-eye"></i>';
+                }
+            });
+        }
+
+        // Toggle Strava Fit Dashboard Modal
+        const btnStrava = document.getElementById('btn-strava');
+        const modalStrava = document.getElementById('modal-strava');
+        const btnCloseStrava = document.getElementById('btn-close-strava');
+        
+        if (btnStrava && modalStrava && btnCloseStrava) {
+            btnStrava.addEventListener('click', () => {
+                soundSynth.playClick();
+                modalStrava.classList.add('active');
+                
+                // Pre-fill today's date if empty
+                const dateField = document.getElementById('strava-input-date');
+                if (dateField && !dateField.value) {
+                    const today = new Date().toISOString().substring(0, 10);
+                    dateField.value = today;
+                }
+                
+                self.loadStravaDashboardUI();
+            });
+            
+            btnCloseStrava.addEventListener('click', () => {
+                soundSynth.playClick();
+                modalStrava.classList.remove('active');
+            });
+        }
+
+        // Save manual Strava entry
+        const btnSaveStravaManual = document.getElementById('btn-save-strava-manual');
+        if (btnSaveStravaManual) {
+            btnSaveStravaManual.addEventListener('click', async () => {
+                const nameInput = document.getElementById('strava-input-name').value.trim();
+                const dateInput = document.getElementById('strava-input-date').value;
+                if (!dateInput) {
+                    self.writeLog("STRAVA DATA FAILURE: DATUM SAKNAS", "err");
+                    soundSynth.playError();
+                    alert("Ange ett giltigt datum.");
+                    return;
+                }
+                soundSynth.playClick();
+                const payload = {
+                    name: nameInput || "Manuellt pass",
+                    date: dateInput,
+                    type: document.getElementById('strava-input-type').value,
+                    distance: parseFloat(document.getElementById('strava-input-distance').value) || 0.0,
+                    moving_time: parseInt(document.getElementById('strava-input-duration').value) || 0,
+                    total_elevation_gain: parseFloat(document.getElementById('strava-input-elevation').value) || 0.0,
+                    average_heartrate: document.getElementById('strava-input-avg-hr').value !== "" ? parseFloat(document.getElementById('strava-input-avg-hr').value) : null,
+                    max_heartrate: document.getElementById('strava-input-max-hr').value !== "" ? parseFloat(document.getElementById('strava-input-max-hr').value) : null,
+                    calories: document.getElementById('strava-input-calories').value !== "" ? parseFloat(document.getElementById('strava-input-calories').value) : null
+                };
+                
+                self.writeLog(`SAVING STRAVA LOG FOR ${dateInput}`, "sys");
+                try {
+                    const res = await fetch('/api/strava/data', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    const resData = await res.json();
+                    if (res.ok && resData.status === 'success') {
+                        self.writeLog("STRAVA LOG SECURED IN DATABASE", "sys");
+                        soundSynth.playNotify();
+                        self.loadStravaDashboardUI();
+                        
+                        // Clear form input fields except date
+                        document.getElementById('strava-input-name').value = '';
+                        document.getElementById('strava-input-distance').value = '';
+                        document.getElementById('strava-input-duration').value = '';
+                        document.getElementById('strava-input-elevation').value = '';
+                        document.getElementById('strava-input-avg-hr').value = '';
+                        document.getElementById('strava-input-max-hr').value = '';
+                        document.getElementById('strava-input-calories').value = '';
+                    } else {
+                        throw new Error(resData.message || "Unknown error");
+                    }
+                } catch (err) {
+                    self.writeLog(`STRAVA SAVE ERROR: ${err.message}`, "err");
+                    soundSynth.playError();
+                }
+            });
+        }
+
+        // Sync Strava device simulation from dashboard
+        const btnSyncStravaDashboard = document.getElementById('btn-sync-strava-dashboard');
+        if (btnSyncStravaDashboard) {
+            btnSyncStravaDashboard.addEventListener('click', async () => {
+                soundSynth.playClick();
+                self.writeLog("INITIATING STRAVA SYNCHRONIZATION", "sys");
+                try {
+                    const res = await fetch('/api/strava/sync');
+                    const resData = await res.json();
+                    if (res.ok && resData.status === 'success') {
+                        self.writeLog(`SYNCHRONIZATION COMPLETED: ${resData.message}`, "sys");
+                        soundSynth.playNotify();
+                        self.loadStravaDashboardUI();
+                    } else {
+                        throw new Error(resData.message || "Sync error");
+                    }
+                } catch (err) {
+                    self.writeLog(`STRAVA SYNC ERROR: ${err.message}`, "err");
+                    soundSynth.playError();
+                }
+            });
+        }
 
         // Insert new engram cards manually
         const btnAddMemoryManual = document.getElementById('btn-add-memory-manual');
@@ -437,7 +815,7 @@ class FrejaUIController {
 
         // Save settings form actions
         const btnSaveSettings = document.getElementById('btn-save-settings');
-        btnSaveSettings.addEventListener('click', () => {
+        btnSaveSettings.addEventListener('click', async () => {
             soundSynth.playClick();
             
             // Save API Keys
@@ -478,6 +856,65 @@ class FrejaUIController {
                 localStorage.setItem("freja_tool_get_weather_allowed", chkWeather.checked);
             }
 
+            const chkSearch = document.getElementById('chk-tool-google_search');
+            if (chkSearch) {
+                localStorage.setItem("freja_tool_google_search_allowed", chkSearch.checked);
+            }
+
+            const chkGarmin = document.getElementById('chk-tool-get_garmin_health');
+            if (chkGarmin) {
+                const isAllowed = chkGarmin.checked;
+                localStorage.setItem("freja_tool_get_garmin_health_allowed", isAllowed);
+                
+                const capGarmin = document.getElementById('cap-garmin');
+                if (capGarmin) {
+                    if (isAllowed) {
+                        capGarmin.classList.add('active');
+                    } else {
+                        capGarmin.classList.remove('active');
+                    }
+                }
+            }
+
+            const chkStrava = document.getElementById('chk-tool-get_strava_data');
+            if (chkStrava) {
+                const isAllowed = chkStrava.checked;
+                localStorage.setItem("freja_tool_get_strava_data_allowed", isAllowed);
+                
+                const capStrava = document.getElementById('cap-strava');
+                if (capStrava) {
+                    if (isAllowed) {
+                        capStrava.classList.add('active');
+                    } else {
+                        capStrava.classList.remove('active');
+                    }
+                }
+            }
+
+            const garminEmail = document.getElementById('input-garmin-email').value.trim();
+            const garminPassword = document.getElementById('input-garmin-password').value;
+            localStorage.setItem("freja_garmin_email", garminEmail);
+            localStorage.setItem("freja_garmin_password", garminPassword);
+
+            const stravaClientId = document.getElementById('input-strava-client-id').value.trim();
+            const stravaClientSecret = document.getElementById('input-strava-client-secret').value;
+            const stravaRefreshToken = document.getElementById('input-strava-refresh-token').value;
+            localStorage.setItem("freja_strava_client_id", stravaClientId);
+            localStorage.setItem("freja_strava_client_secret", stravaClientSecret);
+            localStorage.setItem("freja_strava_refresh_token", stravaRefreshToken);
+
+            // Save keys to secure SQLite database
+            await self.saveKeysToServer({
+                freja_gemini_apikey: apiKey,
+                freja_eleven_apikey: elevenKey,
+                freja_mem0_apikey: mem0Key,
+                freja_garmin_email: garminEmail,
+                freja_garmin_password: garminPassword,
+                freja_strava_client_id: stravaClientId,
+                freja_strava_client_secret: stravaClientSecret,
+                freja_strava_refresh_token: stravaRefreshToken
+            });
+
             modalSettings.classList.remove('active');
             self.writeLog("INTERFACE NETWORK CONFIGURATIONS SECURED", "sys");
             soundSynth.playNotify();
@@ -485,11 +922,26 @@ class FrejaUIController {
 
         // Reset Settings button triggers
         const btnResetSettings = document.getElementById('btn-reset-settings');
-        btnResetSettings.addEventListener('click', () => {
+        btnResetSettings.addEventListener('click', async () => {
             soundSynth.playError();
             if (confirm("Vill du återställa alla inställningar till grundutförande?")) {
                 localStorage.clear();
                 self.gemini.clearHistory();
+                try {
+                    await fetch('/api/keys', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            freja_gemini_apikey: "",
+                            freja_eleven_apikey: "",
+                            freja_mem0_apikey: ""
+                        })
+                    });
+                } catch (e) {
+                    console.error("Failed to reset keys on server:", e);
+                }
                 location.reload();
             }
         });
@@ -641,6 +1093,176 @@ class FrejaUIController {
         } catch (e) {
             console.error("[MEM0] UI Load error:", e);
             memoriesList.innerHTML = '<div style="color: #ff3b30; text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[ALLVARLIGT FEL: KUNDE INTE SYNKRONISERA MINNE]</div>';
+        }
+    }
+
+    /**
+     * Synchronizes and draws the Garmin logs list inside the Garmin Dashboard overlay.
+     */
+    async loadGarminDashboardUI() {
+        const garminList = document.getElementById('garmin-list');
+        if (!garminList) return;
+        
+        // Set date input default to today if empty
+        const dateInput = document.getElementById('garmin-input-date');
+        if (dateInput && !dateInput.value) {
+            const today = new Date().toISOString().split('T')[0];
+            dateInput.value = today;
+        }
+
+        garminList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Laddar historik...</div>';
+        
+        try {
+            const res = await fetch('/api/garmin/data?days=10');
+            if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+            
+            const logs = await res.json();
+            if (logs.length === 0) {
+                garminList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[INGA HÄLSOLOGGAR HITTADE]</div>';
+                return;
+            }
+            
+            garminList.innerHTML = "";
+            logs.forEach(log => {
+                const item = document.createElement('div');
+                item.className = "garmin-log-item";
+                item.style.display = "flex";
+                item.style.justifyContent = "space-between";
+                item.style.alignItems = "center";
+                item.style.padding = "8px";
+                item.style.borderBottom = "1px solid rgba(0, 242, 254, 0.08)";
+                item.style.fontSize = "11px";
+                item.style.fontFamily = "var(--font-mono)";
+                
+                const workoutInfo = log.workout_type && log.workout_type !== "Ingen" 
+                    ? ` | ${log.workout_type} (${log.workout_duration}m)` 
+                    : "";
+                const bbInfo = log.body_battery ? ` | BB: ${log.body_battery}` : "";
+                const hrvInfo = log.hrv ? ` | HRV: ${log.hrv}ms` : "";
+                
+                item.innerHTML = `
+                    <div style="flex: 1; color: var(--color-text-bright);">
+                        <span style="color: var(--color-primary);">${log.date}</span>: ${log.steps} steg | ${log.sleep_hours}h sömn | ${log.resting_hr} puls | ${log.active_calories} kcal${workoutInfo}${bbInfo}${hrvInfo}
+                    </div>
+                    <button class="garmin-delete-btn" data-date="${log.date}" title="Radera logg" style="background: transparent; border: none; color: #ff3b30; cursor: pointer; padding: 2px 6px;">
+                        <i class="fa-solid fa-trash-can"></i>
+                    </button>
+                `;
+                
+                const delBtn = item.querySelector('.garmin-delete-btn');
+                delBtn.addEventListener('click', async () => {
+                    soundSynth.playClick();
+                    const dateVal = delBtn.getAttribute('data-date');
+                    item.style.opacity = '0.5';
+                    try {
+                        const delRes = await fetch(`/api/garmin/delete?date=${dateVal}`);
+                        const delData = await delRes.json();
+                        if (delRes.ok && delData.status === 'success') {
+                            this.writeLog(`GARMIN LOG FOR ${dateVal} PURGED`, "sys");
+                            item.remove();
+                            if (garminList.children.length === 0) {
+                                garminList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[INGA HÄLSOLOGGAR HITTADE]</div>';
+                            }
+                        } else {
+                            throw new Error(delData.message || "Failed deleting");
+                        }
+                    } catch (err) {
+                        item.style.opacity = '1';
+                        this.writeLog(`GARMIN DELETE ERROR: ${err.message}`, "err");
+                        soundSynth.playError();
+                    }
+                });
+                
+                garminList.appendChild(item);
+            });
+        } catch (err) {
+            console.error("[GARMIN] UI load error:", err);
+            garminList.innerHTML = '<div style="color: #ff3b30; text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[FEL VID LADDNING AV HISTORIK]</div>';
+        }
+    }
+
+    /**
+     * Synchronizes and draws the Strava activities list inside the Strava Dashboard overlay.
+     */
+    async loadStravaDashboardUI() {
+        const stravaList = document.getElementById('strava-list');
+        if (!stravaList) return;
+        
+        // Set date input default to today if empty
+        const dateInput = document.getElementById('strava-input-date');
+        if (dateInput && !dateInput.value) {
+            const today = new Date().toISOString().split('T')[0];
+            dateInput.value = today;
+        }
+
+        stravaList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Laddar historik...</div>';
+        
+        try {
+            const res = await fetch('/api/strava/data?days=15');
+            if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+            
+            const logs = await res.json();
+            if (logs.length === 0) {
+                stravaList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[INGA TRÄNINGSPASS HITTADE]</div>';
+                return;
+            }
+            
+            stravaList.innerHTML = "";
+            logs.forEach(log => {
+                const item = document.createElement('div');
+                item.className = "strava-log-item";
+                item.style.display = "flex";
+                item.style.justifyContent = "space-between";
+                item.style.alignItems = "center";
+                item.style.padding = "8px";
+                item.style.borderBottom = "1px solid rgba(0, 242, 254, 0.08)";
+                item.style.fontSize = "11px";
+                item.style.fontFamily = "var(--font-mono)";
+                
+                const km = log.distance ? (log.distance / 1000).toFixed(2) + " km" : "0 km";
+                const mins = log.moving_time ? Math.round(log.moving_time / 60) + " min" : "0 min";
+                const hrInfo = log.average_heartrate ? ` | snittpuls: ${Math.round(log.average_heartrate)}` : "";
+                const calInfo = log.calories ? ` | ${Math.round(log.calories)} kcal` : "";
+                const elevInfo = log.total_elevation_gain ? ` | +${Math.round(log.total_elevation_gain)}m` : "";
+                
+                item.innerHTML = `
+                    <div style="flex: 1; color: var(--color-text-bright);">
+                        <span style="color: var(--color-primary);">${log.date}</span>: <strong style="color: var(--color-accent);">${log.type}</strong> - ${log.name} (${km} | ${mins}${elevInfo}${hrInfo}${calInfo})
+                    </div>
+                    <button class="strava-delete-btn" data-id="${log.id}" title="Radera aktivitet" style="background: transparent; border: none; color: #ff3b30; cursor: pointer; padding: 2px 6px;">
+                        <i class="fa-solid fa-trash-can"></i>
+                    </button>
+                `;
+                
+                const delBtn = item.querySelector('.strava-delete-btn');
+                delBtn.addEventListener('click', async () => {
+                    soundSynth.playClick();
+                    const idVal = delBtn.getAttribute('data-id');
+                    item.style.opacity = '0.5';
+                    try {
+                        const delRes = await fetch(`/api/strava/delete?id=${idVal}`);
+                        const delData = await delRes.json();
+                        if (delRes.ok && delData.status === 'success') {
+                            this.writeLog(`STRAVA LOG FOR ID ${idVal} PURGED`, "sys");
+                            item.remove();
+                            if (stravaList.children.length === 0) {
+                                stravaList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[INGA TRÄNINGSPASS HITTADE]</div>';
+                            }
+                        } else {
+                            throw new Error(delData.message || "Failed deleting");
+                        }
+                    } catch (err) {
+                        item.style.opacity = '1';
+                        this.writeLog(`STRAVA DELETE ERROR: ${err.message}`, "err");
+                        soundSynth.playError();
+                    }
+                });
+                
+                stravaList.appendChild(item);
+            });
+        } catch (err) {
+            console.error("[STRAVA] UI load error:", err);
+            stravaList.innerHTML = '<div style="color: #ff3b30; text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[FEL VID LADDNING AV HISTORIK]</div>';
         }
     }
 
@@ -896,6 +1518,12 @@ class FrejaUIController {
             // Sync UI checkbox if settings modal is open or loaded
             const chk = document.getElementById(`chk-tool-${tool.name}`);
             if (chk) chk.checked = true;
+            
+            // Sync capability badge if garmin health
+            if (tool.name === 'get_garmin_health') {
+                const capGarmin = document.getElementById('cap-garmin');
+                if (capGarmin) capGarmin.classList.add('active');
+            }
             
             self.writeLog(`TOOL PERMISSION GRANTED: ${tool.name} (ALWAYS)`, "sys");
             resolvePromise(true);
