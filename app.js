@@ -242,9 +242,21 @@ class FrejaUIController {
             chkStrava.checked = stravaAllowed;
         }
 
+        const stravaAnalysisAllowed = localStorage.getItem("freja_tool_get_strava_activity_analysis_allowed") === "true";
+        const chkStravaAnalysis = document.getElementById('chk-tool-get_strava_activity_analysis');
+        if (chkStravaAnalysis) {
+            chkStravaAnalysis.checked = stravaAnalysisAllowed;
+        }
+
+        const stravaStatsAllowed = localStorage.getItem("freja_tool_get_strava_athlete_stats_allowed") === "true";
+        const chkStravaStats = document.getElementById('chk-tool-get_strava_athlete_stats');
+        if (chkStravaStats) {
+            chkStravaStats.checked = stravaStatsAllowed;
+        }
+
         const capStrava = document.getElementById('cap-strava');
         if (capStrava) {
-            if (stravaAllowed) {
+            if (stravaAllowed || stravaAnalysisAllowed || stravaStatsAllowed) {
                 capStrava.classList.add('active');
             } else {
                 capStrava.classList.remove('active');
@@ -1040,17 +1052,33 @@ class FrejaUIController {
             }
 
             const chkStrava = document.getElementById('chk-tool-get_strava_data');
+            const chkStravaAnalysis = document.getElementById('chk-tool-get_strava_activity_analysis');
+            const chkStravaStats = document.getElementById('chk-tool-get_strava_athlete_stats');
+            
+            let anyStravaAllowed = false;
+            
             if (chkStrava) {
                 const isAllowed = chkStrava.checked;
                 localStorage.setItem("freja_tool_get_strava_data_allowed", isAllowed);
-                
-                const capStrava = document.getElementById('cap-strava');
-                if (capStrava) {
-                    if (isAllowed) {
-                        capStrava.classList.add('active');
-                    } else {
-                        capStrava.classList.remove('active');
-                    }
+                if (isAllowed) anyStravaAllowed = true;
+            }
+            if (chkStravaAnalysis) {
+                const isAllowed = chkStravaAnalysis.checked;
+                localStorage.setItem("freja_tool_get_strava_activity_analysis_allowed", isAllowed);
+                if (isAllowed) anyStravaAllowed = true;
+            }
+            if (chkStravaStats) {
+                const isAllowed = chkStravaStats.checked;
+                localStorage.setItem("freja_tool_get_strava_athlete_stats_allowed", isAllowed);
+                if (isAllowed) anyStravaAllowed = true;
+            }
+            
+            const capStrava = document.getElementById('cap-strava');
+            if (capStrava) {
+                if (anyStravaAllowed) {
+                    capStrava.classList.add('active');
+                } else {
+                    capStrava.classList.remove('active');
                 }
             }
 

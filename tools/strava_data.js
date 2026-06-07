@@ -121,9 +121,76 @@
             }
         }
     };
+
+    const stravaActivityAnalysisTool = {
+        name: "get_strava_activity_analysis",
+        displayName: "Strava Detaljerad Aktivitet",
+        description: "Hämtar djupgående information om en specifik Strava-aktivitet inklusive varvtider (splits) och puls-/kraftzoner.",
+        permissionKey: "freja_tool_get_strava_activity_analysis_allowed",
+        declaration: {
+            name: "get_strava_activity_analysis",
+            description: "Hämtar varvtider (laps/splits) samt puls- och kraftzoner (heartrate/power distribution) för en specifik aktivitet med angivet ID. Detta gör det möjligt att analysera tempo, pacing, samt aerob och anaerob belastning under passet.",
+            parameters: {
+                type: "OBJECT",
+                properties: {
+                    activity_id: {
+                        type: "STRING",
+                        description: "Det unika aktivitets-ID:t (från Strava, t.ex. hämtat via get_strava_data)."
+                    }
+                },
+                required: ["activity_id"]
+            }
+        },
+        async execute(args) {
+            if (!args || !args.activity_id) {
+                return { error: "Aktivitets-ID saknas." };
+            }
+            console.log(`[FREJA TOOL: Strava] Retrieving details for activity ${args.activity_id}...`);
+            try {
+                const res = await fetch(`/api/strava/activity_details?id=${args.activity_id}`);
+                if (!res.ok) {
+                    throw new Error(`HTTP ${res.status}`);
+                }
+                return await res.json();
+            } catch (err) {
+                console.error("[FREJA TOOL: Strava] Failed to retrieve activity details:", err);
+                return { error: `Misslyckades att hämta detaljerad aktivitet: ${err.message}` };
+            }
+        }
+    };
+
+    const stravaAthleteStatsTool = {
+        name: "get_strava_athlete_stats",
+        displayName: "Strava Atlet-statistik",
+        description: "Hämtar användarens ackumulerade träningsstatistik (totalt och senaste 4 veckorna) från Strava.",
+        permissionKey: "freja_tool_get_strava_athlete_stats_allowed",
+        declaration: {
+            name: "get_strava_athlete_stats",
+            description: "Hämtar användarens ackumulerade träningsmängder, inklusive årliga (YTD) och historiska totaler samt statistik för de senaste 4 veckorna uppdelat på löpning, cykling och simning.",
+            parameters: {
+                type: "OBJECT",
+                properties: {}
+            }
+        },
+        async execute(args) {
+            console.log(`[FREJA TOOL: Strava] Retrieving athlete stats...`);
+            try {
+                const res = await fetch('/api/strava/athlete_stats');
+                if (!res.ok) {
+                    throw new Error(`HTTP ${res.status}`);
+                }
+                return await res.json();
+            } catch (err) {
+                console.error("[FREJA TOOL: Strava] Failed to retrieve athlete stats:", err);
+                return { error: `Misslyckades att hämta atlet-statistik: ${err.message}` };
+            }
+        }
+    };
     
-    // Register tool globally
+    // Register tools globally
     window.FrejaTools = window.FrejaTools || {};
     window.FrejaTools[stravaTool.name] = stravaTool;
-    console.log(`[FREJA TOOLS] Module '${stravaTool.name}' compiled and initialized.`);
+    window.FrejaTools[stravaActivityAnalysisTool.name] = stravaActivityAnalysisTool;
+    window.FrejaTools[stravaAthleteStatsTool.name] = stravaAthleteStatsTool;
+    console.log(`[FREJA TOOLS] Module '${stravaTool.name}', '${stravaActivityAnalysisTool.name}', '${stravaAthleteStatsTool.name}' compiled and initialized.`);
 })();

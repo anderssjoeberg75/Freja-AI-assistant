@@ -12,7 +12,7 @@
         permissionKey: "freja_tool_get_garmin_health_allowed",
         declaration: {
             name: "get_garmin_health",
-            description: "Hämtar användarens senaste Garmin hälso- och träningsdata (steg, sömn, vilopuls, kalorier, body battery, HRV och träningspass). Standard är 1 dag (enbart senaste dygnet) om inte användaren uttryckligen ber om en längre period som t.ex. senaste veckan.",
+            description: "Hämtar användarens senaste Garmin hälso- och träningsdata (steg, sömn, vilopuls, kalorier, body battery, HRV, återhämtningstid, träningsstatus och träningspass). Standard är 1 dag (enbart senaste dygnet) om inte användaren uttryckligen ber om en längre period som t.ex. senaste veckan.",
             parameters: {
                 type: "OBJECT",
                 properties: {
@@ -80,6 +80,8 @@
                 let bbCount = 0;
                 let totalHRV = 0;
                 let hrvCount = 0;
+                let totalRecovery = 0;
+                let recoveryCount = 0;
                 
                 data.forEach(day => {
                     totalSteps += day.steps;
@@ -98,6 +100,10 @@
                         totalHRV += day.hrv;
                         hrvCount++;
                     }
+                    if (day.recovery_time !== null && day.recovery_time !== undefined) {
+                        totalRecovery += day.recovery_time;
+                        recoveryCount++;
+                    }
                 });
                 
                 const avgSteps = Math.round(totalSteps / data.length);
@@ -106,11 +112,16 @@
                 const avgCalories = Math.round(totalCalories / data.length);
                 const avgBB = bbCount > 0 ? Math.round(totalBB / bbCount) : null;
                 const avgHRV = hrvCount > 0 ? Math.round(totalHRV / hrvCount) : null;
+                const avgRecovery = recoveryCount > 0 ? Math.round(totalRecovery / recoveryCount) : null;
                 
                 return {
                     sync_status: syncStatus,
                     sync_message: syncMessage,
                     period_days: data.length,
+                    latest_metrics: {
+                        training_status: data[0] ? data[0].training_status : null,
+                        recovery_time_hours: data[0] ? data[0].recovery_time : null
+                    },
                     averages: {
                         avg_daily_steps: avgSteps,
                         avg_sleep_hours: avgSleep,
@@ -118,6 +129,7 @@
                         avg_active_calories: avgCalories,
                         avg_body_battery: avgBB,
                         avg_hrv: avgHRV,
+                        avg_recovery_time_hours: avgRecovery,
                         total_workouts: workoutDays,
                         total_workout_minutes: totalWorkoutMin
                     },
