@@ -61,6 +61,15 @@ class FrejaUIController {
                 if (keys.freja_strava_refresh_token !== undefined) {
                     localStorage.setItem("freja_strava_refresh_token", keys.freja_strava_refresh_token);
                 }
+                if (keys.freja_withings_client_id !== undefined) {
+                    localStorage.setItem("freja_withings_client_id", keys.freja_withings_client_id);
+                }
+                if (keys.freja_withings_client_secret !== undefined) {
+                    localStorage.setItem("freja_withings_client_secret", keys.freja_withings_client_secret);
+                }
+                if (keys.freja_withings_refresh_token !== undefined) {
+                    localStorage.setItem("freja_withings_refresh_token", keys.freja_withings_refresh_token);
+                }
                 
                 // Refresh components keys if already instantiated
                 if (this.gemini) this.gemini.loadApiKey();
@@ -175,6 +184,16 @@ class FrejaUIController {
         const inputStravaRefreshToken = document.getElementById('input-strava-refresh-token');
         if (inputStravaRefreshToken) inputStravaRefreshToken.value = stravaRefreshToken;
         
+        const withingsClientId = localStorage.getItem("freja_withings_client_id") || "";
+        const withingsClientSecret = localStorage.getItem("freja_withings_client_secret") || "";
+        const withingsRefreshToken = localStorage.getItem("freja_withings_refresh_token") || "";
+        const inputWithingsClientId = document.getElementById('input-withings-client-id');
+        if (inputWithingsClientId) inputWithingsClientId.value = withingsClientId;
+        const inputWithingsClientSecret = document.getElementById('input-withings-client-secret');
+        if (inputWithingsClientSecret) inputWithingsClientSecret.value = withingsClientSecret;
+        const inputWithingsRefreshToken = document.getElementById('input-withings-refresh-token');
+        if (inputWithingsRefreshToken) inputWithingsRefreshToken.value = withingsRefreshToken;
+        
         this.memory.apiKey = mem0Key;
         this.memory.enabled = mem0Enabled;
         this.memory.updateCapBadge();
@@ -229,6 +248,21 @@ class FrejaUIController {
                 capStrava.classList.add('active');
             } else {
                 capStrava.classList.remove('active');
+            }
+        }
+
+        const withingsAllowed = localStorage.getItem("freja_tool_get_withings_health_allowed") === "true";
+        const chkWithings = document.getElementById('chk-tool-get_withings_health');
+        if (chkWithings) {
+            chkWithings.checked = withingsAllowed;
+        }
+
+        const capWithings = document.getElementById('cap-withings');
+        if (capWithings) {
+            if (withingsAllowed) {
+                capWithings.classList.add('active');
+            } else {
+                capWithings.classList.remove('active');
             }
         }
 
@@ -732,6 +766,135 @@ class FrejaUIController {
             });
         }
 
+        // Toggle Withings API config password visibility
+        const btnToggleWithingsSecret = document.getElementById('btn-toggle-withings-secret');
+        const inputWithingsSecret = document.getElementById('input-withings-client-secret');
+        if (btnToggleWithingsSecret && inputWithingsSecret) {
+            btnToggleWithingsSecret.addEventListener('click', () => {
+                soundSynth.playClick();
+                if (inputWithingsSecret.type === 'password') {
+                    inputWithingsSecret.type = 'text';
+                    btnToggleWithingsSecret.innerHTML = '<i class="fa-solid fa-eye-slash"></i>';
+                } else {
+                    inputWithingsSecret.type = 'password';
+                    btnToggleWithingsSecret.innerHTML = '<i class="fa-solid fa-eye"></i>';
+                }
+            });
+        }
+
+        const btnToggleWithingsToken = document.getElementById('btn-toggle-withings-token');
+        const inputWithingsToken = document.getElementById('input-withings-refresh-token');
+        if (btnToggleWithingsToken && inputWithingsToken) {
+            btnToggleWithingsToken.addEventListener('click', () => {
+                soundSynth.playClick();
+                if (inputWithingsToken.type === 'password') {
+                    inputWithingsToken.type = 'text';
+                    btnToggleWithingsToken.innerHTML = '<i class="fa-solid fa-eye-slash"></i>';
+                } else {
+                    inputWithingsToken.type = 'password';
+                    btnToggleWithingsToken.innerHTML = '<i class="fa-solid fa-eye"></i>';
+                }
+            });
+        }
+
+        // Toggle Withings Fit Dashboard Modal
+        const btnWithings = document.getElementById('btn-withings');
+        const modalWithings = document.getElementById('modal-withings');
+        const btnCloseWithings = document.getElementById('btn-close-withings');
+        
+        if (btnWithings && modalWithings && btnCloseWithings) {
+            btnWithings.addEventListener('click', () => {
+                soundSynth.playClick();
+                modalWithings.classList.add('active');
+                
+                // Pre-fill today's date if empty
+                const dateField = document.getElementById('withings-input-date');
+                if (dateField && !dateField.value) {
+                    const today = new Date().toISOString().substring(0, 10);
+                    dateField.value = today;
+                }
+                
+                self.loadWithingsDashboardUI();
+            });
+            
+            btnCloseWithings.addEventListener('click', () => {
+                soundSynth.playClick();
+                modalWithings.classList.remove('active');
+            });
+        }
+
+        // Save manual Withings entry
+        const btnSaveWithingsManual = document.getElementById('btn-save-withings-manual');
+        if (btnSaveWithingsManual) {
+            btnSaveWithingsManual.addEventListener('click', async () => {
+                const dateInput = document.getElementById('withings-input-date').value;
+                if (!dateInput) {
+                    self.writeLog("WITHINGS DATA FAILURE: DATUM SAKNAS", "err");
+                    soundSynth.playError();
+                    alert("Ange ett giltigt datum.");
+                    return;
+                }
+                soundSynth.playClick();
+                const payload = {
+                    date: dateInput,
+                    weight: document.getElementById('withings-input-weight').value !== "" ? parseFloat(document.getElementById('withings-input-weight').value) : null,
+                    fat_ratio: document.getElementById('withings-input-fat').value !== "" ? parseFloat(document.getElementById('withings-input-fat').value) : null,
+                    bone_mass: document.getElementById('withings-input-bone').value !== "" ? parseFloat(document.getElementById('withings-input-bone').value) : null,
+                    heart_pulse: document.getElementById('withings-input-pulse').value !== "" ? parseFloat(document.getElementById('withings-input-pulse').value) : null
+                };
+                
+                self.writeLog(`SAVING WITHINGS LOG FOR ${dateInput}`, "sys");
+                try {
+                    const res = await fetch('/api/withings/data', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    const resData = await res.json();
+                    if (res.ok && resData.status === 'success') {
+                        self.writeLog("WITHINGS LOG SECURED IN DATABASE", "sys");
+                        soundSynth.playNotify();
+                        self.loadWithingsDashboardUI();
+                        
+                        // Clear form input fields except date
+                        document.getElementById('withings-input-weight').value = '';
+                        document.getElementById('withings-input-fat').value = '';
+                        document.getElementById('withings-input-bone').value = '';
+                        document.getElementById('withings-input-pulse').value = '';
+                    } else {
+                        throw new Error(resData.message || "Unknown error");
+                    }
+                } catch (err) {
+                    self.writeLog(`WITHINGS SAVE ERROR: ${err.message}`, "err");
+                    soundSynth.playError();
+                }
+            });
+        }
+
+        // Sync Withings device simulation from dashboard
+        const btnSyncWithingsDashboard = document.getElementById('btn-sync-withings-dashboard');
+        if (btnSyncWithingsDashboard) {
+            btnSyncWithingsDashboard.addEventListener('click', async () => {
+                soundSynth.playClick();
+                self.writeLog("INITIATING WITHINGS SYNCHRONIZATION", "sys");
+                try {
+                    const res = await fetch('/api/withings/sync');
+                    const resData = await res.json();
+                    if (res.ok && resData.status === 'success') {
+                        self.writeLog(`SYNCHRONIZATION COMPLETED: ${resData.message}`, "sys");
+                        soundSynth.playNotify();
+                        self.loadWithingsDashboardUI();
+                    } else {
+                        throw new Error(resData.message || "Sync error");
+                    }
+                } catch (err) {
+                    self.writeLog(`WITHINGS SYNC ERROR: ${err.message}`, "err");
+                    soundSynth.playError();
+                    alert(err.message);
+                }
+            });
+        }
+
         // Insert new engram cards manually
         const btnAddMemoryManual = document.getElementById('btn-add-memory-manual');
         const inputNewMemory = document.getElementById('input-new-memory');
@@ -891,6 +1054,21 @@ class FrejaUIController {
                 }
             }
 
+            const chkWithings = document.getElementById('chk-tool-get_withings_health');
+            if (chkWithings) {
+                const isAllowed = chkWithings.checked;
+                localStorage.setItem("freja_tool_get_withings_health_allowed", isAllowed);
+                
+                const capWithings = document.getElementById('cap-withings');
+                if (capWithings) {
+                    if (isAllowed) {
+                        capWithings.classList.add('active');
+                    } else {
+                        capWithings.classList.remove('active');
+                    }
+                }
+            }
+
             const garminEmail = document.getElementById('input-garmin-email').value.trim();
             const garminPassword = document.getElementById('input-garmin-password').value;
             localStorage.setItem("freja_garmin_email", garminEmail);
@@ -903,6 +1081,13 @@ class FrejaUIController {
             localStorage.setItem("freja_strava_client_secret", stravaClientSecret);
             localStorage.setItem("freja_strava_refresh_token", stravaRefreshToken);
 
+            const withingsClientId = document.getElementById('input-withings-client-id').value.trim();
+            const withingsClientSecret = document.getElementById('input-withings-client-secret').value;
+            const withingsRefreshToken = document.getElementById('input-withings-refresh-token').value;
+            localStorage.setItem("freja_withings_client_id", withingsClientId);
+            localStorage.setItem("freja_withings_client_secret", withingsClientSecret);
+            localStorage.setItem("freja_withings_refresh_token", withingsRefreshToken);
+
             // Save keys to secure SQLite database
             await self.saveKeysToServer({
                 freja_gemini_apikey: apiKey,
@@ -912,7 +1097,10 @@ class FrejaUIController {
                 freja_garmin_password: garminPassword,
                 freja_strava_client_id: stravaClientId,
                 freja_strava_client_secret: stravaClientSecret,
-                freja_strava_refresh_token: stravaRefreshToken
+                freja_strava_refresh_token: stravaRefreshToken,
+                freja_withings_client_id: withingsClientId,
+                freja_withings_client_secret: withingsClientSecret,
+                freja_withings_refresh_token: withingsRefreshToken
             });
 
             modalSettings.classList.remove('active');
@@ -1263,6 +1451,90 @@ class FrejaUIController {
         } catch (err) {
             console.error("[STRAVA] UI load error:", err);
             stravaList.innerHTML = '<div style="color: #ff3b30; text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[FEL VID LADDNING AV HISTORIK]</div>';
+        }
+    }
+
+    /**
+     * Synchronizes and draws the Withings measurements list inside the Withings Dashboard overlay.
+     */
+    async loadWithingsDashboardUI() {
+        const withingsList = document.getElementById('withings-list');
+        if (!withingsList) return;
+        
+        // Set date input default to today if empty
+        const dateInput = document.getElementById('withings-input-date');
+        if (dateInput && !dateInput.value) {
+            const today = new Date().toISOString().split('T')[0];
+            dateInput.value = today;
+        }
+
+        withingsList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Laddar mätningar...</div>';
+        
+        try {
+            const res = await fetch('/api/withings/data?days=15');
+            if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+            
+            const logs = await res.json();
+            if (logs.length === 0) {
+                withingsList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[INGA MÄTNINGAR HITTADE]</div>';
+                return;
+            }
+            
+            withingsList.innerHTML = "";
+            logs.forEach(log => {
+                const item = document.createElement('div');
+                item.className = "withings-log-item";
+                item.style.display = "flex";
+                item.style.justifyContent = "space-between";
+                item.style.alignItems = "center";
+                item.style.padding = "8px";
+                item.style.borderBottom = "1px solid rgba(0, 242, 254, 0.08)";
+                item.style.fontSize = "11px";
+                item.style.fontFamily = "var(--font-mono)";
+                
+                const weight = log.weight ? `${log.weight} kg` : "N/A";
+                const fat = log.fat_ratio ? ` | fett: ${log.fat_ratio}%` : "";
+                const bone = log.bone_mass ? ` | benmassa: ${log.bone_mass} kg` : "";
+                const pulse = log.heart_pulse ? ` | puls: ${log.heart_pulse} BPM` : "";
+                
+                item.innerHTML = `
+                    <div style="flex: 1; color: var(--color-text-bright);">
+                        <span style="color: var(--color-primary);">${log.date}</span>: <strong style="color: var(--color-accent);">Mätning</strong> - ${weight}${fat}${bone}${pulse}
+                    </div>
+                    <button class="withings-delete-btn" data-date="${log.date}" title="Radera mätning" style="background: transparent; border: none; color: #ff3b30; cursor: pointer; padding: 2px 6px;">
+                        <i class="fa-solid fa-trash-can"></i>
+                    </button>
+                `;
+                
+                const delBtn = item.querySelector('.withings-delete-btn');
+                delBtn.addEventListener('click', async () => {
+                    soundSynth.playClick();
+                    const dateVal = delBtn.getAttribute('data-date');
+                    item.style.opacity = '0.5';
+                    try {
+                        const delRes = await fetch(`/api/withings/delete?date=${dateVal}`);
+                        const delData = await delRes.json();
+                        if (delRes.ok && delData.status === 'success') {
+                            this.writeLog(`WITHINGS LOG FOR DATE ${dateVal} PURGED`, "sys");
+                            item.remove();
+                            if (withingsList.children.length === 0) {
+                                withingsList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[INGA MÄTNINGAR HITTADE]</div>';
+                            }
+                        } else {
+                            throw new Error(delData.message || "Failed deleting");
+                        }
+                    } catch (err) {
+                        item.style.opacity = '1';
+                        this.writeLog(`WITHINGS DELETE ERROR: ${err.message}`, "err");
+                        soundSynth.playError();
+                    }
+                });
+                
+                withingsList.appendChild(item);
+            });
+        } catch (err) {
+            console.error("[WITHINGS] UI load error:", err);
+            withingsList.innerHTML = '<div style="color: #ff3b30; text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[FEL VID LADDNING AV HISTORIK]</div>';
         }
     }
 

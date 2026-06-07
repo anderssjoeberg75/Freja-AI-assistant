@@ -50,6 +50,15 @@ def init_db():
             calories REAL
         )
     ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS withings_measurements (
+            date TEXT PRIMARY KEY,
+            weight REAL,
+            fat_ratio REAL,
+            bone_mass REAL,
+            heart_pulse REAL
+        )
+    ''')
     
     # Run migrations for existing databases
     try:
@@ -94,6 +103,25 @@ def init_db():
             INSERT INTO strava_activities (name, type, date, distance, moving_time, elapsed_time, total_elevation_gain, average_speed, max_speed, average_heartrate, max_heartrate, calories)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', strava_seed)
+
+    # Check if empty, then seed withings
+    cursor.execute('SELECT COUNT(*) FROM withings_measurements')
+    if cursor.fetchone()[0] == 0:
+        import datetime
+        today = datetime.date.today()
+        withings_seed = [
+            ((today - datetime.timedelta(days=1)).strftime('%Y-%m-%d'), 78.5, 18.2, 3.4, 56.0),
+            ((today - datetime.timedelta(days=2)).strftime('%Y-%m-%d'), 78.6, 18.3, 3.4, 58.0),
+            ((today - datetime.timedelta(days=3)).strftime('%Y-%m-%d'), 78.3, 18.1, 3.4, 55.0),
+            ((today - datetime.timedelta(days=4)).strftime('%Y-%m-%d'), 78.8, 18.4, 3.4, 57.0),
+            ((today - datetime.timedelta(days=5)).strftime('%Y-%m-%d'), 78.4, 18.2, 3.4, 56.0),
+            ((today - datetime.timedelta(days=6)).strftime('%Y-%m-%d'), 78.2, 18.0, 3.4, 54.0),
+            ((today - datetime.timedelta(days=7)).strftime('%Y-%m-%d'), 78.5, 18.3, 3.4, 55.0),
+        ]
+        cursor.executemany('''
+            INSERT INTO withings_measurements (date, weight, fat_ratio, bone_mass, heart_pulse)
+            VALUES (?, ?, ?, ?, ?)
+        ''', withings_seed)
 
     conn.commit()
     conn.close()
@@ -601,6 +629,203 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
             conn.close()
 
             self.wfile.write(json.dumps({"status": "success", "message": f"Aktivitet {id_to_delete} borttagen."}).encode('utf-8'))
+        elif self.path.startswith('/api/withings/data'):
+            parsed_path = urllib.parse.urlparse(self.path)
+            params = urllib.parse.parse_qs(parsed_path.query)
+            try:
+                days = int(params.get('days', ['7'])[0])
+            except ValueError:
+                days = 7
+
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate')
+            self.end_headers()
+
+            conn = sqlite3.connect(DB_FILE)
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT date, weight, fat_ratio, bone_mass, heart_pulse 
+                FROM withings_measurements 
+                ORDER BY date DESC 
+                LIMIT ?
+            ''', (days,))
+            rows = cursor.fetchall()
+            conn.close()
+
+            results = []
+            for row in rows:
+                results.append({
+                    "date": row[0],
+                    "weight": row[1],
+                    "fat_ratio": row[2],
+                    "bone_mass": row[3],
+                    "heart_pulse": row[4]
+                })
+
+            self.wfile.write(json.dumps(results).encode('utf-8'))
+        elif self.path.startswith('/api/withings/sync'):
+            # Fetch credentials from database
+            conn = sqlite3.connect(DB_FILE)
+            cursor = conn.cursor()
+            cursor.execute('SELECT key_value FROM api_keys WHERE key_name = ?', ('freja_withings_client_id',))
+            row_id = cursor.fetchone()
+            cursor.execute('SELECT key_value FROM api_keys WHERE key_name = ?', ('freja_withings_client_secret',))
+            row_secret = cursor.fetchone()
+            cursor.execute('SELECT key_value FROM api_keys WHERE key_name = ?', ('freja_withings_refresh_token',))
+            row_refresh = cursor.fetchone()
+            conn.close()
+            
+            client_id = row_id[0].strip() if row_id else ""
+            client_secret = row_secret[0].strip() if row_secret else ""
+            refresh_token = row_refresh[0].strip() if row_refresh else ""
+            
+            if not client_id or not client_secret or not refresh_token:
+                self.send_response(400)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "status": "error", 
+                    "message": "Withings API-uppgifter saknas. Ange Client ID, Client Secret och Refresh Token i Inställningar."
+                }).encode('utf-8'))
+                return
+
+            try:
+                # Refresh tokens and fetch measurements
+                import datetime
+                import time
+                
+                token_url = "https://wbsapi.withings.net/v2/oauth2"
+                token_data = urllib.parse.urlencode({
+                    'action': 'requesttoken',
+                    'client_id': client_id,
+                    'client_secret': client_secret,
+                    'refresh_token': refresh_token,
+                    'grant_type': 'refresh_token'
+                }).encode('utf-8')
+                
+                req = urllib.request.Request(token_url, data=token_data, method='POST')
+                with urllib.request.urlopen(req, timeout=10) as response:
+                    res_body = json.loads(response.read().decode('utf-8'))
+                    
+                if res_body.get("status") != 0:
+                    raise Exception(f"Withings OAuth fel status: {res_body.get('status')}")
+                    
+                body = res_body.get("body", {})
+                access_token = body.get("access_token")
+                new_refresh_token = body.get("refresh_token")
+                
+                if not access_token:
+                    raise Exception("Inget access_token returnerades.")
+                    
+                if new_refresh_token and new_refresh_token != refresh_token:
+                    conn = sqlite3.connect(DB_FILE)
+                    cursor = conn.cursor()
+                    cursor.execute('''
+                        INSERT INTO api_keys (key_name, key_value)
+                        VALUES (?, ?)
+                        ON CONFLICT(key_name) DO UPDATE SET key_value = excluded.key_value
+                    ''', ('freja_withings_refresh_token', new_refresh_token))
+                    conn.commit()
+                    conn.close()
+                    
+                lastupdate = int(time.time()) - (30 * 24 * 3600)
+                meas_url = f"https://wbsapi.withings.net/measure?action=getmeas&meastypes=1,6,11,16&category=1&lastupdate={lastupdate}"
+                
+                req_meas = urllib.request.Request(meas_url, headers={
+                    'Authorization': f'Bearer {access_token}'
+                }, method='GET')
+                
+                with urllib.request.urlopen(req_meas, timeout=10) as response:
+                    meas_body = json.loads(response.read().decode('utf-8'))
+                    
+                if meas_body.get("status") != 0:
+                    raise Exception(f"Withings API fel status: {meas_body.get('status')}")
+                    
+                measuregrps = meas_body.get("body", {}).get("measuregrps", [])
+                
+                conn = sqlite3.connect(DB_FILE)
+                cursor = conn.cursor()
+                
+                added_count = 0
+                for grp in measuregrps:
+                    grp_date = grp.get("date")
+                    date_str = datetime.datetime.fromtimestamp(grp_date).strftime('%Y-%m-%d')
+                    
+                    weight = None
+                    fat_ratio = None
+                    bone_mass = None
+                    heart_pulse = None
+                    
+                    for m in grp.get("measures", []):
+                        m_type = m.get("type")
+                        val = m.get("value")
+                        unit = m.get("unit")
+                        real_val = val * (10 ** unit)
+                        
+                        if m_type == 1:
+                            weight = round(real_val, 2)
+                        elif m_type == 6:
+                            fat_ratio = round(real_val, 2)
+                        elif m_type == 16:
+                            bone_mass = round(real_val, 2)
+                        elif m_type == 11:
+                            heart_pulse = round(real_val, 2)
+                            
+                    if weight is not None or fat_ratio is not None or bone_mass is not None or heart_pulse is not None:
+                        cursor.execute('''
+                            INSERT INTO withings_measurements (date, weight, fat_ratio, bone_mass, heart_pulse)
+                            VALUES (?, ?, ?, ?, ?)
+                            ON CONFLICT(date) DO UPDATE SET
+                                weight = COALESCE(excluded.weight, weight),
+                                fat_ratio = COALESCE(excluded.fat_ratio, fat_ratio),
+                                bone_mass = COALESCE(excluded.bone_mass, bone_mass),
+                                heart_pulse = COALESCE(excluded.heart_pulse, heart_pulse)
+                        ''', (date_str, weight, fat_ratio, bone_mass, heart_pulse))
+                        added_count += 1
+                        
+                conn.commit()
+                conn.close()
+
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "status": "success",
+                    "message": f"Synkroniserade {added_count} mätningar från Withings."
+                }).encode('utf-8'))
+            except Exception as e:
+                self.send_response(400)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "status": "error",
+                    "message": f"Kunde inte ansluta till Withings API: {str(e)}"
+                }).encode('utf-8'))
+        elif self.path.startswith('/api/withings/delete'):
+            parsed_path = urllib.parse.urlparse(self.path)
+            params = urllib.parse.parse_qs(parsed_path.query)
+            date_to_delete = params.get('date', [''])[0].strip()
+            
+            if not date_to_delete:
+                self.send_response(400)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "error", "message": "Datum saknas."}).encode('utf-8'))
+                return
+
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate')
+            self.end_headers()
+
+            conn = sqlite3.connect(DB_FILE)
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM withings_measurements WHERE date = ?', (date_to_delete,))
+            conn.commit()
+            conn.close()
+
+            self.wfile.write(json.dumps({"status": "success", "message": f"Mätning för {date_to_delete} borttagen."}).encode('utf-8'))
         else:
             # Fall back to standard file serving
             super().do_GET()
@@ -720,6 +945,45 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_header('Content-Type', 'application/json')
                 self.end_headers()
                 self.wfile.write(json.dumps({"status": "success", "message": "Strava-aktivitet sparad."}).encode('utf-8'))
+            except Exception as e:
+                self.send_response(400)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "error", "message": str(e)}).encode('utf-8'))
+        elif self.path == '/api/withings/data':
+            content_length = int(self.headers['Content-Length'])
+            post_data = self.rfile.read(content_length)
+            
+            try:
+                data = json.loads(post_data.decode('utf-8'))
+                date_str = data.get('date')
+                if not date_str:
+                    raise ValueError("Datum saknas.")
+                
+                weight = float(data.get('weight')) if data.get('weight') is not None else None
+                fat_ratio = float(data.get('fat_ratio')) if data.get('fat_ratio') is not None else None
+                bone_mass = float(data.get('bone_mass')) if data.get('bone_mass') is not None else None
+                heart_pulse = float(data.get('heart_pulse')) if data.get('heart_pulse') is not None else None
+
+                conn = sqlite3.connect(DB_FILE)
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT INTO withings_measurements (date, weight, fat_ratio, bone_mass, heart_pulse)
+                    VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT(date) DO UPDATE SET
+                        weight = excluded.weight,
+                        fat_ratio = excluded.fat_ratio,
+                        bone_mass = excluded.bone_mass,
+                        heart_pulse = excluded.heart_pulse
+                ''', (date_str, weight, fat_ratio, bone_mass, heart_pulse))
+                
+                conn.commit()
+                conn.close()
+                
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "success", "message": "Withings-logg sparad."}).encode('utf-8'))
             except Exception as e:
                 self.send_response(400)
                 self.send_header('Content-Type', 'application/json')
