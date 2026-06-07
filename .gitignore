@@ -2,3 +2,5 @@ keys.db
 __pycache__/
 test_venv/
 scratch/
+freja.db
+.garminconnect/

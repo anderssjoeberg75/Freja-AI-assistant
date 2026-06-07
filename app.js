@@ -184,6 +184,28 @@ class FrejaUIController {
         const inputStravaRefreshToken = document.getElementById('input-strava-refresh-token');
         if (inputStravaRefreshToken) inputStravaRefreshToken.value = stravaRefreshToken;
         
+        // Dynamically build and update Strava authorize link
+        const updateStravaLink = () => {
+            const clientId = inputStravaClientId ? inputStravaClientId.value.trim() : "";
+            const authLink = document.getElementById('lnk-strava-authorize');
+            console.log("[DEBUG STRAVA LINK] clientId:", clientId, "authLink:", authLink);
+            if (authLink) {
+                if (clientId) {
+                    const redirectUri = window.location.origin + '/api/strava/callback';
+                    authLink.href = `https://www.strava.com/oauth/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=activity:read,activity:read_all`;
+                    authLink.style.display = 'block';
+                    console.log("[DEBUG STRAVA LINK] Updated link: display block, href:", authLink.href);
+                } else {
+                    authLink.style.display = 'none';
+                    console.log("[DEBUG STRAVA LINK] Hidden link: display none");
+                }
+            }
+        };
+        if (inputStravaClientId) {
+            inputStravaClientId.addEventListener('input', updateStravaLink);
+        }
+        updateStravaLink();
+        
         const withingsClientId = localStorage.getItem("freja_withings_client_id") || "";
         const withingsClientSecret = localStorage.getItem("freja_withings_client_secret") || "";
         const withingsRefreshToken = localStorage.getItem("freja_withings_refresh_token") || "";
@@ -1440,10 +1462,11 @@ class FrejaUIController {
                 const hrInfo = log.average_heartrate ? ` | snittpuls: ${Math.round(log.average_heartrate)}` : "";
                 const calInfo = log.calories ? ` | ${Math.round(log.calories)} kcal` : "";
                 const elevInfo = log.total_elevation_gain ? ` | +${Math.round(log.total_elevation_gain)}m` : "";
+                const speedInfo = log.formatted_speed ? ` | ${log.formatted_speed}` : "";
                 
                 item.innerHTML = `
                     <div style="flex: 1; color: var(--color-text-bright);">
-                        <span style="color: var(--color-primary);">${log.date}</span>: <strong style="color: var(--color-accent);">${log.type}</strong> - ${log.name} (${km} | ${mins}${elevInfo}${hrInfo}${calInfo})
+                        <span style="color: var(--color-primary);">${log.date}</span>: <strong style="color: var(--color-accent);">${log.type}</strong> - ${log.name} (${km} | ${mins}${speedInfo}${elevInfo}${hrInfo}${calInfo})
                     </div>
                     <button class="strava-delete-btn" data-id="${log.id}" title="Radera aktivitet" style="background: transparent; border: none; color: #ff3b30; cursor: pointer; padding: 2px 6px;">
                         <i class="fa-solid fa-trash-can"></i>
