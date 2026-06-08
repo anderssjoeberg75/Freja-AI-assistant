@@ -66,20 +66,44 @@ To unlock F.R.E.J.A.'s full cognitive capabilities, configure your credentials i
 
 ## 📂 Codebase Architecture
 
-The application has been modularized into 6 clean, decoupled Javascript files:
+The application separates the browser interface from focused backend modules:
 
 ```
-├── index.html          # HUD panel layouts, diagnostics grids, and modals
-├── style.css           # Glassmorphism grids, sweeping laser animations, and theme variables
-├── app.js              # Central orchestrator (FrejaUIController) & DOM bindings
-├── sound.js            # Procedural synthesizer (Web Audio API) for chimes and alert sweeps
-├── visualizer.js       # HTML5 Canvas Arc Reactor physics rendering loops
-├── speech.js           # Speech-to-Text (STT) and ElevenLabs/Native Text-to-Speech (TTS)
-├── memory.js           # Mem0 API integration & Local Storage Virtual Sandbox Fallback
-└── gemini.js           # Gemini API client & webcam Base64 frame snapshot encoders
+├── index.html                  # HUD panel layouts, diagnostics grids, and modals
+├── style.css                   # Glassmorphism grids, animations, and theme variables
+├── app.js                     # Browser-side UI orchestration and DOM bindings
+├── gemini.js                  # Gemini client and multimodal context handling
+├── memory.js                  # Mem0 integration and local memory fallback
+├── speech.js                  # Speech-to-Text and Text-to-Speech engines
+├── tools/                     # Browser-side assistant tool declarations
+├── server.py                  # Minimal backend composition and startup entry point
+├── backend/
+│   ├── config.py              # Runtime paths and environment configuration
+│   ├── database.py            # SQLite schema initialization and migrations
+│   ├── request_handler.py     # Central HTTP route dispatcher
+│   ├── routes/                # Domain-specific HTTP handlers
+│   │   ├── settings.py
+│   │   ├── search.py
+│   │   ├── garmin.py
+│   │   ├── strava.py
+│   │   └── withings.py
+│   └── services/              # External integration services
+└── tests/                     # Backend route regression tests
 ```
 
-*Every file contains comprehensive, structured documentation and comments in English to support seamless extensions.*
+Backend routes are registered centrally but implemented in focused domain modules. This keeps the server entry point small and makes route behavior independently testable.
+
+Install the Python runtime dependency before starting the server:
+
+```bash
+python3 -m pip install -r requirements.txt
+```
+
+Run backend regression tests with:
+
+```bash
+python3 -m unittest discover -v
+```
 
 ---
 
