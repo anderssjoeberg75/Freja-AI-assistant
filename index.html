@@ -51,6 +51,9 @@
                 <button id="btn-withings" class="hud-btn-icon" title="Withings Health Dashboard">
                     <i class="fa-solid fa-weight-scale"></i>
                 </button>
+                <button id="btn-telegram" class="hud-btn-icon" title="Telegram Integration">
+                    <i class="fa-brands fa-telegram"></i>
+                </button>
                 <button id="btn-theme-toggle" class="hud-btn-icon" title="Change Theme">
                     <i class="fa-solid fa-palette"></i>
                 </button>
@@ -762,6 +765,45 @@
         </div>
     </div>
 
+    <!-- TELEGRAM INTEGRATION DASHBOARD MODAL -->
+    <div class="hud-modal" id="modal-telegram">
+        <div class="modal-content glass-morphic">
+            <div class="modal-header">
+                <h2><i class="fa-brands fa-telegram"></i> TELEGRAM INTEGRATION</h2>
+                <button class="modal-close" id="btn-close-telegram">&times;</button>
+            </div>
+            <div class="modal-body" style="display: flex; flex-direction: column; gap: 15px;">
+                <!-- Configuration Form -->
+                <div class="telegram-form" style="display: flex; flex-direction: column; gap: 10px; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--color-border); border-radius: 4px; padding: 12px;">
+                    <div style="display: flex; flex-direction: column; gap: 4px;">
+                        <label for="telegram-input-token" style="font-size: 11px; color: var(--color-text-muted);">Telegram Bot Token (från @BotFather)</label>
+                        <input type="password" id="telegram-input-token" placeholder="Ange din bot token..." class="hud-input" style="height: 32px; font-size: 12px;">
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 4px;">
+                        <label for="telegram-input-chat-id" style="font-size: 11px; color: var(--color-text-muted);">Auktoriserat Chat ID (t.ex. 12345678)</label>
+                        <input type="text" id="telegram-input-chat-id" placeholder="Ange ditt Telegram chat ID..." class="hud-input" style="height: 32px; font-size: 12px;">
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
+                        <span style="font-size: 11px; color: var(--color-text-muted);">Bot Status:</span>
+                        <span id="telegram-bot-status" style="font-family: var(--font-mono); font-size: 11px; font-weight: bold; color: var(--color-error);">INAKTIV</span>
+                    </div>
+                    <button id="btn-save-telegram" class="hud-btn btn-primary" style="height: 34px; font-family: var(--font-display); font-size: 11px; margin-top: 8px;"><i class="fa-solid fa-floppy-disk"></i> SPARA INSTÄLLNINGAR</button>
+                </div>
+                
+                <!-- Recent message logs -->
+                <div class="telegram-list-container" style="display: flex; flex-direction: column; flex: 1; min-height: 200px; max-height: 250px;">
+                    <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); margin-bottom: 8px; letter-spacing: 1px;">SENASTE MEDDELANDEN</h3>
+                    <div class="telegram-list" id="telegram-list" style="flex: 1; overflow-y: auto; background: rgba(0,0,0,0.3); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px;">
+                        <div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Ingen aktivitet loggad...</div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer" style="display: flex; gap: 10px;">
+                <button id="btn-refresh-telegram" class="hud-btn btn-primary" style="flex: 1; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-arrows-rotate"></i> UPPDATERA LOGGAR</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Audio initialization helper banner (browsers block audio until interaction) -->
     <div class="interaction-shield" id="interaction-shield">
         <div class="shield-prompt">
@@ -772,16 +814,16 @@
         </div>
     </div>
 
-    <script src="sound.js?v=6"></script>
-    <script src="visualizer.js?v=6"></script>
-    <script src="speech.js?v=6"></script>
-    <script src="memory.js?v=6"></script>
-    <script src="gemini.js?v=6"></script>
-    <script src="tools/weather.js?v=6"></script>
-    <script src="tools/google_search.js?v=6"></script>
-    <script src="tools/garmin_health.js?v=6"></script>
-    <script src="tools/strava_data.js?v=6"></script>
-    <script src="tools/withings_health.js?v=6"></script>
-    <script src="app.js?v=6"></script>
+    <script src="sound.js?v=7"></script>
+    <script src="visualizer.js?v=7"></script>
+    <script src="speech.js?v=7"></script>
+    <script src="memory.js?v=7"></script>
+    <script src="gemini.js?v=7"></script>
+    <script src="tools/weather.js?v=7"></script>
+    <script src="tools/google_search.js?v=7"></script>
+    <script src="tools/garmin_health.js?v=7"></script>
+    <script src="tools/strava_data.js?v=7"></script>
+    <script src="tools/withings_health.js?v=7"></script>
+    <script src="app.js?v=7"></script>
 </body>
 </html>

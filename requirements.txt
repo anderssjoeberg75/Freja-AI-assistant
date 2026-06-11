@@ -1,1 +1,5 @@
 beautifulsoup4>=4.12,<5
+fastapi>=0.100.0,<1
+uvicorn>=0.20.0,<1
+requests>=2.31.0,<3
+httpx>=0.25.0,<1

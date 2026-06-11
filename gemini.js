@@ -106,6 +106,14 @@ class GeminiClient {
             console.log("[GEMINI] Attached webcam optics frame to payload");
         }
 
+        // Trim history to keep only the latest 15 messages, starting cleanly with a user message
+        if (this.history.length > 15) {
+            this.history = this.history.slice(-15);
+            while (this.history.length > 0 && this.history[0].role !== 'user') {
+                this.history.shift();
+            }
+        }
+
         // Cache user input in history
         this.history.push({
             role: "user",
@@ -135,8 +143,8 @@ class GeminiClient {
         // Inject directive to explicitly cite Google when using the web search tool
         dynamicSystemPrompt += "\n\n[DIRECTIVE: WEB SEARCH CITATION]\nNär du använder verktyget 'google_search' för att söka efter information eller fakta på webben, MÅSTE du alltid uttryckligen ange i ditt svar att källan är Google (t.ex. genom att skriva 'Källa: Google' eller 'Enligt sökresultat på Google' i slutet av din förklaring).";
 
-        // Invoke Google API REST endpoint
-        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${this.apiKey}`;
+        // Invoke Google API via local FastAPI proxy
+        const endpoint = `/api/gemini/generate?model=${encodeURIComponent(this.model)}`;
         
         const payload = {
             contents: this.history,
@@ -176,7 +184,7 @@ class GeminiClient {
 
                 if (!response.ok) {
                     const errData = await response.json();
-                    throw new Error(errData.error?.message || `HTTP ${response.status}`);
+                    throw new Error(errData.detail || errData.error?.message || `HTTP ${response.status}`);
                 }
 
                 const data = await response.json();

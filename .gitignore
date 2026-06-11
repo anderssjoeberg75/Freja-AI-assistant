@@ -1,6 +1,15 @@
+# SQLite databases (contains secret tokens/keys)
 keys.db
+
+# Python
 __pycache__/
-test_venv/
-scratch/
-freja.db
-.garminconnect/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+htmlcov/
+
+# OS/System
+.DS_Store
+Thumbs.db

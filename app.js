@@ -1231,6 +1231,62 @@ class FrejaUIController {
                 selectVoice.appendChild(option);
             });
         };
+
+        // Toggle Telegram Dashboard Modal
+        const btnTelegram = document.getElementById('btn-telegram');
+        const modalTelegram = document.getElementById('modal-telegram');
+        const btnCloseTelegram = document.getElementById('btn-close-telegram');
+        
+        if (btnTelegram && modalTelegram && btnCloseTelegram) {
+            btnTelegram.addEventListener('click', () => {
+                soundSynth.playClick();
+                modalTelegram.classList.add('active');
+                self.loadTelegramDashboardUI();
+            });
+            
+            btnCloseTelegram.addEventListener('click', () => {
+                soundSynth.playClick();
+                modalTelegram.classList.remove('active');
+            });
+        }
+
+        const btnSaveTelegram = document.getElementById('btn-save-telegram');
+        if (btnSaveTelegram) {
+            btnSaveTelegram.addEventListener('click', async () => {
+                soundSynth.playClick();
+                const token = document.getElementById('telegram-input-token').value.trim();
+                const chatId = document.getElementById('telegram-input-chat-id').value.trim();
+                
+                self.writeLog("SAVING TELEGRAM CONFIGURATIONS...", "sys");
+                try {
+                    const res = await fetch('/api/telegram/config', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ token: token, chat_id: chatId })
+                    });
+                    const resData = await res.json();
+                    if (res.ok && resData.status === 'success') {
+                        self.writeLog("TELEGRAM CONFIGURATIONS SECURED SUCCESS", "sys");
+                        soundSynth.playNotify();
+                        self.loadTelegramDashboardUI();
+                    } else {
+                        throw new Error(resData.detail || "Save error");
+                    }
+                } catch (err) {
+                    self.writeLog(`TELEGRAM SAVE ERROR: ${err.message}`, "err");
+                    soundSynth.playError();
+                    alert("Kunde inte spara inställningarna: " + err.message);
+                }
+            });
+        }
+
+        const btnRefreshTelegram = document.getElementById('btn-refresh-telegram');
+        if (btnRefreshTelegram) {
+            btnRefreshTelegram.addEventListener('click', () => {
+                soundSynth.playClick();
+                self.loadTelegramDashboardUI();
+            });
+        }
     }
 
     /**
@@ -1331,6 +1387,84 @@ class FrejaUIController {
         } catch (e) {
             console.error("[MEM0] UI Load error:", e);
             memoriesList.innerHTML = '<div style="color: #ff3b30; text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[ALLVARLIGT FEL: KUNDE INTE SYNKRONISERA MINNE]</div>';
+        }
+    }
+
+    /**
+     * Retrieves status and message activity for the Telegram bot interface.
+     */
+    async loadTelegramDashboardUI() {
+        const tokenInput = document.getElementById('telegram-input-token');
+        const chatIdInput = document.getElementById('telegram-input-chat-id');
+        const botStatus = document.getElementById('telegram-bot-status');
+        const telegramList = document.getElementById('telegram-list');
+        
+        if (!telegramList) return;
+        
+        try {
+            const res = await fetch('/api/telegram/status');
+            if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+            
+            const status = await res.json();
+            
+            // Set inputs if they aren't active/focused
+            if (tokenInput && document.activeElement !== tokenInput) {
+                tokenInput.value = status.token_masked || "";
+            }
+            if (chatIdInput && document.activeElement !== chatIdInput) {
+                chatIdInput.value = status.chat_id || "";
+            }
+            
+            // Set status label
+            if (botStatus) {
+                if (status.is_active) {
+                    botStatus.textContent = "AKTIV (AVLYSSNAR)";
+                    botStatus.style.color = "var(--color-primary)";
+                } else {
+                    botStatus.textContent = "INAKTIV (NYCKLAR SAKNAS)";
+                    botStatus.style.color = "var(--color-error)";
+                }
+            }
+            
+            // Render logs
+            if (!status.recent_messages || status.recent_messages.length === 0) {
+                telegramList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[INGEN AKTIVITET LOGGAD]</div>';
+                return;
+            }
+            
+            telegramList.innerHTML = "";
+            status.recent_messages.forEach(msg => {
+                const line = document.createElement('div');
+                line.className = "log-line";
+                line.style.fontSize = "11px";
+                line.style.marginBottom = "4px";
+                line.style.fontFamily = "var(--font-mono)";
+                
+                const timeSpan = document.createElement('span');
+                timeSpan.className = "log-time";
+                timeSpan.textContent = msg.time + " ";
+                
+                const tagSpan = document.createElement('span');
+                if (msg.authorized) {
+                    tagSpan.className = "log-tag tag-sys";
+                    tagSpan.textContent = "[TELEGRAM] ";
+                } else {
+                    tagSpan.className = "log-tag tag-err";
+                    tagSpan.textContent = "[UNAUTH] ";
+                }
+                
+                line.appendChild(timeSpan);
+                line.appendChild(tagSpan);
+                
+                const textNode = document.createTextNode(`Chat ${msg.chat_id}: ${msg.text}`);
+                line.appendChild(textNode);
+                
+                telegramList.appendChild(line);
+            });
+            
+        } catch (e) {
+            console.error("[TELEGRAM] UI load error:", e);
+            telegramList.innerHTML = '<div style="color: #ff3b30; text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[FEL VID HÄMTNING AV STATUS]</div>';
         }
     }
 

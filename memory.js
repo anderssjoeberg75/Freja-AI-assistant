@@ -86,12 +86,11 @@ class FrejaMemoryEngine {
         if (!this.enabled) return null;
         
         if (!this.isSandboxMode()) {
-            // Channel A: Real Mem0 REST API transaction
+            // Channel A: Real Mem0 REST API transaction via local backend proxy
             try {
-                const response = await fetch("https://api.mem0.ai/v3/memories/add/", {
+                const response = await fetch("/api/mem0/add", {
                     method: "POST",
                     headers: {
-                        "Authorization": `Token ${this.apiKey}`,
                         "Content-Type": "application/json"
                     },
                     body: JSON.stringify({
@@ -125,8 +124,8 @@ class FrejaMemoryEngine {
         if (this.gemini && this.gemini.apiKey) {
             try {
                 console.log("[SANDBOX] Extracting facts using Gemini model...");
-                const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${this.gemini.model}:generateContent?key=${this.gemini.apiKey}`;
-                const prompt = `Extrahera korta personliga fakta om användaren (namn, ålder, yrke, preferenser, intressen) från denna konversation. Svara ENDAST som en lista av korta meningar på svenska (separerade med ny rad). Om inga nya personliga fakta hittas, svara med "INGET".
+                const endpoint = `/api/gemini/generate?model=${encodeURIComponent(this.gemini.model)}`;
+                const prompt = `Extrahera nya personliga fakta om användaren (som namn, ålder, yrke, preferenser, intressen) från följande samtal. Returnera dem i JSON-schemat under nyckeln 'facts'. Lämna listan tom om inga nya fakta hittas.
 Konversation:
 Användare: "${userMsg}"
 Assistent: "${assistantMsg}"`;
@@ -136,18 +135,37 @@ Assistent: "${assistantMsg}"`;
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
                         contents: [{ role: "user", parts: [{ text: prompt }] }],
-                        generationConfig: { temperature: 0.1, maxOutputTokens: 200 }
+                        generationConfig: {
+                            temperature: 0.1,
+                            maxOutputTokens: 200,
+                            responseMimeType: "application/json",
+                            responseSchema: {
+                                type: "OBJECT",
+                                properties: {
+                                    facts: {
+                                        type: "ARRAY",
+                                        items: {
+                                            type: "STRING"
+                                        }
+                                    }
+                                },
+                                required: ["facts"]
+                            }
+                        }
                     })
                 });
                 
                 if (response.ok) {
                     const data = await response.json();
                     const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-                    if (text && !text.includes("INGET")) {
-                        extractedFacts = text.split("\n")
-                            .map(line => line.replace(/^[-*•\s\d.]+\s*/, "").trim())
-                            .filter(line => line.length > 3);
-                        console.log("[SANDBOX] Gemini extracted facts:", extractedFacts);
+                    if (text) {
+                        const parsed = JSON.parse(text);
+                        if (parsed && Array.isArray(parsed.facts)) {
+                            extractedFacts = parsed.facts
+                                .map(fact => fact.trim())
+                                .filter(fact => fact.length > 3);
+                            console.log("[SANDBOX] Gemini structured facts:", extractedFacts);
+                        }
                     }
                 }
             } catch (e) {
@@ -210,10 +228,9 @@ Assistent: "${assistantMsg}"`;
         
         if (!this.isSandboxMode()) {
             try {
-                const response = await fetch("https://api.mem0.ai/v3/memories/add/", {
+                const response = await fetch("/api/mem0/add", {
                     method: "POST",
                     headers: {
-                        "Authorization": `Token ${this.apiKey}`,
                         "Content-Type": "application/json"
                     },
                     body: JSON.stringify({
@@ -245,10 +262,9 @@ Assistent: "${assistantMsg}"`;
         
         if (!this.isSandboxMode()) {
             try {
-                const response = await fetch("https://api.mem0.ai/v3/memories/search/", {
+                const response = await fetch("/api/mem0/search", {
                     method: "POST",
                     headers: {
-                        "Authorization": `Token ${this.apiKey}`,
                         "Content-Type": "application/json"
                     },
                     body: JSON.stringify({
@@ -294,10 +310,9 @@ Assistent: "${assistantMsg}"`;
 
         if (!this.isSandboxMode()) {
             try {
-                const response = await fetch("https://api.mem0.ai/v3/memories/", {
+                const response = await fetch("/api/mem0/all", {
                     method: "POST",
                     headers: {
-                        "Authorization": `Token ${this.apiKey}`,
                         "Content-Type": "application/json"
                     },
                     body: JSON.stringify({
@@ -324,11 +339,8 @@ Assistent: "${assistantMsg}"`;
 
         if (!this.isSandboxMode() && isNaN(parseInt(memoryId)) && !memoryId.startsWith("mem_")) {
             try {
-                const response = await fetch(`https://api.mem0.ai/v3/memories/${memoryId}/`, {
-                    method: "DELETE",
-                    headers: {
-                        "Authorization": `Token ${this.apiKey}`
-                    }
+                const response = await fetch(`/api/mem0/delete/${encodeURIComponent(memoryId)}`, {
+                    method: "DELETE"
                 });
                 return response.ok;
             } catch (e) {
@@ -351,11 +363,8 @@ Assistent: "${assistantMsg}"`;
 
         if (!this.isSandboxMode()) {
             try {
-                const response = await fetch(`https://api.mem0.ai/v1/memories/?user_id=${this.userId}`, {
-                    method: "DELETE",
-                    headers: {
-                        "Authorization": `Token ${this.apiKey}`
-                    }
+                const response = await fetch(`/api/mem0/wipe?user_id=${encodeURIComponent(this.userId)}`, {
+                    method: "DELETE"
                 });
                 if (response.ok) {
                     console.log("[MEM0] Wiped server memories.");

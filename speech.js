@@ -208,12 +208,11 @@ class FrejaSpeechEngine {
             }
 
             const voiceId = this.elevenVoice === 'custom' ? this.elevenCustomVoice : this.elevenVoice;
-            const endpoint = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`;
+            const endpoint = `/api/elevenlabs/tts/${voiceId}`;
 
             fetch(endpoint, {
                 method: 'POST',
                 headers: {
-                    'xi-api-key': this.elevenApiKey,
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({

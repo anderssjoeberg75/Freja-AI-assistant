@@ -1,41 +1,37 @@
-"""Settings HTTP route handlers."""
+"""Settings API route router using FastAPI."""
 
-import json
 import sqlite3
-
+from fastapi import APIRouter, HTTPException, Request
 from backend.config import DB_FILE
 
+router = APIRouter()
 
-def handle_get_keys(handler):
-    handler.send_response(200)
-    handler.send_header('Content-Type', 'application/json')
-    handler.send_header('Cache-Control', 'no-store, no-cache, must-revalidate')
-    handler.end_headers()
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute('SELECT key_name, key_value FROM api_keys')
-    rows = cursor.fetchall()
-    conn.close()
-    keys = {row[0]: row[1] for row in rows}
-    handler.wfile.write(json.dumps(keys).encode('utf-8'))
-
-def handle_post_keys(handler):
-    content_length = int(handler.headers['Content-Length'])
-    post_data = handler.rfile.read(content_length)
+@router.get("/api/keys")
+async def get_keys():
     try:
-        data = json.loads(post_data.decode('utf-8'))
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        cursor.execute('SELECT key_name, key_value FROM api_keys')
+        rows = cursor.fetchall()
+        conn.close()
+        return {row[0]: row[1] for row in rows}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/api/keys")
+async def post_keys(request: Request):
+    try:
+        data = await request.json()
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
         for key_name, key_value in data.items():
-            cursor.execute('\n                        INSERT INTO api_keys (key_name, key_value)\n                        VALUES (?, ?)\n                        ON CONFLICT(key_name) DO UPDATE SET key_value = excluded.key_value\n                    ', (key_name, key_value))
+            cursor.execute('''
+                INSERT INTO api_keys (key_name, key_value)
+                VALUES (?, ?)
+                ON CONFLICT(key_name) DO UPDATE SET key_value = excluded.key_value
+            ''', (key_name, key_value))
         conn.commit()
         conn.close()
-        handler.send_response(200)
-        handler.send_header('Content-Type', 'application/json')
-        handler.end_headers()
-        handler.wfile.write(json.dumps({'status': 'success'}).encode('utf-8'))
+        return {'status': 'success'}
     except Exception as e:
-        handler.send_response(400)
-        handler.send_header('Content-Type', 'application/json')
-        handler.end_headers()
-        handler.wfile.write(json.dumps({'status': 'error', 'message': str(e)}).encode('utf-8'))
+        raise HTTPException(status_code=400, detail=str(e))
