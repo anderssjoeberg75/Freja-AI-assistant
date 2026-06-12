@@ -35,7 +35,7 @@ class FrejaUIController {
             const res = await fetch('/api/sync/status');
             if (res.ok) {
                 const statusData = await res.json();
-                ['garmin', 'strava', 'withings'].forEach(provider => {
+                ['garmin', 'strava', 'withings', 'google_calendar'].forEach(provider => {
                     if (statusData.states && statusData.states[provider] === 'syncing') {
                         this.pollSyncStatus(provider);
                     }
@@ -77,7 +77,9 @@ class FrejaUIController {
                         
                         if (btn) {
                             btn.disabled = false;
-                            btn.innerHTML = `<i class="fa-solid fa-arrows-rotate"></i> SYNKRONISERA ENHET`;
+                            btn.innerHTML = provider === 'google_calendar'
+                                ? `<i class="fa-solid fa-arrows-rotate"></i> SYNKRONISERA KALENDER`
+                                : `<i class="fa-solid fa-arrows-rotate"></i> SYNKRONISERA ENHET`;
                         }
                         if (capItem) {
                             capItem.classList.remove('syncing-blink');
@@ -89,6 +91,7 @@ class FrejaUIController {
                         if (provider === 'garmin') self.loadGarminDashboardUI();
                         if (provider === 'strava') self.loadStravaDashboardUI();
                         if (provider === 'withings') self.loadWithingsDashboardUI();
+                        if (provider === 'google_calendar') self.loadGoogleCalendarDashboardUI();
                         
                     } else if (state === 'error') {
                         clearInterval(self[`syncInterval_${provider}`]);
@@ -96,7 +99,9 @@ class FrejaUIController {
                         
                         if (btn) {
                             btn.disabled = false;
-                            btn.innerHTML = `<i class="fa-solid fa-arrows-rotate"></i> SYNKRONISERA ENHET`;
+                            btn.innerHTML = provider === 'google_calendar'
+                                ? `<i class="fa-solid fa-arrows-rotate"></i> SYNKRONISERA KALENDER`
+                                : `<i class="fa-solid fa-arrows-rotate"></i> SYNKRONISERA ENHET`;
                         }
                         if (capItem) {
                             capItem.classList.remove('syncing-blink');
@@ -153,6 +158,15 @@ class FrejaUIController {
                 }
                 if (keys.freja_withings_refresh_token !== undefined) {
                     localStorage.setItem("freja_withings_refresh_token", keys.freja_withings_refresh_token);
+                }
+                if (keys.freja_google_calendar_client_id !== undefined) {
+                    localStorage.setItem("freja_google_calendar_client_id", keys.freja_google_calendar_client_id);
+                }
+                if (keys.freja_google_calendar_client_secret !== undefined) {
+                    localStorage.setItem("freja_google_calendar_client_secret", keys.freja_google_calendar_client_secret);
+                }
+                if (keys.freja_google_calendar_refresh_token !== undefined) {
+                    localStorage.setItem("freja_google_calendar_refresh_token", keys.freja_google_calendar_refresh_token);
                 }
                 
                 // Refresh components keys if already instantiated
@@ -299,6 +313,16 @@ class FrejaUIController {
         if (inputWithingsClientSecret) inputWithingsClientSecret.value = withingsClientSecret;
         const inputWithingsRefreshToken = document.getElementById('input-withings-refresh-token');
         if (inputWithingsRefreshToken) inputWithingsRefreshToken.value = withingsRefreshToken;
+
+        const googleClientId = localStorage.getItem("freja_google_calendar_client_id") || "";
+        const googleClientSecret = localStorage.getItem("freja_google_calendar_client_secret") || "";
+        const googleRefreshToken = localStorage.getItem("freja_google_calendar_refresh_token") || "";
+        const inputGoogleClientId = document.getElementById('input-google-calendar-client-id');
+        if (inputGoogleClientId) inputGoogleClientId.value = googleClientId;
+        const inputGoogleClientSecret = document.getElementById('input-google-calendar-client-secret');
+        if (inputGoogleClientSecret) inputGoogleClientSecret.value = googleClientSecret;
+        const inputGoogleRefreshToken = document.getElementById('input-google-calendar-refresh-token');
+        if (inputGoogleRefreshToken) inputGoogleRefreshToken.value = googleRefreshToken;
         
         this.memory.apiKey = mem0Key;
         this.memory.enabled = mem0Enabled;
@@ -381,6 +405,21 @@ class FrejaUIController {
                 capWithings.classList.add('active');
             } else {
                 capWithings.classList.remove('active');
+            }
+        }
+
+        const googleCalendarAllowed = localStorage.getItem("freja_tool_manage_google_calendar_allowed") === "true";
+        const chkGoogleCalendar = document.getElementById('chk-tool-manage_google_calendar');
+        if (chkGoogleCalendar) {
+            chkGoogleCalendar.checked = googleCalendarAllowed;
+        }
+
+        const capGoogleCalendar = document.getElementById('cap-google_calendar');
+        if (capGoogleCalendar) {
+            if (googleCalendarAllowed) {
+                capGoogleCalendar.classList.add('active');
+            } else {
+                capGoogleCalendar.classList.remove('active');
             }
         }
 
@@ -1007,6 +1046,182 @@ class FrejaUIController {
             });
         }
 
+        // Toggle Google Calendar API config password visibility
+        const btnToggleGoogleSecret = document.getElementById('btn-toggle-google-calendar-secret');
+        const inputGoogleSecret = document.getElementById('input-google-calendar-client-secret');
+        if (btnToggleGoogleSecret && inputGoogleSecret) {
+            btnToggleGoogleSecret.addEventListener('click', () => {
+                soundSynth.playClick();
+                if (inputGoogleSecret.type === 'password') {
+                    inputGoogleSecret.type = 'text';
+                    btnToggleGoogleSecret.innerHTML = '<i class="fa-solid fa-eye-slash"></i>';
+                } else {
+                    inputGoogleSecret.type = 'password';
+                    btnToggleGoogleSecret.innerHTML = '<i class="fa-solid fa-eye"></i>';
+                }
+            });
+        }
+
+        const btnToggleGoogleToken = document.getElementById('btn-toggle-google-calendar-token');
+        const inputGoogleToken = document.getElementById('input-google-calendar-refresh-token');
+        if (btnToggleGoogleToken && inputGoogleToken) {
+            btnToggleGoogleToken.addEventListener('click', () => {
+                soundSynth.playClick();
+                if (inputGoogleToken.type === 'password') {
+                    inputGoogleToken.type = 'text';
+                    btnToggleGoogleToken.innerHTML = '<i class="fa-solid fa-eye-slash"></i>';
+                } else {
+                    inputGoogleToken.type = 'password';
+                    btnToggleGoogleToken.innerHTML = '<i class="fa-solid fa-eye"></i>';
+                }
+            });
+        }
+
+        // Toggle Google Calendar Dashboard Modal
+        const btnGoogleCalendar = document.getElementById('btn-google-calendar');
+        const modalGoogleCalendar = document.getElementById('modal-google-calendar');
+        const btnCloseGoogleCalendar = document.getElementById('btn-close-google-calendar');
+        
+        if (btnGoogleCalendar && modalGoogleCalendar && btnCloseGoogleCalendar) {
+            btnGoogleCalendar.addEventListener('click', () => {
+                soundSynth.playClick();
+                modalGoogleCalendar.classList.add('active');
+                
+                // Clear any leftover edit states in form on open
+                document.getElementById('google-calendar-input-id').value = '';
+                document.getElementById('google-calendar-input-summary').value = '';
+                document.getElementById('google-calendar-input-description').value = '';
+                document.getElementById('google-calendar-input-location').value = '';
+                
+                const now = new Date();
+                const startISO = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+                document.getElementById('google-calendar-input-start').value = startISO;
+                
+                const nextHour = new Date(new Date().getTime() + 60 * 60 * 1000);
+                const endISO = new Date(nextHour.getTime() - nextHour.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+                document.getElementById('google-calendar-input-end').value = endISO;
+
+                const btnSave = document.getElementById('btn-save-google-calendar-manual');
+                if (btnSave) btnSave.innerHTML = `<i class="fa-solid fa-floppy-disk"></i> SPARA HÄNDELSE`;
+                
+                const btnCancel = document.getElementById('btn-cancel-google-calendar-edit');
+                if (btnCancel) btnCancel.style.display = "none";
+                
+                self.loadGoogleCalendarDashboardUI();
+            });
+            
+            btnCloseGoogleCalendar.addEventListener('click', () => {
+                soundSynth.playClick();
+                modalGoogleCalendar.classList.remove('active');
+            });
+        }
+
+        // Save manual Google Calendar entry
+        const btnSaveGoogleCalendarManual = document.getElementById('btn-save-google-calendar-manual');
+        if (btnSaveGoogleCalendarManual) {
+            btnSaveGoogleCalendarManual.addEventListener('click', async () => {
+                const summary = document.getElementById('google-calendar-input-summary').value.trim();
+                const startTime = document.getElementById('google-calendar-input-start').value;
+                const endTime = document.getElementById('google-calendar-input-end').value;
+                
+                if (!summary || !startTime || !endTime) {
+                    self.writeLog("CALENDAR FAILURE: TITEL OCH TIDER SAKNAS", "err");
+                    soundSynth.playError();
+                    alert("Titel, starttid och sluttid krävs.");
+                    return;
+                }
+                soundSynth.playClick();
+                
+                const eventId = document.getElementById('google-calendar-input-id').value;
+                const payload = {
+                    summary: summary,
+                    start_time: startTime,
+                    end_time: endTime,
+                    description: document.getElementById('google-calendar-input-description').value.trim(),
+                    location: document.getElementById('google-calendar-input-location').value.trim()
+                };
+                
+                if (eventId) {
+                    payload.id = parseInt(eventId);
+                }
+                
+                self.writeLog(`SAVING CALENDAR EVENT: "${summary}"`, "sys");
+                try {
+                    const res = await fetch('/api/google_calendar/data', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    const resData = await res.json();
+                    if (res.ok && resData.status === 'success') {
+                        self.writeLog("CALENDAR EVENT SECURED IN DATABASE", "sys");
+                        soundSynth.playNotify();
+                        self.loadGoogleCalendarDashboardUI();
+                        
+                        // Clear form input fields
+                        document.getElementById('google-calendar-input-id').value = '';
+                        document.getElementById('google-calendar-input-summary').value = '';
+                        document.getElementById('google-calendar-input-description').value = '';
+                        document.getElementById('google-calendar-input-location').value = '';
+                        
+                        const btnSave = document.getElementById('btn-save-google-calendar-manual');
+                        if (btnSave) btnSave.innerHTML = `<i class="fa-solid fa-floppy-disk"></i> SPARA HÄNDELSE`;
+                        
+                        const btnCancel = document.getElementById('btn-cancel-google-calendar-edit');
+                        if (btnCancel) btnCancel.style.display = "none";
+                    } else {
+                        throw new Error(resData.message || "Unknown error");
+                    }
+                } catch (err) {
+                    self.writeLog(`CALENDAR SAVE ERROR: ${err.message}`, "err");
+                    soundSynth.playError();
+                }
+            });
+        }
+
+        // Cancel Google Calendar edit operation
+        const btnCancelGoogleCalendarEdit = document.getElementById('btn-cancel-google-calendar-edit');
+        if (btnCancelGoogleCalendarEdit) {
+            btnCancelGoogleCalendarEdit.addEventListener('click', () => {
+                soundSynth.playClick();
+                document.getElementById('google-calendar-input-id').value = '';
+                document.getElementById('google-calendar-input-summary').value = '';
+                document.getElementById('google-calendar-input-description').value = '';
+                document.getElementById('google-calendar-input-location').value = '';
+                
+                const btnSave = document.getElementById('btn-save-google-calendar-manual');
+                if (btnSave) btnSave.innerHTML = `<i class="fa-solid fa-floppy-disk"></i> SPARA HÄNDELSE`;
+                
+                btnCancelGoogleCalendarEdit.style.display = "none";
+            });
+        }
+
+        // Sync Google Calendar from dashboard
+        const btnSyncGoogleCalendarDashboard = document.getElementById('btn-sync-google_calendar-dashboard');
+        if (btnSyncGoogleCalendarDashboard) {
+            btnSyncGoogleCalendarDashboard.addEventListener('click', async () => {
+                soundSynth.playClick();
+                self.writeLog("INITIATING GOOGLE CALENDAR SYNCHRONIZATION", "sys");
+                try {
+                    const res = await fetch('/api/google_calendar/sync');
+                    const resData = await res.json();
+                    if (res.ok && resData.status === 'syncing') {
+                        self.pollSyncStatus('google_calendar');
+                    } else {
+                        throw new Error(resData.detail || resData.message || "Sync error");
+                    }
+                } catch (err) {
+                    self.writeLog(`CALENDAR SYNC ERROR: ${err.message}`, "err");
+                    soundSynth.playError();
+                }
+            });
+        }
+
+        // Listen to background sync updates from tool execution
+        window.addEventListener('freja-calendar-updated', () => {
+            self.loadGoogleCalendarDashboardUI();
+        });
+
         // Insert new engram cards manually
         const btnAddMemoryManual = document.getElementById('btn-add-memory-manual');
         const inputNewMemory = document.getElementById('input-new-memory');
@@ -1216,6 +1431,28 @@ class FrejaUIController {
             localStorage.setItem("freja_withings_client_secret", withingsClientSecret);
             localStorage.setItem("freja_withings_refresh_token", withingsRefreshToken);
 
+            const googleClientId = document.getElementById('input-google-calendar-client-id').value.trim();
+            const googleClientSecret = document.getElementById('input-google-calendar-client-secret').value;
+            const googleRefreshToken = document.getElementById('input-google-calendar-refresh-token').value;
+            localStorage.setItem("freja_google_calendar_client_id", googleClientId);
+            localStorage.setItem("freja_google_calendar_client_secret", googleClientSecret);
+            localStorage.setItem("freja_google_calendar_refresh_token", googleRefreshToken);
+
+            const chkGoogleCalendar = document.getElementById('chk-tool-manage_google_calendar');
+            if (chkGoogleCalendar) {
+                const isAllowed = chkGoogleCalendar.checked;
+                localStorage.setItem("freja_tool_manage_google_calendar_allowed", isAllowed);
+                
+                const capGoogleCalendar = document.getElementById('cap-google_calendar');
+                if (capGoogleCalendar) {
+                    if (isAllowed) {
+                        capGoogleCalendar.classList.add('active');
+                    } else {
+                        capGoogleCalendar.classList.remove('active');
+                    }
+                }
+            }
+
             // Save keys to secure SQLite database
             await self.saveKeysToServer({
                 freja_gemini_apikey: apiKey,
@@ -1228,7 +1465,10 @@ class FrejaUIController {
                 freja_strava_refresh_token: stravaRefreshToken,
                 freja_withings_client_id: withingsClientId,
                 freja_withings_client_secret: withingsClientSecret,
-                freja_withings_refresh_token: withingsRefreshToken
+                freja_withings_refresh_token: withingsRefreshToken,
+                freja_google_calendar_client_id: googleClientId,
+                freja_google_calendar_client_secret: googleClientSecret,
+                freja_google_calendar_refresh_token: googleRefreshToken
             });
 
             modalSettings.classList.remove('active');
@@ -1798,6 +2038,133 @@ class FrejaUIController {
         } catch (err) {
             console.error("[WITHINGS] UI load error:", err);
             withingsList.innerHTML = '<div style="color: #ff3b30; text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[FEL VID LADDNING AV HISTORIK]</div>';
+        }
+    }
+
+    /**
+     * Synchronizes and draws the Google Calendar events inside the Google Calendar Dashboard overlay.
+     */
+    async loadGoogleCalendarDashboardUI() {
+        const calendarList = document.getElementById('google-calendar-list');
+        if (!calendarList) return;
+        
+        // Set start/end input defaults to today and tomorrow if empty
+        const startInput = document.getElementById('google-calendar-input-start');
+        const endInput = document.getElementById('google-calendar-input-end');
+        if (startInput && !startInput.value) {
+            const now = new Date();
+            const startISO = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+            startInput.value = startISO;
+        }
+        if (endInput && !endInput.value) {
+            const nextHour = new Date(new Date().getTime() + 60 * 60 * 1000);
+            const endISO = new Date(nextHour.getTime() - nextHour.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+            endInput.value = endISO;
+        }
+
+        calendarList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Laddar kalender...</div>';
+        
+        try {
+            const res = await fetch('/api/google_calendar/data?days=30');
+            if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+            
+            const events = await res.json();
+            if (events.length === 0) {
+                calendarList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[INGA HÄNDELSER HITTADE]</div>';
+                return;
+            }
+            
+            calendarList.innerHTML = "";
+            events.forEach(evt => {
+                const item = document.createElement('div');
+                item.className = "google-calendar-log-item";
+                item.style.display = "flex";
+                item.style.justifyContent = "space-between";
+                item.style.alignItems = "flex-start";
+                item.style.padding = "8px";
+                item.style.borderBottom = "1px solid rgba(0, 242, 254, 0.08)";
+                item.style.fontSize = "11px";
+                item.style.fontFamily = "var(--font-mono)";
+                
+                const formatDateTime = (isoStr) => {
+                    if (!isoStr) return "";
+                    const parts = isoStr.split('T');
+                    if (parts.length === 2) {
+                        return `${parts[0]} ${parts[1].substring(0, 5)}`;
+                    }
+                    return isoStr;
+                };
+
+                const startFormatted = formatDateTime(evt.start_time);
+                const endFormatted = formatDateTime(evt.end_time);
+                
+                const locInfo = evt.location ? ` <span style="color: var(--color-accent);"><i class="fa-solid fa-location-dot"></i> ${evt.location}</span>` : "";
+                const descInfo = evt.description ? `<div style="color: var(--color-text-muted); margin-top: 2px; font-size: 10px; font-style: italic; white-space: pre-wrap;">${evt.description}</div>` : "";
+
+                item.innerHTML = `
+                    <div style="flex: 1; color: var(--color-text-bright); margin-right: 10px;">
+                        <strong style="color: var(--color-primary); font-size: 12px;">${evt.summary}</strong>${locInfo}
+                        <div style="color: var(--color-text-muted); margin-top: 2px;">Tid: ${startFormatted} - ${endFormatted}</div>
+                        ${descInfo}
+                    </div>
+                    <div style="display: flex; gap: 5px; align-self: center;">
+                        <button class="calendar-edit-btn" title="Redigera händelse" style="background: transparent; border: none; color: var(--color-primary); cursor: pointer; padding: 2px 6px;">
+                            <i class="fa-solid fa-pencil"></i>
+                        </button>
+                        <button class="calendar-delete-btn" title="Radera händelse" style="background: transparent; border: none; color: #ff3b30; cursor: pointer; padding: 2px 6px;">
+                            <i class="fa-solid fa-trash-can"></i>
+                        </button>
+                    </div>
+                `;
+                
+                // Bind Edit Action
+                const editBtn = item.querySelector('.calendar-edit-btn');
+                editBtn.addEventListener('click', () => {
+                    soundSynth.playClick();
+                    document.getElementById('google-calendar-input-id').value = evt.id;
+                    document.getElementById('google-calendar-input-summary').value = evt.summary;
+                    document.getElementById('google-calendar-input-start').value = evt.start_time.substring(0, 16);
+                    document.getElementById('google-calendar-input-end').value = evt.end_time.substring(0, 16);
+                    document.getElementById('google-calendar-input-description').value = evt.description || "";
+                    document.getElementById('google-calendar-input-location').value = evt.location || "";
+                    
+                    const btnSave = document.getElementById('btn-save-google-calendar-manual');
+                    if (btnSave) btnSave.innerHTML = `<i class="fa-solid fa-floppy-disk"></i> SPARA ÄNDRINGAR`;
+                    
+                    const btnCancel = document.getElementById('btn-cancel-google-calendar-edit');
+                    if (btnCancel) btnCancel.style.display = "block";
+                });
+                
+                // Bind Delete Action
+                const delBtn = item.querySelector('.calendar-delete-btn');
+                delBtn.addEventListener('click', async () => {
+                    if (!confirm(`Vill du verkligen ta bort händelsen "${evt.summary}"?`)) return;
+                    soundSynth.playClick();
+                    item.style.opacity = '0.5';
+                    try {
+                        const delRes = await fetch(`/api/google_calendar/delete?id=${evt.id}`);
+                        const delData = await delRes.json();
+                        if (delRes.ok && delData.status === 'success') {
+                            this.writeLog(`CALENDAR EVENT "${evt.summary}" REMOVED`, "sys");
+                            item.remove();
+                            if (calendarList.children.length === 0) {
+                                calendarList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[INGA HÄNDELSER HITTADE]</div>';
+                            }
+                        } else {
+                            throw new Error(delData.message || "Failed deleting");
+                        }
+                    } catch (err) {
+                        item.style.opacity = '1';
+                        this.writeLog(`CALENDAR DELETE ERROR: ${err.message}`, "err");
+                        soundSynth.playError();
+                    }
+                });
+                
+                calendarList.appendChild(item);
+            });
+        } catch (err) {
+            console.error("[CALENDAR] UI load error:", err);
+            calendarList.innerHTML = '<div style="color: #ff3b30; text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[FEL VID LADDNING AV KALENDER]</div>';
         }
     }
 

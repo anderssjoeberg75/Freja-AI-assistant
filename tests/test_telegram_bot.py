@@ -56,5 +56,38 @@ class TelegramBotTests(unittest.TestCase):
         self.assertTrue(data["chat_id_configured"])
         self.assertEqual(data["chat_id"], "987654321")
 
+    def test_telegram_google_calendar_tool_handling(self):
+        from backend.routes.google_calendar import (
+            core_get_calendar_data,
+            core_save_calendar_event,
+            core_delete_calendar_event
+        )
+        
+        # 1. Create event via core
+        res = core_save_calendar_event(
+            summary="Telegram Möte",
+            start_time="2026-06-12T17:00:00",
+            end_time="2026-06-12T18:00:00",
+            description="Telegram test händelse",
+            location="Distans"
+        )
+        self.assertEqual(res["status"], "success")
+        event_id = res["event"]["id"]
+        
+        # 2. List events via core
+        events = core_get_calendar_data(days=30)
+        matching = [e for e in events if e["id"] == event_id]
+        self.assertEqual(len(matching), 1)
+        self.assertEqual(matching[0]["summary"], "Telegram Möte")
+        
+        # 3. Delete event via core
+        del_res = core_delete_calendar_event(db_id=event_id)
+        self.assertEqual(del_res["status"], "success")
+        
+        # Verify deleted
+        events_post = core_get_calendar_data(days=30)
+        matching_post = [e for e in events_post if e["id"] == event_id]
+        self.assertEqual(len(matching_post), 0)
+
 if __name__ == "__main__":
     unittest.main()

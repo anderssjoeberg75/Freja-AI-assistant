@@ -5,19 +5,22 @@ import datetime
 sync_states = {
     "garmin": "idle",
     "strava": "idle",
-    "withings": "idle"
+    "withings": "idle",
+    "google_calendar": "idle"
 }
 
 sync_errors = {
     "garmin": "",
     "strava": "",
-    "withings": ""
+    "withings": "",
+    "google_calendar": ""
 }
 
 last_sync_times = {
     "garmin": "",
     "strava": "",
-    "withings": ""
+    "withings": "",
+    "google_calendar": ""
 }
 
 def set_sync_state(provider: str, state: str, error: str = ""):

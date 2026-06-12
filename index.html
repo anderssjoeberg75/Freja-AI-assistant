@@ -51,6 +51,9 @@
                 <button id="btn-withings" class="hud-btn-icon" title="Withings Health Dashboard">
                     <i class="fa-solid fa-weight-scale"></i>
                 </button>
+                <button id="btn-google-calendar" class="hud-btn-icon" title="Google Calendar Dashboard">
+                    <i class="fa-solid fa-calendar-days"></i>
+                </button>
                 <button id="btn-telegram" class="hud-btn-icon" title="Telegram Integration">
                     <i class="fa-brands fa-telegram"></i>
                 </button>
@@ -186,6 +189,10 @@
                             <div class="cap-item" id="cap-withings">
                                 <i class="fa-solid fa-weight-scale"></i>
                                 <span>WITHINGS FIT</span>
+                            </div>
+                            <div class="cap-item" id="cap-google_calendar">
+                                <i class="fa-solid fa-calendar-days"></i>
+                                <span>GOOGLE CAL</span>
                             </div>
                         </div>
                     </div>
@@ -456,6 +463,30 @@
                 </div>
 
                 <hr class="panel-divider">
+                <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); margin-bottom: 5px; letter-spacing: 1px;">GOOGLE CALENDAR API CONFIG</h3>
+                
+                <div class="settings-group">
+                    <label for="input-google-calendar-client-id">Google Client ID</label>
+                    <input type="text" id="input-google-calendar-client-id" placeholder="Skriv Google Client ID..." class="hud-input">
+                </div>
+
+                <div class="settings-group">
+                    <label for="input-google-calendar-client-secret">Google Client Secret</label>
+                    <div class="input-password-container">
+                        <input type="password" id="input-google-calendar-client-secret" placeholder="Skriv Google Client Secret..." class="hud-input">
+                        <button type="button" id="btn-toggle-google-calendar-secret" class="btn-toggle-input"><i class="fa-solid fa-eye"></i></button>
+                    </div>
+                </div>
+
+                <div class="settings-group">
+                    <label for="input-google-calendar-refresh-token">Google Refresh Token</label>
+                    <div class="input-password-container">
+                        <input type="password" id="input-google-calendar-refresh-token" placeholder="Skriv Google Refresh Token..." class="hud-input">
+                        <button type="button" id="btn-toggle-google-calendar-token" class="btn-toggle-input"><i class="fa-solid fa-eye"></i></button>
+                    </div>
+                </div>
+
+                <hr class="panel-divider">
                 <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); margin-bottom: 5px; letter-spacing: 1px;">SYSTEMBEHÖRIGHETER (VERKTYG)</h3>
                 
                 <div class="settings-group-toggle" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
@@ -510,6 +541,14 @@
                     <span style="font-size: 11px; color: var(--color-text-muted);">Tillåt Withings Hälsocoach (get_withings_health)</span>
                     <label class="hud-switch">
                         <input type="checkbox" id="chk-tool-get_withings_health">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+
+                <div class="settings-group-toggle" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <span style="font-size: 11px; color: var(--color-text-muted);">Tillåt Google Kalender (manage_google_calendar)</span>
+                    <label class="hud-switch">
+                        <input type="checkbox" id="chk-tool-manage_google_calendar">
                         <span class="slider"></span>
                     </label>
                 </div>
@@ -765,6 +804,55 @@
         </div>
     </div>
 
+    <!-- GOOGLE CALENDAR DASHBOARD MODAL -->
+    <div class="hud-modal" id="modal-google-calendar">
+        <div class="modal-content glass-morphic">
+            <div class="modal-header">
+                <h2><i class="fa-solid fa-calendar-days"></i> GOOGLE CALENDAR DASHBOARD</h2>
+                <button class="modal-close" id="btn-close-google-calendar">&times;</button>
+            </div>
+            <div class="modal-body" style="display: flex; flex-direction: column; gap: 15px;">
+                <!-- Form for booking/editing an event -->
+                <div class="google-calendar-form" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--color-border); border-radius: 4px; padding: 12px;">
+                    <input type="hidden" id="google-calendar-input-id">
+                    <div style="grid-column: span 2; display: flex; flex-direction: column; gap: 4px;">
+                        <label for="google-calendar-input-summary" style="font-size: 11px; color: var(--color-text-muted);">Händelse/Titel</label>
+                        <input type="text" id="google-calendar-input-summary" placeholder="t.ex. Möte med Sven" class="hud-input" style="height: 32px; font-size: 12px;">
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 4px;">
+                        <label for="google-calendar-input-start" style="font-size: 11px; color: var(--color-text-muted);">Starttid</label>
+                        <input type="datetime-local" id="google-calendar-input-start" class="hud-input" style="height: 32px; font-size: 12px; font-family: var(--font-mono);">
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 4px;">
+                        <label for="google-calendar-input-end" style="font-size: 11px; color: var(--color-text-muted);">Sluttid</label>
+                        <input type="datetime-local" id="google-calendar-input-end" class="hud-input" style="height: 32px; font-size: 12px; font-family: var(--font-mono);">
+                    </div>
+                    <div style="grid-column: span 2; display: flex; flex-direction: column; gap: 4px;">
+                        <label for="google-calendar-input-description" style="font-size: 11px; color: var(--color-text-muted);">Beskrivning</label>
+                        <input type="text" id="google-calendar-input-description" placeholder="Mötesanteckningar eller info..." class="hud-input" style="height: 32px; font-size: 12px;">
+                    </div>
+                    <div style="grid-column: span 2; display: flex; flex-direction: column; gap: 4px;">
+                        <label for="google-calendar-input-location" style="font-size: 11px; color: var(--color-text-muted);">Plats</label>
+                        <input type="text" id="google-calendar-input-location" placeholder="Mötesrum, Teams/Meet eller adress..." class="hud-input" style="height: 32px; font-size: 12px;">
+                    </div>
+                    <button id="btn-save-google-calendar-manual" class="hud-btn btn-primary" style="grid-column: span 2; height: 34px; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-floppy-disk"></i> SPARA HÄNDELSE</button>
+                    <button id="btn-cancel-google-calendar-edit" class="hud-btn btn-secondary" style="grid-column: span 2; height: 34px; font-family: var(--font-display); font-size: 11px; display: none;">AVBRYT EDITERING</button>
+                </div>
+                
+                <!-- List of recent calendar events -->
+                <div class="google-calendar-list-container" style="display: flex; flex-direction: column; flex: 1; min-height: 200px; max-height: 250px;">
+                    <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); margin-bottom: 8px; letter-spacing: 1px;">KALENDERHÄNDELSER</h3>
+                    <div class="google-calendar-list" id="google-calendar-list" style="flex: 1; overflow-y: auto; background: rgba(0,0,0,0.3); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px;">
+                        <div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Laddar kalenderhändelser...</div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer" style="display: flex; gap: 10px;">
+                <button id="btn-sync-google_calendar-dashboard" class="hud-btn btn-primary" style="flex: 1; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-arrows-rotate"></i> SYNKRONISERA KALENDER</button>
+            </div>
+        </div>
+    </div>
+
     <!-- TELEGRAM INTEGRATION DASHBOARD MODAL -->
     <div class="hud-modal" id="modal-telegram">
         <div class="modal-content glass-morphic">
@@ -824,6 +912,7 @@
     <script src="tools/garmin_health.js?v=7"></script>
     <script src="tools/strava_data.js?v=7"></script>
     <script src="tools/withings_health.js?v=7"></script>
+    <script src="tools/google_calendar.js?v=7"></script>
     <script src="app.js?v=7"></script>
 </body>
 </html>

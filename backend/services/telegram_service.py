@@ -8,6 +8,11 @@ import sqlite3
 import requests
 from backend.config import DB_FILE
 from backend.services.search_service import perform_search
+from backend.routes.google_calendar import (
+    core_get_calendar_data,
+    core_save_calendar_event,
+    core_delete_calendar_event
+)
 
 # Active conversation history cache mapped by telegram chat_id
 chat_histories = {}
@@ -153,6 +158,53 @@ def query_gemini_with_tools(contents, api_key, system_prompt):
                     },
                     "required": ["days"]
                 }
+            },
+            {
+                "name": "manage_google_calendar",
+                "description": (
+                    "Hanterar användarens kalenderhändelser. Du kan boka/skapa nya händelser, "
+                    "ändra/editera befintliga händelser, radera/ta bort händelser eller lista "
+                    "händelser under en viss tidsperiod (dagar)."
+                ),
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "action": {
+                            "type": "STRING",
+                            "description": "Åtgärd att utföra: 'list', 'create', 'edit', eller 'delete'.",
+                            "enum": ["list", "create", "edit", "delete"]
+                        },
+                        "event_id": {
+                            "type": "INTEGER",
+                            "description": "Det unika databas-ID:t för händelsen (krävs vid 'edit' och 'delete')."
+                        },
+                        "summary": {
+                            "type": "STRING",
+                            "description": "Händelsens titel eller sammanfattning (krävs vid 'create' och 'edit')."
+                        },
+                        "start_time": {
+                            "type": "STRING",
+                            "description": "Starttid i ISO-format (t.ex. '2026-06-12T14:00:00', krävs vid 'create' och 'edit')."
+                        },
+                        "end_time": {
+                            "type": "STRING",
+                            "description": "Sluttid i ISO-format (t.ex. '2026-06-12T15:00:00', krävs vid 'create' och 'edit')."
+                        },
+                        "description": {
+                            "type": "STRING",
+                            "description": "Detaljerad beskrivning eller mötesanteckningar (valfritt)."
+                        },
+                        "location": {
+                            "type": "STRING",
+                            "description": "Plats eller möteslänk (valfritt)."
+                        },
+                        "days": {
+                            "type": "INTEGER",
+                            "description": "Antal dagar bakåt och framåt från idag att hämta vid 'list'. Standard är 30 dagar."
+                        }
+                    },
+                    "required": ["action"]
+                }
             }
         ]
     }]
@@ -209,6 +261,31 @@ def query_gemini_with_tools(contents, api_key, system_prompt):
             result = perform_search(func_args.get("query", ""))
         elif func_name == "get_health_summary":
             result = fetch_db_health_summary(func_args.get("days", 7))
+        elif func_name == "manage_google_calendar":
+            action = func_args.get("action", "").lower()
+            try:
+                if action == "list":
+                    days = int(func_args.get("days", 30))
+                    result = core_get_calendar_data(days=days)
+                elif action in ("create", "edit"):
+                    db_id = func_args.get("event_id")
+                    if db_id is not None:
+                        db_id = int(db_id)
+                    result = core_save_calendar_event(
+                        summary=func_args.get("summary", ""),
+                        start_time=func_args.get("start_time", ""),
+                        end_time=func_args.get("end_time", ""),
+                        description=func_args.get("description", ""),
+                        location=func_args.get("location", ""),
+                        db_id=db_id
+                    )
+                elif action == "delete":
+                    db_id = int(func_args.get("event_id"))
+                    result = core_delete_calendar_event(db_id=db_id)
+                else:
+                    result = {"error": f"Unknown action: {action}"}
+            except Exception as e:
+                result = {"error": str(e)}
             
         # Append function response to payload contents
         payload["contents"].append({
