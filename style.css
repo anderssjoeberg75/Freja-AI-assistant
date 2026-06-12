@@ -416,6 +416,21 @@ body {
     text-shadow: var(--shadow-neon);
 }
 
+.cap-item.syncing-blink {
+    border-color: #ffd600 !important;
+    color: #ffd600 !important;
+    background: rgba(255, 214, 0, 0.05) !important;
+    box-shadow: 0 0 10px rgba(255, 214, 0, 0.2) !important;
+    text-shadow: 0 0 5px rgba(255, 214, 0, 0.5) !important;
+    animation: cap-sync-blink-anim 1.5s infinite ease-in-out;
+}
+
+@keyframes cap-sync-blink-anim {
+    0% { border-color: rgba(255, 214, 0, 0.3); box-shadow: 0 0 5px rgba(255, 214, 0, 0.1); }
+    50% { border-color: rgba(255, 214, 0, 1.0); box-shadow: 0 0 15px rgba(255, 214, 0, 0.5); }
+    100% { border-color: rgba(255, 214, 0, 0.3); box-shadow: 0 0 5px rgba(255, 214, 0, 0.1); }
+}
+
 .quick-settings {
     display: flex;
     flex-direction: column;

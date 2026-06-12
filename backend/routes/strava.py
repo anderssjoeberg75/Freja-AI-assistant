@@ -6,9 +6,10 @@ import sqlite3
 import time
 import urllib.parse
 import urllib.request
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request, BackgroundTasks
 from fastapi.responses import HTMLResponse
 from backend.config import DB_FILE
+from backend.services.sync_status import set_sync_state
 from backend.services.strava_service import get_strava_access_token
 
 router = APIRouter()
@@ -111,28 +112,7 @@ async def get_strava_callback(code: str = Query("", description="Authorization c
     except Exception as e:
         return HTMLResponse(f'<h3>Fel vid auktorisering: {str(e)}</h3>', status_code=500)
 
-@router.get("/api/strava/sync")
-async def get_strava_sync():
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_strava_client_id'")
-    row_id = cursor.fetchone()
-    cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_strava_client_secret'")
-    row_secret = cursor.fetchone()
-    cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_strava_refresh_token'")
-    row_refresh = cursor.fetchone()
-    conn.close()
-    
-    client_id = row_id[0].strip() if row_id else ""
-    client_secret = row_secret[0].strip() if row_secret else ""
-    refresh_token = row_refresh[0].strip() if row_refresh else ""
-    
-    if not client_id or not client_secret or not refresh_token:
-        raise HTTPException(
-            status_code=400,
-            detail="Strava API-uppgifter saknas. Ange Client ID, Client Secret och Refresh Token i Inställningar."
-        )
-        
+def run_strava_sync_task(client_id, client_secret, refresh_token):
     try:
         if client_id == '123456' or refresh_token in ('refreshtokentoken', 'MOCK_REFRESH_TOKEN'):
             # Load mock data
@@ -168,7 +148,8 @@ async def get_strava_sync():
                 added_count += 1
             conn.commit()
             conn.close()
-            return {'status': 'success', 'message': f"Synkroniserade {added_count} (MOCK) aktiviteter från Strava."}
+            set_sync_state("strava", "success")
+            return
             
         token_url = 'https://www.strava.com/oauth/token'
         token_data = urllib.parse.urlencode({
@@ -256,7 +237,7 @@ async def get_strava_sync():
         cursor.execute("DELETE FROM strava_activities WHERE id < 0")
         conn.commit()
         conn.close()
-        return {'status': 'success', 'message': f"Synkroniserade {added_count} aktiviteter från Strava."}
+        set_sync_state("strava", "success")
     except Exception as e:
         print(f"Strava sync failed, falling back to mock: {e}")
         try:
@@ -292,9 +273,36 @@ async def get_strava_sync():
                 added_count += 1
             conn.commit()
             conn.close()
-            return {'status': 'success', 'message': f"Synkroniserade {added_count} (MOCK) aktiviteter från Strava."}
+            set_sync_state("strava", "success")
         except Exception as mock_err:
-            raise HTTPException(status_code=400, detail=f"Kunde inte ansluta till Strava API: {str(e)}")
+            print(f"[STRAVA SYNC TASK ERROR]: {mock_err}")
+            set_sync_state("strava", "error", str(e))
+
+@router.get("/api/strava/sync")
+async def get_strava_sync(background_tasks: BackgroundTasks):
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_strava_client_id'")
+    row_id = cursor.fetchone()
+    cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_strava_client_secret'")
+    row_secret = cursor.fetchone()
+    cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_strava_refresh_token'")
+    row_refresh = cursor.fetchone()
+    conn.close()
+    
+    client_id = row_id[0].strip() if row_id else ""
+    client_secret = row_secret[0].strip() if row_secret else ""
+    refresh_token = row_refresh[0].strip() if row_refresh else ""
+    
+    if not client_id or not client_secret or not refresh_token:
+        raise HTTPException(
+            status_code=400,
+            detail="Strava API-uppgifter saknas. Ange Client ID, Client Secret och Refresh Token i Inställningar."
+        )
+        
+    set_sync_state("strava", "syncing")
+    background_tasks.add_task(run_strava_sync_task, client_id, client_secret, refresh_token)
+    return {'status': 'syncing', 'message': "Strava-synkronisering påbörjad i bakgrunden."}
 
 @router.get("/api/strava/data")
 async def get_strava_data(days: int = Query(7, description="Number of days to retrieve")):

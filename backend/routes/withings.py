@@ -7,8 +7,9 @@ import sqlite3
 import time
 import urllib.parse
 import urllib.request
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request, BackgroundTasks
 from backend.config import DB_FILE
+from backend.services.sync_status import set_sync_state
 
 router = APIRouter()
 
@@ -49,28 +50,7 @@ async def get_withings_data(days: int = Query(7, description="Number of days to 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/api/withings/sync")
-async def get_withings_sync():
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_withings_client_id'")
-    row_id = cursor.fetchone()
-    cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_withings_client_secret'")
-    row_secret = cursor.fetchone()
-    cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_withings_refresh_token'")
-    row_refresh = cursor.fetchone()
-    conn.close()
-    
-    client_id = row_id[0].strip() if row_id else ""
-    client_secret = row_secret[0].strip() if row_secret else ""
-    refresh_token = row_refresh[0].strip() if row_refresh else ""
-    
-    if not client_id or not client_secret or not refresh_token:
-        raise HTTPException(
-            status_code=400,
-            detail="Withings API-uppgifter saknas. Ange Client ID, Client Secret och Refresh Token i Inställningar."
-        )
-        
+def run_withings_sync_task(client_id, client_secret, refresh_token):
     try:
         if client_id == 'withings123' or refresh_token in ('refreshtokentoken', 'MOCK_REFRESH_TOKEN'):
             conn = sqlite3.connect(DB_FILE)
@@ -116,7 +96,8 @@ async def get_withings_sync():
                 added_count += 1
             conn.commit()
             conn.close()
-            return {'status': 'success', 'message': f"Synkroniserade {added_count} (MOCK) mätningar från Withings."}
+            set_sync_state("withings", "success")
+            return
             
         token_url = 'https://wbsapi.withings.net/v2/oauth2'
         token_data = urllib.parse.urlencode({
@@ -265,9 +246,36 @@ async def get_withings_sync():
             
         conn.commit()
         conn.close()
-        return {'status': 'success', 'message': f"Synkroniserade {added_count} mätningar, sömn och aktivitet från Withings."}
+        set_sync_state("withings", "success")
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Kunde inte ansluta till Withings API: {str(e)}")
+        print(f"[WITHINGS SYNC TASK ERROR]: {e}")
+        set_sync_state("withings", "error", str(e))
+
+@router.get("/api/withings/sync")
+async def get_withings_sync(background_tasks: BackgroundTasks):
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_withings_client_id'")
+    row_id = cursor.fetchone()
+    cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_withings_client_secret'")
+    row_secret = cursor.fetchone()
+    cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_withings_refresh_token'")
+    row_refresh = cursor.fetchone()
+    conn.close()
+    
+    client_id = row_id[0].strip() if row_id else ""
+    client_secret = row_secret[0].strip() if row_secret else ""
+    refresh_token = row_refresh[0].strip() if row_refresh else ""
+    
+    if not client_id or not client_secret or not refresh_token:
+        raise HTTPException(
+            status_code=400,
+            detail="Withings API-uppgifter saknas. Ange Client ID, Client Secret och Refresh Token i Inställningar."
+        )
+        
+    set_sync_state("withings", "syncing")
+    background_tasks.add_task(run_withings_sync_task, client_id, client_secret, refresh_token)
+    return {'status': 'syncing', 'message': "Withings-synkronisering påbörjad i bakgrunden."}
 
 @router.get("/api/withings/delete")
 async def delete_withings_log(date: str = Query(..., description="Date to delete")):

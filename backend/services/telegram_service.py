@@ -297,6 +297,19 @@ async def telegram_worker_loop():
                     )
                     continue
                     
+                # Save user message to persistent DB history
+                try:
+                    conn = sqlite3.connect(DB_FILE)
+                    cursor = conn.cursor()
+                    cursor.execute('''
+                        INSERT INTO chat_history (sender, content, timestamp, channel)
+                        VALUES (?, ?, ?, ?)
+                    ''', ("user", text, datetime.datetime.now().isoformat(), "telegram"))
+                    conn.commit()
+                    conn.close()
+                except Exception as db_err:
+                    print(f"[TELEGRAM] Error saving user message to database: {db_err}")
+
                 gemini_key = get_gemini_api_key()
                 if not gemini_key:
                     await asyncio.to_thread(
@@ -346,6 +359,19 @@ async def telegram_worker_loop():
                     "parts": [{"text": reply_text}]
                 })
                 
+                # Save assistant response to persistent DB history
+                try:
+                    conn = sqlite3.connect(DB_FILE)
+                    cursor = conn.cursor()
+                    cursor.execute('''
+                        INSERT INTO chat_history (sender, content, timestamp, channel)
+                        VALUES (?, ?, ?, ?)
+                    ''', ("assistant", reply_text, datetime.datetime.now().isoformat(), "telegram"))
+                    conn.commit()
+                    conn.close()
+                except Exception as db_err:
+                    print(f"[TELEGRAM] Error saving assistant response to database: {db_err}")
+
                 # Format response and transmit to Telegram
                 html_reply = markdown_to_html(reply_text)
                 await asyncio.to_thread(send_telegram_message, token, chat_id, html_reply)

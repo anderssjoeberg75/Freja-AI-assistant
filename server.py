@@ -21,6 +21,8 @@ from backend.routes.gemini_proxy import router as gemini_router
 from backend.routes.elevenlabs_proxy import router as elevenlabs_router
 from backend.routes.mem0_proxy import router as mem0_router
 from backend.routes.telegram import router as telegram_router
+from backend.routes.chat import router as chat_router
+from backend.routes.sync import router as sync_router
 
 # Initialize the SQLite database schemas
 init_db()
@@ -46,6 +48,8 @@ app.include_router(gemini_router)
 app.include_router(elevenlabs_router)
 app.include_router(mem0_router)
 app.include_router(telegram_router)
+app.include_router(chat_router)
+app.include_router(sync_router)
 
 # Serve index.html specifically at "/"
 @app.get("/")

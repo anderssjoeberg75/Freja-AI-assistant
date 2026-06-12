@@ -13,6 +13,7 @@ class GeminiClient {
         this.model = "gemini-2.5-flash";
         this.history = [];
         this.systemPrompt = "Du är FREJA, en intelligent och artig AI-assistent. Svara kortfattat.";
+        this.lastFrameBuffer = null;
         this.loadApiKey();
     }
 
@@ -24,6 +25,42 @@ class GeminiClient {
         if (!video || !video.classList.contains('active')) return null;
         
         try {
+            // Check pixel difference using a downscaled 40x30 canvas
+            const downscaledCanvas = document.createElement('canvas');
+            downscaledCanvas.width = 40;
+            downscaledCanvas.height = 30;
+            const dsCtx = downscaledCanvas.getContext('2d');
+            dsCtx.drawImage(video, 0, 0, 40, 30);
+            const imgData = dsCtx.getImageData(0, 0, 40, 30);
+            const data = imgData.data;
+            
+            let isStatic = false;
+            if (this.lastFrameBuffer) {
+                let changedPixels = 0;
+                const totalPixels = 40 * 30;
+                const threshold = 15; // intensity difference threshold (0-255)
+                for (let i = 0; i < data.length; i += 4) {
+                    const rDiff = Math.abs(data[i] - this.lastFrameBuffer[i]);
+                    const gDiff = Math.abs(data[i+1] - this.lastFrameBuffer[i+1]);
+                    const bDiff = Math.abs(data[i+2] - this.lastFrameBuffer[i+2]);
+                    if (rDiff > threshold || gDiff > threshold || bDiff > threshold) {
+                        changedPixels++;
+                    }
+                }
+                const diffRatio = changedPixels / totalPixels;
+                console.log(`[GEMINI WEB snapshot] Frame change ratio: ${(diffRatio * 100).toFixed(2)}%`);
+                if (diffRatio < 0.015) { // less than 1.5% of pixels changed
+                    isStatic = true;
+                }
+            }
+            
+            this.lastFrameBuffer = data;
+            
+            if (isStatic) {
+                console.log("[GEMINI] Webcam stream is static. Bypassing image payload to prevent token bloat.");
+                return null;
+            }
+
             // Draw visual frame to hidden canvas
             const canvas = document.createElement('canvas');
             canvas.width = 400; // Optimal small width to protect token payload limits

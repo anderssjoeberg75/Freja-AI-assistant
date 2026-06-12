@@ -3,8 +3,9 @@
 import datetime
 import os
 import sqlite3
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request, BackgroundTasks
 from backend.config import DB_FILE, PROJECT_ROOT
+from backend.services.sync_status import set_sync_state
 
 router = APIRouter()
 
@@ -41,25 +42,7 @@ async def get_garmin_data(days: int = Query(7, description="Number of days to re
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/api/garmin/sync")
-async def get_garmin_sync(days: int = Query(7, description="Number of days to sync")):
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_garmin_email'")
-    row_email = cursor.fetchone()
-    cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_garmin_password'")
-    row_password = cursor.fetchone()
-    conn.close()
-    
-    email = row_email[0].strip() if row_email else ""
-    password = row_password[0] if row_password else ""
-    
-    if not email or not password:
-        raise HTTPException(
-            status_code=400,
-            detail="Garmin Connect inloggningsuppgifter saknas. Ange e-post och lösenord i Inställningar."
-        )
-        
+def run_garmin_sync_task(email, password, days):
     try:
         from garminconnect import Garmin
         token_dir = os.path.join(os.path.dirname(os.path.abspath(PROJECT_ROOT)), '.garminconnect')
@@ -207,31 +190,39 @@ async def get_garmin_sync(days: int = Query(7, description="Number of days to sy
             
         conn.commit()
         conn.close()
-        
-        sync_res = {
-            'status': 'success',
-            'message': f"Garmin-data synkroniserad från ditt konto för {len(dates_to_sync)} dagar.",
-            'synced_days': len(dates_to_sync),
-            'data': {
-                'date': dates_to_sync[-1],
-                'steps': steps,
-                'sleep_hours': sleep_hours,
-                'resting_hr': resting_hr,
-                'active_calories': active_calories,
-                'workout_type': workout_type or 'Ingen',
-                'workout_duration': workout_duration,
-                'body_battery': body_battery,
-                'hrv': hrv,
-                'recovery_time': recovery_time,
-                'training_status': training_status
-            }
-        }
-        return sync_res
+        set_sync_state("garmin", "success")
     except Exception as e:
+        print(f"[GARMIN SYNC TASK ERROR]: {e}")
+        set_sync_state("garmin", "error", str(e))
+
+@router.get("/api/garmin/sync")
+async def get_garmin_sync(
+    background_tasks: BackgroundTasks,
+    days: int = Query(7, description="Number of days to sync")
+):
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_garmin_email'")
+    row_email = cursor.fetchone()
+    cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_garmin_password'")
+    row_password = cursor.fetchone()
+    conn.close()
+    
+    email = row_email[0].strip() if row_email else ""
+    password = row_password[0] if row_password else ""
+    
+    if not email or not password:
         raise HTTPException(
             status_code=400,
-            detail=f"Kunde inte ansluta till Garmin Connect: {str(e)}"
+            detail="Garmin Connect inloggningsuppgifter saknas. Ange e-post och lösenord i Inställningar."
         )
+        
+    set_sync_state("garmin", "syncing")
+    background_tasks.add_task(run_garmin_sync_task, email, password, days)
+    return {
+        'status': 'syncing',
+        'message': "Garmin-synkronisering påbörjad i bakgrunden."
+    }
 
 @router.get("/api/garmin/delete")
 async def delete_garmin_log(date: str = Query(..., description="Date to delete")):

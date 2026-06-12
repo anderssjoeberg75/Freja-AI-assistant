@@ -24,8 +24,92 @@ class FrejaUIController {
         await this.loadKeysFromServer();
         this.initializeUI();
         this.bindEvents();
+        await this.loadChatHistory();
         this.startDiagnosticSimulation();
         this.updateTimeAndDate();
+        await this.checkActiveSyncs();
+    }
+
+    async checkActiveSyncs() {
+        try {
+            const res = await fetch('/api/sync/status');
+            if (res.ok) {
+                const statusData = await res.json();
+                ['garmin', 'strava', 'withings'].forEach(provider => {
+                    if (statusData.states && statusData.states[provider] === 'syncing') {
+                        this.pollSyncStatus(provider);
+                    }
+                });
+            }
+        } catch (err) {
+            console.error("Error checking active syncs:", err);
+        }
+    }
+
+    async pollSyncStatus(provider) {
+        if (this[`syncInterval_${provider}`]) return; // already polling
+        
+        const self = this;
+        const btn = document.getElementById(`btn-sync-${provider}-dashboard`);
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> SYNKAR...`;
+        }
+        
+        const capItem = document.getElementById(`cap-${provider}`);
+        if (capItem) {
+            capItem.classList.add('syncing-blink');
+        }
+
+        self.writeLog(`SYNC BACKGROUND TASK STARTED FOR ${provider.toUpperCase()}`, "sys");
+
+        this[`syncInterval_${provider}`] = setInterval(async () => {
+            try {
+                const res = await fetch('/api/sync/status');
+                if (res.ok) {
+                    const statusData = await res.json();
+                    const state = statusData.states[provider];
+                    const error = statusData.errors[provider];
+                    
+                    if (state === 'success') {
+                        clearInterval(self[`syncInterval_${provider}`]);
+                        self[`syncInterval_${provider}`] = null;
+                        
+                        if (btn) {
+                            btn.disabled = false;
+                            btn.innerHTML = `<i class="fa-solid fa-arrows-rotate"></i> SYNKRONISERA ENHET`;
+                        }
+                        if (capItem) {
+                            capItem.classList.remove('syncing-blink');
+                        }
+                        
+                        self.writeLog(`BACKGROUND SYNCHRONIZATION COMPLETED FOR ${provider.toUpperCase()}`, "sys");
+                        soundSynth.playNotify();
+                        
+                        if (provider === 'garmin') self.loadGarminDashboardUI();
+                        if (provider === 'strava') self.loadStravaDashboardUI();
+                        if (provider === 'withings') self.loadWithingsDashboardUI();
+                        
+                    } else if (state === 'error') {
+                        clearInterval(self[`syncInterval_${provider}`]);
+                        self[`syncInterval_${provider}`] = null;
+                        
+                        if (btn) {
+                            btn.disabled = false;
+                            btn.innerHTML = `<i class="fa-solid fa-arrows-rotate"></i> SYNKRONISERA ENHET`;
+                        }
+                        if (capItem) {
+                            capItem.classList.remove('syncing-blink');
+                        }
+                        
+                        self.writeLog(`${provider.toUpperCase()} SYNC ERROR: ${error}`, "err");
+                        soundSynth.playError();
+                    }
+                }
+            } catch (err) {
+                console.error(`Error polling sync status for ${provider}:`, err);
+            }
+        }, 2000);
     }
 
     /**
@@ -385,7 +469,7 @@ class FrejaUIController {
         // Speech transcript callback trigger
         this.speech.transcriptCallback = (text) => {
             self.writeLog(`HEARD: "${text}"`, "user");
-            self.appendChatMessage("user", text);
+            self.appendChatMessage("user", text, true);
             self.processUserQuery(text);
         };
 
@@ -401,7 +485,7 @@ class FrejaUIController {
             soundSynth.playClick();
             
             self.writeLog(`QUERY SUBMITTED: "${query}"`, "user");
-            self.appendChatMessage("user", query);
+            self.appendChatMessage("user", query, true);
             self.processUserQuery(query);
         };
 
@@ -458,6 +542,7 @@ class FrejaUIController {
                 soundSynth.playError();
                 if (confirm("Vill du rensa chatthistoriken? Detta tar bort meddelandena från skärmen och nollställer samtalskontexten.")) {
                     self.gemini.clearHistory();
+                    fetch('/api/chat/clear', { method: 'POST' }).catch(e => console.error(e));
                     const chatHistory = document.getElementById('chat-history');
                     chatHistory.innerHTML = `
                         <div class="chat-msg system-msg">
@@ -651,12 +736,10 @@ class FrejaUIController {
                 try {
                     const res = await fetch('/api/garmin/sync');
                     const resData = await res.json();
-                    if (res.ok && resData.status === 'success') {
-                        self.writeLog("SYNCHRONIZATION COMPLETED: TODAY'S LOG UPDATED", "sys");
-                        soundSynth.playNotify();
-                        self.loadGarminDashboardUI();
+                    if (res.ok && resData.status === 'syncing') {
+                        self.pollSyncStatus('garmin');
                     } else {
-                        throw new Error(resData.message || "Sync error");
+                        throw new Error(resData.detail || resData.message || "Sync error");
                     }
                 } catch (err) {
                     self.writeLog(`GARMIN SYNC ERROR: ${err.message}`, "err");
@@ -786,12 +869,10 @@ class FrejaUIController {
                 try {
                     const res = await fetch('/api/strava/sync');
                     const resData = await res.json();
-                    if (res.ok && resData.status === 'success') {
-                        self.writeLog(`SYNCHRONIZATION COMPLETED: ${resData.message}`, "sys");
-                        soundSynth.playNotify();
-                        self.loadStravaDashboardUI();
+                    if (res.ok && resData.status === 'syncing') {
+                        self.pollSyncStatus('strava');
                     } else {
-                        throw new Error(resData.message || "Sync error");
+                        throw new Error(resData.detail || resData.message || "Sync error");
                     }
                 } catch (err) {
                     self.writeLog(`STRAVA SYNC ERROR: ${err.message}`, "err");
@@ -914,17 +995,14 @@ class FrejaUIController {
                 try {
                     const res = await fetch('/api/withings/sync');
                     const resData = await res.json();
-                    if (res.ok && resData.status === 'success') {
-                        self.writeLog(`SYNCHRONIZATION COMPLETED: ${resData.message}`, "sys");
-                        soundSynth.playNotify();
-                        self.loadWithingsDashboardUI();
+                    if (res.ok && resData.status === 'syncing') {
+                        self.pollSyncStatus('withings');
                     } else {
-                        throw new Error(resData.message || "Sync error");
+                        throw new Error(resData.detail || resData.message || "Sync error");
                     }
                 } catch (err) {
                     self.writeLog(`WITHINGS SYNC ERROR: ${err.message}`, "err");
                     soundSynth.playError();
-                    alert(err.message);
                 }
             });
         }
@@ -1761,7 +1839,7 @@ class FrejaUIController {
         const response = await this.gemini.generateResponse(text, attachImage);
         
         this.writeLog("RESPONSE SECURED. INITIATING AUDIO SYNTHESIS", "gemini");
-        this.appendChatMessage("assistant", response);
+        this.appendChatMessage("assistant", response, true);
         
         // Synthesize response speech audio
         await this.speech.speak(response);
@@ -1782,7 +1860,37 @@ class FrejaUIController {
     /**
      * Draws chat message nodes on the central panels chat log container.
      */
-    appendChatMessage(sender, text) {
+    async saveChatMessage(sender, content) {
+        try {
+            await fetch('/api/chat/message', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sender, content, channel: 'web' })
+            });
+        } catch (e) {
+            console.error("Failed to save chat message:", e);
+        }
+    }
+
+    async loadChatHistory() {
+        try {
+            const response = await fetch('/api/chat/history');
+            if (response.ok) {
+                const history = await response.json();
+                if (history && history.length > 0) {
+                    const chatHistory = document.getElementById('chat-history');
+                    chatHistory.innerHTML = "";
+                    history.forEach(msg => {
+                        this.appendChatMessage(msg.sender, msg.content, false);
+                    });
+                }
+            }
+        } catch (e) {
+            console.error("Failed to load chat history:", e);
+        }
+    }
+
+    appendChatMessage(sender, text, saveToDb = false) {
         const chatHistory = document.getElementById('chat-history');
         const msgDiv = document.createElement('div');
         msgDiv.className = `chat-msg ${sender}-msg`;
@@ -1799,6 +1907,10 @@ class FrejaUIController {
         
         chatHistory.appendChild(msgDiv);
         chatHistory.scrollTop = chatHistory.scrollHeight;
+
+        if (saveToDb) {
+            this.saveChatMessage(sender, text);
+        }
     }
 
     /**
