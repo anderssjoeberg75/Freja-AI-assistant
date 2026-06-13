@@ -4,9 +4,9 @@ import asyncio
 import html
 import os
 import re
-import sqlite3
-import requests
-from backend.config import DB_FILE
+import datetime
+import httpx
+from backend.database import get_db_connection
 from backend.services.search_service import perform_search
 from backend.routes.google_calendar import (
     core_get_calendar_data,
@@ -25,19 +25,18 @@ def get_telegram_config():
     chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
     
     try:
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
-        if not token:
-            cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_telegram_bot_token'")
-            row = cursor.fetchone()
-            if row:
-                token = row[0].strip()
-        if not chat_id:
-            cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_telegram_chat_id'")
-            row = cursor.fetchone()
-            if row:
-                chat_id = row[0].strip()
-        conn.close()
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            if not token:
+                cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_telegram_bot_token'")
+                row = cursor.fetchone()
+                if row:
+                    token = row[0].strip()
+            if not chat_id:
+                cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_telegram_chat_id'")
+                row = cursor.fetchone()
+                if row:
+                    chat_id = row[0].strip()
     except Exception as e:
         print(f"[TELEGRAM] Config fetch error: {e}")
         
@@ -46,16 +45,15 @@ def get_telegram_config():
 def get_gemini_api_key():
     """Retrieves the Gemini API key from the database."""
     try:
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
-        cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_gemini_apikey'")
-        row = cursor.fetchone()
-        conn.close()
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_gemini_apikey'")
+            row = cursor.fetchone()
         return row[0].strip() if row else ""
     except Exception:
         return ""
 
-def send_telegram_message(token, chat_id, text):
+async def send_telegram_message(token, chat_id, text):
     """Sends an HTML-formatted message to the specified Telegram Chat ID."""
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     payload = {
@@ -64,9 +62,10 @@ def send_telegram_message(token, chat_id, text):
         "parse_mode": "HTML"
     }
     try:
-        res = requests.post(url, json=payload, timeout=10)
-        if res.status_code != 200:
-            print(f"[TELEGRAM] Send message error: HTTP {res.status_code}: {res.text}")
+        async with httpx.AsyncClient() as client:
+            res = await client.post(url, json=payload, timeout=10.0)
+            if res.status_code != 200:
+                print(f"[TELEGRAM] Send message error: HTTP {res.status_code}: {res.text}")
     except Exception as e:
         print(f"[TELEGRAM] Send message exception: {e}")
 
@@ -84,31 +83,29 @@ def markdown_to_html(text):
 def fetch_db_health_summary(days: int = 7):
     """Retrieves health log history from SQLite database tables."""
     try:
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
-        
-        # Garmin health logs
-        cursor.execute('''
-            SELECT date, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status
-            FROM garmin_health ORDER BY date DESC LIMIT ?
-        ''', (days,))
-        garmin_rows = cursor.fetchall()
-        
-        # Strava activities
-        cursor.execute('''
-            SELECT name, type, date, distance, moving_time, calories
-            FROM strava_activities ORDER BY date DESC LIMIT ?
-        ''', (days,))
-        strava_rows = cursor.fetchall()
-        
-        # Withings measurements
-        cursor.execute('''
-            SELECT date, weight, fat_ratio, heart_pulse, sleep_score, steps
-            FROM withings_measurements ORDER BY date DESC LIMIT ?
-        ''', (days,))
-        withings_rows = cursor.fetchall()
-        
-        conn.close()
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Garmin health logs
+            cursor.execute('''
+                SELECT date, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status
+                FROM garmin_health ORDER BY date DESC LIMIT ?
+            ''', (days,))
+            garmin_rows = cursor.fetchall()
+            
+            # Strava activities
+            cursor.execute('''
+                SELECT name, type, date, distance, moving_time, calories
+                FROM strava_activities ORDER BY date DESC LIMIT ?
+            ''', (days,))
+            strava_rows = cursor.fetchall()
+            
+            # Withings measurements
+            cursor.execute('''
+                SELECT date, weight, fat_ratio, heart_pulse, sleep_score, steps
+                FROM withings_measurements ORDER BY date DESC LIMIT ?
+            ''', (days,))
+            withings_rows = cursor.fetchall()
         
         return {
             "garmin": [
@@ -133,7 +130,7 @@ def fetch_db_health_summary(days: int = 7):
         print(f"[TELEGRAM] Database retrieval error: {e}")
         return {"error": str(e)}
 
-def query_gemini_with_tools(contents, api_key, system_prompt):
+async def query_gemini_with_tools(contents, api_key, system_prompt):
     """Executes the conversational loop with Gemini including Python-side tools."""
     tools = [{
         "functionDeclarations": [
@@ -226,78 +223,79 @@ def query_gemini_with_tools(contents, api_key, system_prompt):
         }
     }
     
-    for iteration in range(5):
-        res = requests.post(url, json=payload, timeout=30)
-        if res.status_code != 200:
-            raise Exception(f"Gemini API error (HTTP {res.status_code}): {res.text}")
+    async with httpx.AsyncClient() as client:
+        for iteration in range(5):
+            res = await client.post(url, json=payload, timeout=30.0)
+            if res.status_code != 200:
+                raise Exception(f"Gemini API error (HTTP {res.status_code}): {res.text}")
+                
+            res_json = res.json()
+            candidates = res_json.get("candidates", [])
+            if not candidates:
+                return "Inget svar returnerades från Gemini."
+                
+            candidate = candidates[0]
+            content = candidate.get("content", {})
+            parts = content.get("parts", [])
             
-        res_json = res.json()
-        candidates = res_json.get("candidates", [])
-        if not candidates:
-            return "Inget svar returnerades från Gemini."
+            # Append response to contents history
+            payload["contents"].append(content)
             
-        candidate = candidates[0]
-        content = candidate.get("content", {})
-        parts = content.get("parts", [])
-        
-        # Append response to contents history
-        payload["contents"].append(content)
-        
-        func_calls = [p.get("functionCall") for p in parts if p.get("functionCall")]
-        if not func_calls:
-            # We got a text response
-            text_parts = [p.get("text", "") for p in parts if p.get("text")]
-            return "".join(text_parts)
+            func_calls = [p.get("functionCall") for p in parts if p.get("functionCall")]
+            if not func_calls:
+                # We got a text response
+                text_parts = [p.get("text", "") for p in parts if p.get("text")]
+                return "".join(text_parts)
+                
+            # Handle function call
+            func_call = func_calls[0]
+            func_name = func_call.get("name")
+            func_args = func_call.get("args", {})
             
-        # Handle function call
-        func_call = func_calls[0]
-        func_name = func_call.get("name")
-        func_args = func_call.get("args", {})
-        
-        print(f"[TELEGRAM BOT] Gemini calling tool: {func_name} with args: {func_args}")
-        
-        result = None
-        if func_name == "google_search":
-            result = perform_search(func_args.get("query", ""))
-        elif func_name == "get_health_summary":
-            result = fetch_db_health_summary(func_args.get("days", 7))
-        elif func_name == "manage_google_calendar":
-            action = func_args.get("action", "").lower()
-            try:
-                if action == "list":
-                    days = int(func_args.get("days", 30))
-                    result = core_get_calendar_data(days=days)
-                elif action in ("create", "edit"):
-                    db_id = func_args.get("event_id")
-                    if db_id is not None:
-                        db_id = int(db_id)
-                    result = core_save_calendar_event(
-                        summary=func_args.get("summary", ""),
-                        start_time=func_args.get("start_time", ""),
-                        end_time=func_args.get("end_time", ""),
-                        description=func_args.get("description", ""),
-                        location=func_args.get("location", ""),
-                        db_id=db_id
-                    )
-                elif action == "delete":
-                    db_id = int(func_args.get("event_id"))
-                    result = core_delete_calendar_event(db_id=db_id)
-                else:
-                    result = {"error": f"Unknown action: {action}"}
-            except Exception as e:
-                result = {"error": str(e)}
+            print(f"[TELEGRAM BOT] Gemini calling tool: {func_name} with args: {func_args}")
             
-        # Append function response to payload contents
-        payload["contents"].append({
-            "role": "function",
-            "parts": [{
-                "functionResponse": {
-                    "name": func_name,
-                    "response": {"result": result}
-                }
-            }]
-        })
-        
+            result = None
+            if func_name == "google_search":
+                result = await perform_search(func_args.get("query", ""))
+            elif func_name == "get_health_summary":
+                result = fetch_db_health_summary(func_args.get("days", 7))
+            elif func_name == "manage_google_calendar":
+                action = func_args.get("action", "").lower()
+                try:
+                    if action == "list":
+                        days = int(func_args.get("days", 30))
+                        result = core_get_calendar_data(days=days)
+                    elif action in ("create", "edit"):
+                        db_id = func_args.get("event_id")
+                        if db_id is not None:
+                            db_id = int(db_id)
+                        result = await core_save_calendar_event(
+                            summary=func_args.get("summary", ""),
+                            start_time=func_args.get("start_time", ""),
+                            end_time=func_args.get("end_time", ""),
+                            description=func_args.get("description", ""),
+                            location=func_args.get("location", ""),
+                            db_id=db_id
+                        )
+                    elif action == "delete":
+                        db_id = int(func_args.get("event_id"))
+                        result = await core_delete_calendar_event(db_id=db_id)
+                    else:
+                        result = {"error": f"Unknown action: {action}"}
+                except Exception as e:
+                    result = {"error": str(e)}
+                
+            # Append function response to payload contents
+            payload["contents"].append({
+                "role": "function",
+                "parts": [{
+                    "functionResponse": {
+                        "name": func_name,
+                        "response": {"result": result}
+                    }
+                }]
+            })
+            
     return "F.R.E.J.A. avbröt konversationen: för många funktionsanrop (loop limit nådd)."
 
 async def telegram_worker_loop():
@@ -305,154 +303,148 @@ async def telegram_worker_loop():
     print("[TELEGRAM] Background polling worker thread initialized.")
     offset = 0
     
-    while True:
-        try:
-            token, auth_chat_id = get_telegram_config()
-            if not token:
-                await asyncio.sleep(10)
-                continue
-                
-            if not auth_chat_id:
-                print("[TELEGRAM] Warning: 'freja_telegram_chat_id' is missing. Locking Telegram bot for security.")
-                await asyncio.sleep(10)
-                continue
-                
-            # Fetch Telegram messages
-            url = f"https://api.telegram.org/bot{token}/getUpdates"
-            params = {"offset": offset, "timeout": 20}
-            
-            response = await asyncio.to_thread(
-                requests.get, url, params=params, timeout=25
-            )
-            
-            if response.status_code != 200:
-                print(f"[TELEGRAM] Polling failed: HTTP {response.status_code}")
-                await asyncio.sleep(5)
-                continue
-                
-            res_json = response.json()
-            updates = res_json.get("result", [])
-            
-            for update in updates:
-                update_id = update.get("update_id")
-                offset = update_id + 1
-                
-                message = update.get("message")
-                if not message:
+    async with httpx.AsyncClient() as client:
+        while True:
+            try:
+                token, auth_chat_id = get_telegram_config()
+                if not token:
+                    await asyncio.sleep(10)
                     continue
                     
-                chat = message.get("chat", {})
-                chat_id = str(chat.get("id"))
-                text = message.get("text", "")
-                
-                if not text:
+                if not auth_chat_id:
+                    print("[TELEGRAM] Warning: 'freja_telegram_chat_id' is missing. Locking Telegram bot for security.")
+                    await asyncio.sleep(10)
                     continue
                     
-                print(f"[TELEGRAM] Message received from {chat_id}: '{text}'")
+                # Fetch Telegram messages
+                url = f"https://api.telegram.org/bot{token}/getUpdates"
+                params = {"offset": offset, "timeout": 20}
                 
-                # Append to recent message cache
-                import datetime
-                current_time = datetime.datetime.now().strftime("%H:%M:%S")
-                recent_messages.append({
-                    "time": current_time,
-                    "chat_id": chat_id,
-                    "text": text[:60] + ("..." if len(text) > 60 else ""),
-                    "authorized": chat_id == auth_chat_id
-                })
-                if len(recent_messages) > 10:
-                    recent_messages.pop(0)
+                response = await client.get(url, params=params, timeout=25.0)
                 
-                # Enforce chat ID authorization check
-                if chat_id != auth_chat_id:
-                    print(f"[TELEGRAM] Unauthorized access attempt from chat_id {chat_id} (Configured: {auth_chat_id})")
-                    # Send one-time access denied message
-                    await asyncio.to_thread(
-                        send_telegram_message,
-                        token,
-                        chat_id,
-                        "Access Denied: This F.R.E.J.A. bot instance is locked to the owner's account."
-                    )
+                if response.status_code != 200:
+                    print(f"[TELEGRAM] Polling failed: HTTP {response.status_code}")
+                    await asyncio.sleep(5)
                     continue
                     
-                # Save user message to persistent DB history
-                try:
-                    conn = sqlite3.connect(DB_FILE)
-                    cursor = conn.cursor()
-                    cursor.execute('''
-                        INSERT INTO chat_history (sender, content, timestamp, channel)
-                        VALUES (?, ?, ?, ?)
-                    ''', ("user", text, datetime.datetime.now().isoformat(), "telegram"))
-                    conn.commit()
-                    conn.close()
-                except Exception as db_err:
-                    print(f"[TELEGRAM] Error saving user message to database: {db_err}")
-
-                gemini_key = get_gemini_api_key()
-                if not gemini_key:
-                    await asyncio.to_thread(
-                        send_telegram_message,
-                        token,
-                        chat_id,
-                        "Error: Gemini API-nyckel saknas i serverns databas. Konfigurera den i Inställningar."
-                    )
-                    continue
+                res_json = response.json()
+                updates = res_json.get("result", [])
+                
+                for update in updates:
+                    update_id = update.get("update_id")
+                    offset = update_id + 1
                     
-                # Load conversation history
-                if chat_id not in chat_histories:
-                    chat_histories[chat_id] = []
-                    
-                # Trim history to 15 messages max
-                if len(chat_histories[chat_id]) > 15:
-                    chat_histories[chat_id] = chat_histories[chat_id][-15:]
-                    while chat_histories[chat_id] and chat_histories[chat_id][0].get("role") != "user":
-                        chat_histories[chat_id].pop(0)
+                    message = update.get("message")
+                    if not message:
+                        continue
                         
-                # Append user prompt
-                chat_histories[chat_id].append({
-                    "role": "user",
-                    "parts": [{"text": text}]
-                })
-                
-                system_prompt = (
-                    "Du är FREJA, en intelligent och artig AI-assistent för hälsa och träning. "
-                    "Du kommunicerar med användaren via Telegram. Svara kortfattat och personligt på svenska. "
-                    "Formatera svaren med ren HTML (t.ex. <b>fet</b>, <i>kursiv</i>, <code>kod</code>, inga ogiltiga taggar)."
-                )
-                
-                try:
-                    reply_text = await asyncio.to_thread(
-                        query_gemini_with_tools,
-                        chat_histories[chat_id],
-                        gemini_key,
-                        system_prompt
-                    )
-                except Exception as e:
-                    print(f"[TELEGRAM] Response generation failed: {e}")
-                    reply_text = f"Ett fel uppstod vid generering av svar: {str(e)}"
+                    chat = message.get("chat", {})
+                    chat_id = str(chat.get("id"))
+                    text = message.get("text", "")
                     
-                # Cache model response
-                chat_histories[chat_id].append({
-                    "role": "model",
-                    "parts": [{"text": reply_text}]
-                })
-                
-                # Save assistant response to persistent DB history
-                try:
-                    conn = sqlite3.connect(DB_FILE)
-                    cursor = conn.cursor()
-                    cursor.execute('''
-                        INSERT INTO chat_history (sender, content, timestamp, channel)
-                        VALUES (?, ?, ?, ?)
-                    ''', ("assistant", reply_text, datetime.datetime.now().isoformat(), "telegram"))
-                    conn.commit()
-                    conn.close()
-                except Exception as db_err:
-                    print(f"[TELEGRAM] Error saving assistant response to database: {db_err}")
+                    if not text:
+                        continue
+                        
+                    print(f"[TELEGRAM] Message received from {chat_id}: '{text}'")
+                    
+                    # Append to recent message cache
+                    current_time = datetime.datetime.now().strftime("%H:%M:%S")
+                    recent_messages.append({
+                        "time": current_time,
+                        "chat_id": chat_id,
+                        "text": text[:60] + ("..." if len(text) > 60 else ""),
+                        "authorized": chat_id == auth_chat_id
+                    })
+                    if len(recent_messages) > 10:
+                        recent_messages.pop(0)
+                    
+                    # Enforce chat ID authorization check
+                    if chat_id != auth_chat_id:
+                        print(f"[TELEGRAM] Unauthorized access attempt from chat_id {chat_id} (Configured: {auth_chat_id})")
+                        # Send one-time access denied message
+                        await send_telegram_message(
+                            token,
+                            chat_id,
+                            "Access Denied: This F.R.E.J.A. bot instance is locked to the owner's account."
+                        )
+                        continue
+                        
+                    # Save user message to persistent DB history
+                    try:
+                        with get_db_connection() as conn:
+                            cursor = conn.cursor()
+                            cursor.execute('''
+                                INSERT INTO chat_history (sender, content, timestamp, channel)
+                                VALUES (?, ?, ?, ?)
+                            ''', ("user", text, datetime.datetime.now().isoformat(), "telegram"))
+                            conn.commit()
+                    except Exception as db_err:
+                        print(f"[TELEGRAM] Error saving user message to database: {db_err}")
 
-                # Format response and transmit to Telegram
-                html_reply = markdown_to_html(reply_text)
-                await asyncio.to_thread(send_telegram_message, token, chat_id, html_reply)
-                
-        except Exception as err:
-            print(f"[TELEGRAM] Exception in loop: {err}")
-            await asyncio.sleep(5)
+                    gemini_key = get_gemini_api_key()
+                    if not gemini_key:
+                        await send_telegram_message(
+                            token,
+                            chat_id,
+                            "Error: Gemini API-nyckel saknas i serverns databas. Konfigurera den i Inställningar."
+                        )
+                        continue
+                        
+                    # Load conversation history
+                    if chat_id not in chat_histories:
+                        chat_histories[chat_id] = []
+                        
+                    # Trim history to 15 messages max
+                    if len(chat_histories[chat_id]) > 15:
+                        chat_histories[chat_id] = chat_histories[chat_id][-15:]
+                        while chat_histories[chat_id] and chat_histories[chat_id][0].get("role") != "user":
+                            chat_histories[chat_id].pop(0)
+                            
+                    # Append user prompt
+                    chat_histories[chat_id].append({
+                        "role": "user",
+                        "parts": [{"text": text}]
+                    })
+                    
+                    system_prompt = (
+                        "Du är FREJA, en intelligent och artig AI-assistent för hälsa och träning. "
+                        "Du kommunicerar med användaren via Telegram. Svara kortfattat och personligt på svenska. "
+                        "Formatera svaren med ren HTML (t.ex. <b>fet</b>, <i>kursiv</i>, <code>kod</code>, inga ogiltiga taggar)."
+                    )
+                    
+                    try:
+                        reply_text = await query_gemini_with_tools(
+                            chat_histories[chat_id],
+                            gemini_key,
+                            system_prompt
+                        )
+                    except Exception as e:
+                        print(f"[TELEGRAM] Response generation failed: {e}")
+                        reply_text = f"Ett fel uppstod vid generering av svar: {str(e)}"
+                        
+                    # Cache model response
+                    chat_histories[chat_id].append({
+                        "role": "model",
+                        "parts": [{"text": reply_text}]
+                    })
+                    
+                    # Save assistant response to persistent DB history
+                    try:
+                        with get_db_connection() as conn:
+                            cursor = conn.cursor()
+                            cursor.execute('''
+                                INSERT INTO chat_history (sender, content, timestamp, channel)
+                                VALUES (?, ?, ?, ?)
+                            ''', ("assistant", reply_text, datetime.datetime.now().isoformat(), "telegram"))
+                            conn.commit()
+                    except Exception as db_err:
+                        print(f"[TELEGRAM] Error saving assistant response to database: {db_err}")
+
+                    # Format response and transmit to Telegram
+                    html_reply = markdown_to_html(reply_text)
+                    await send_telegram_message(token, chat_id, html_reply)
+                    
+            except Exception as err:
+                print(f"[TELEGRAM] Exception in loop: {err}")
+                await asyncio.sleep(5)
+

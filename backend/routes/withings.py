@@ -1,14 +1,11 @@
 """Withings API routes using FastAPI."""
 
 import datetime
-import json
+import httpx
 import random
-import sqlite3
 import time
-import urllib.parse
-import urllib.request
 from fastapi import APIRouter, HTTPException, Query, Request, BackgroundTasks
-from backend.config import DB_FILE
+from backend.database import get_db_connection
 from backend.services.sync_status import set_sync_state
 
 router = APIRouter()
@@ -16,18 +13,17 @@ router = APIRouter()
 @router.get("/api/withings/data")
 async def get_withings_data(days: int = Query(7, description="Number of days to retrieve")):
     try:
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
-        cursor.execute('''
-            SELECT date, weight, fat_ratio, bone_mass, heart_pulse, 
-                   sleep_duration, sleep_deep, sleep_rem, steps, 
-                   distance, calories, elevation, sleep_score
-            FROM withings_measurements 
-            ORDER BY date DESC 
-            LIMIT ?
-        ''', (days,))
-        rows = cursor.fetchall()
-        conn.close()
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT date, weight, fat_ratio, bone_mass, heart_pulse, 
+                       sleep_duration, sleep_deep, sleep_rem, steps, 
+                       distance, calories, elevation, sleep_score
+                FROM withings_measurements 
+                ORDER BY date DESC 
+                LIMIT ?
+            ''', (days,))
+            rows = cursor.fetchall()
         
         results = []
         for row in rows:
@@ -50,67 +46,65 @@ async def get_withings_data(days: int = Query(7, description="Number of days to 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-def run_withings_sync_task(client_id, client_secret, refresh_token):
+async def run_withings_sync_task(client_id, client_secret, refresh_token):
     try:
         if client_id == 'withings123' or refresh_token in ('refreshtokentoken', 'MOCK_REFRESH_TOKEN'):
-            conn = sqlite3.connect(DB_FILE)
-            cursor = conn.cursor()
-            today = datetime.date.today()
-            added_count = 0
-            for i in range(30):
-                day_date = today - datetime.timedelta(days=i)
-                date_str = day_date.strftime('%Y-%m-%d')
-                weight = round(78.5 + random.uniform(-0.5, 0.5), 2)
-                fat_ratio = round(18.2 + random.uniform(-0.3, 0.3), 2)
-                bone_mass = 3.4
-                heart_pulse = int(55 + random.uniform(-4, 6))
-                sleep_dur = random.randint(24000, 31000)
-                sleep_deep = int(sleep_dur * random.uniform(0.22, 0.3))
-                sleep_rem = int(sleep_dur * random.uniform(0.12, 0.18))
-                sleep_score = random.randint(75, 92)
-                steps = random.randint(5000, 12000)
-                dist = round(steps * 0.72, 1)
-                cals = round(steps * 0.05, 1)
-                elev = round(random.uniform(5, 35), 1)
-                cursor.execute('''
-                    INSERT INTO withings_measurements (
-                        date, weight, fat_ratio, bone_mass, heart_pulse, 
-                        sleep_duration, sleep_deep, sleep_rem, steps, 
-                        distance, calories, elevation, sleep_score
-                    )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(date) DO UPDATE SET
-                        weight = excluded.weight,
-                        fat_ratio = excluded.fat_ratio,
-                        bone_mass = excluded.bone_mass,
-                        heart_pulse = excluded.heart_pulse,
-                        sleep_duration = excluded.sleep_duration,
-                        sleep_deep = excluded.sleep_deep,
-                        sleep_rem = excluded.sleep_rem,
-                        steps = excluded.steps,
-                        distance = excluded.distance,
-                        calories = excluded.calories,
-                        elevation = excluded.elevation,
-                        sleep_score = excluded.sleep_score
-                ''', (date_str, weight, fat_ratio, bone_mass, heart_pulse, sleep_dur, sleep_deep, sleep_rem, steps, dist, cals, elev, sleep_score))
-                added_count += 1
-            conn.commit()
-            conn.close()
+            with get_db_connection() as conn:
+                cursor = conn.cursor()
+                today = datetime.date.today()
+                for i in range(30):
+                    day_date = today - datetime.timedelta(days=i)
+                    date_str = day_date.strftime('%Y-%m-%d')
+                    weight = round(78.5 + random.uniform(-0.5, 0.5), 2)
+                    fat_ratio = round(18.2 + random.uniform(-0.3, 0.3), 2)
+                    bone_mass = 3.4
+                    heart_pulse = int(55 + random.uniform(-4, 6))
+                    sleep_dur = random.randint(24000, 31000)
+                    sleep_deep = int(sleep_dur * random.uniform(0.22, 0.3))
+                    sleep_rem = int(sleep_dur * random.uniform(0.12, 0.18))
+                    sleep_score = random.randint(75, 92)
+                    steps = random.randint(5000, 12000)
+                    dist = round(steps * 0.72, 1)
+                    cals = round(steps * 0.05, 1)
+                    elev = round(random.uniform(5, 35), 1)
+                    cursor.execute('''
+                        INSERT INTO withings_measurements (
+                            date, weight, fat_ratio, bone_mass, heart_pulse, 
+                            sleep_duration, sleep_deep, sleep_rem, steps, 
+                            distance, calories, elevation, sleep_score
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(date) DO UPDATE SET
+                            weight = excluded.weight,
+                            fat_ratio = excluded.fat_ratio,
+                            bone_mass = excluded.bone_mass,
+                            heart_pulse = excluded.heart_pulse,
+                            sleep_duration = excluded.sleep_duration,
+                            sleep_deep = excluded.sleep_deep,
+                            sleep_rem = excluded.sleep_rem,
+                            steps = excluded.steps,
+                            distance = excluded.distance,
+                            calories = excluded.calories,
+                            elevation = excluded.elevation,
+                            sleep_score = excluded.sleep_score
+                    ''', (date_str, weight, fat_ratio, bone_mass, heart_pulse, sleep_dur, sleep_deep, sleep_rem, steps, dist, cals, elev, sleep_score))
+                conn.commit()
             set_sync_state("withings", "success")
             return
             
         token_url = 'https://wbsapi.withings.net/v2/oauth2'
-        token_data = urllib.parse.urlencode({
+        payload = {
             'action': 'requesttoken',
             'client_id': client_id,
             'client_secret': client_secret,
             'refresh_token': refresh_token,
             'grant_type': 'refresh_token'
-        }).encode('utf-8')
+        }
         
-        req = urllib.request.Request(token_url, data=token_data, method='POST')
-        with urllib.request.urlopen(req, timeout=10) as response:
-            res_body = json.loads(response.read().decode('utf-8'))
+        async with httpx.AsyncClient() as client:
+            res = await client.post(token_url, data=payload, timeout=10.0)
+            res.raise_for_status()
+            res_body = res.json()
             
         if res_body.get('status') != 0:
             raise Exception(f"Withings OAuth fel status: {res_body.get('status')}")
@@ -122,130 +116,127 @@ def run_withings_sync_task(client_id, client_secret, refresh_token):
             raise Exception('Inget access_token returnerades.')
             
         if new_refresh_token and new_refresh_token != refresh_token:
-            conn = sqlite3.connect(DB_FILE)
-            cursor = conn.cursor()
-            cursor.execute('''
-                INSERT INTO api_keys (key_name, key_value)
-                VALUES (?, ?)
-                ON CONFLICT(key_name) DO UPDATE SET key_value = excluded.key_value
-            ''', ('freja_withings_refresh_token', new_refresh_token))
-            conn.commit()
-            conn.close()
+            with get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT INTO api_keys (key_name, key_value)
+                    VALUES (?, ?)
+                    ON CONFLICT(key_name) DO UPDATE SET key_value = excluded.key_value
+                ''', ('freja_withings_refresh_token', new_refresh_token))
+                conn.commit()
             
         today_date = datetime.date.today()
         start_date_str = (today_date - datetime.timedelta(days=30)).strftime('%Y-%m-%d')
         end_date_str = today_date.strftime('%Y-%m-%d')
         lastupdate = int(time.time()) - 30 * 24 * 3600
         
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
         meas_url = f"https://wbsapi.withings.net/measure?action=getmeas&meastypes=1,6,11,16&category=1&lastupdate={lastupdate}"
-        req_meas = urllib.request.Request(meas_url, headers={'Authorization': f"Bearer {access_token}"}, method='GET')
-        with urllib.request.urlopen(req_meas, timeout=10) as response:
-            meas_body = json.loads(response.read().decode('utf-8'))
+        async with httpx.AsyncClient() as client:
+            res = await client.get(meas_url, headers={'Authorization': f"Bearer {access_token}"}, timeout=10.0)
+            res.raise_for_status()
+            meas_body = res.json()
             
-        added_count = 0
-        if meas_body.get('status') == 0:
-            measuregrps = meas_body.get('body', {}).get('measuregrps', [])
-            for grp in measuregrps:
-                grp_date = grp.get('date')
-                date_str = datetime.datetime.fromtimestamp(grp_date).strftime('%Y-%m-%d')
-                weight = None
-                fat_ratio = None
-                bone_mass = None
-                heart_pulse = None
-                for m in grp.get('measures', []):
-                    m_type = m.get('type')
-                    val = m.get('value')
-                    unit = m.get('unit')
-                    real_val = val * 10 ** unit
-                    if m_type == 1:
-                        weight = round(real_val, 2)
-                    elif m_type == 6:
-                        fat_ratio = round(real_val, 2)
-                    elif m_type == 16:
-                        bone_mass = round(real_val, 2)
-                    elif m_type == 11:
-                        heart_pulse = round(real_val, 2)
-                if weight is not None or fat_ratio is not None or bone_mass is not None or heart_pulse is not None:
-                    cursor.execute('''
-                        INSERT INTO withings_measurements (date, weight, fat_ratio, bone_mass, heart_pulse)
-                        VALUES (?, ?, ?, ?, ?)
-                        ON CONFLICT(date) DO UPDATE SET
-                            weight = COALESCE(excluded.weight, weight),
-                            fat_ratio = COALESCE(excluded.fat_ratio, fat_ratio),
-                            bone_mass = COALESCE(excluded.bone_mass, bone_mass),
-                            heart_pulse = COALESCE(excluded.heart_pulse, heart_pulse)
-                    ''', (date_str, weight, fat_ratio, bone_mass, heart_pulse))
-                    added_count += 1
-                    
-        try:
-            sleep_url = 'https://wbsapi.withings.net/v2/sleep'
-            sleep_data = urllib.parse.urlencode({
-                'action': 'getsummary',
-                'startdateymd': start_date_str,
-                'enddateymd': end_date_str
-            }).encode('utf-8')
-            req_sleep = urllib.request.Request(sleep_url, data=sleep_data, headers={'Authorization': f"Bearer {access_token}", 'Content-Type': 'application/x-www-form-urlencoded'}, method='POST')
-            with urllib.request.urlopen(req_sleep, timeout=10) as response:
-                sleep_body = json.loads(response.read().decode('utf-8'))
-            if sleep_body.get('status') == 0:
-                series = sleep_body.get('body', {}).get('series', [])
-                for item in series:
-                    s_date = item.get('date')
-                    s_data = item.get('data', {})
-                    sleep_duration = s_data.get('total_sleep_time') or s_data.get('asleepduration')
-                    sleep_deep = s_data.get('deepsleepduration')
-                    sleep_rem = s_data.get('remsleepduration')
-                    sleep_score = s_data.get('sleep_score')
-                    if sleep_duration is not None or sleep_score is not None:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            if meas_body.get('status') == 0:
+                measuregrps = meas_body.get('body', {}).get('measuregrps', [])
+                for grp in measuregrps:
+                    grp_date = grp.get('date')
+                    date_str = datetime.datetime.fromtimestamp(grp_date).strftime('%Y-%m-%d')
+                    weight = None
+                    fat_ratio = None
+                    bone_mass = None
+                    heart_pulse = None
+                    for m in grp.get('measures', []):
+                        m_type = m.get('type')
+                        val = m.get('value')
+                        unit = m.get('unit')
+                        real_val = val * 10 ** unit
+                        if m_type == 1:
+                            weight = round(real_val, 2)
+                        elif m_type == 6:
+                            fat_ratio = round(real_val, 2)
+                        elif m_type == 16:
+                            bone_mass = round(real_val, 2)
+                        elif m_type == 11:
+                            heart_pulse = round(real_val, 2)
+                    if weight is not None or fat_ratio is not None or bone_mass is not None or heart_pulse is not None:
                         cursor.execute('''
-                            INSERT INTO withings_measurements (date, sleep_duration, sleep_deep, sleep_rem, sleep_score)
+                            INSERT INTO withings_measurements (date, weight, fat_ratio, bone_mass, heart_pulse)
                             VALUES (?, ?, ?, ?, ?)
                             ON CONFLICT(date) DO UPDATE SET
-                                sleep_duration = COALESCE(excluded.sleep_duration, sleep_duration),
-                                sleep_deep = COALESCE(excluded.sleep_deep, sleep_deep),
-                                sleep_rem = COALESCE(excluded.sleep_rem, sleep_rem),
-                                sleep_score = COALESCE(excluded.sleep_score, sleep_score)
-                        ''', (s_date, sleep_duration, sleep_deep, sleep_rem, sleep_score))
-                        added_count += 1
-        except Exception as sleep_err:
-            print(f"Error fetching sleep from Withings: {sleep_err}")
-            
-        try:
-            act_url = 'https://wbsapi.withings.net/v2/measure'
-            act_data = urllib.parse.urlencode({
-                'action': 'getactivity',
-                'startdateymd': start_date_str,
-                'enddateymd': end_date_str
-            }).encode('utf-8')
-            req_act = urllib.request.Request(act_url, data=act_data, headers={'Authorization': f"Bearer {access_token}", 'Content-Type': 'application/x-www-form-urlencoded'}, method='POST')
-            with urllib.request.urlopen(req_act, timeout=10) as response:
-                act_body = json.loads(response.read().decode('utf-8'))
-            if act_body.get('status') == 0:
-                activities = act_body.get('body', {}).get('activities', [])
-                for act in activities:
-                    a_date = act.get('date')
-                    steps = act.get('steps')
-                    distance = act.get('distance')
-                    calories = act.get('calories')
-                    elevation = act.get('elevation')
-                    if steps is not None:
-                        cursor.execute('''
-                            INSERT INTO withings_measurements (date, steps, distance, calories, elevation)
-                            VALUES (?, ?, ?, ?, ?)
-                            ON CONFLICT(date) DO UPDATE SET
-                                steps = COALESCE(excluded.steps, steps),
-                                distance = COALESCE(excluded.distance, distance),
-                                calories = COALESCE(excluded.calories, calories),
-                                elevation = COALESCE(excluded.elevation, elevation)
-                        ''', (a_date, steps, distance, calories, elevation))
-                        added_count += 1
-        except Exception as act_err:
-            print(f"Error fetching activity from Withings: {act_err}")
-            
-        conn.commit()
-        conn.close()
+                                weight = COALESCE(excluded.weight, weight),
+                                fat_ratio = COALESCE(excluded.fat_ratio, fat_ratio),
+                                bone_mass = COALESCE(excluded.bone_mass, bone_mass),
+                                heart_pulse = COALESCE(excluded.heart_pulse, heart_pulse)
+                        ''', (date_str, weight, fat_ratio, bone_mass, heart_pulse))
+                        
+            try:
+                sleep_url = 'https://wbsapi.withings.net/v2/sleep'
+                payload_sleep = {
+                    'action': 'getsummary',
+                    'startdateymd': start_date_str,
+                    'enddateymd': end_date_str
+                }
+                async with httpx.AsyncClient() as client:
+                    res = await client.post(sleep_url, data=payload_sleep, headers={'Authorization': f"Bearer {access_token}"}, timeout=10.0)
+                    res.raise_for_status()
+                    sleep_body = res.json()
+                if sleep_body.get('status') == 0:
+                    series = sleep_body.get('body', {}).get('series', [])
+                    for item in series:
+                        s_date = item.get('date')
+                        s_data = item.get('data', {})
+                        sleep_duration = s_data.get('total_sleep_time') or s_data.get('asleepduration')
+                        sleep_deep = s_data.get('deepsleepduration')
+                        sleep_rem = s_data.get('remsleepduration')
+                        sleep_score = s_data.get('sleep_score')
+                        if sleep_duration is not None or sleep_score is not None:
+                            cursor.execute('''
+                                INSERT INTO withings_measurements (date, sleep_duration, sleep_deep, sleep_rem, sleep_score)
+                                VALUES (?, ?, ?, ?, ?)
+                                ON CONFLICT(date) DO UPDATE SET
+                                    sleep_duration = COALESCE(excluded.sleep_duration, sleep_duration),
+                                    sleep_deep = COALESCE(excluded.sleep_deep, sleep_deep),
+                                    sleep_rem = COALESCE(excluded.sleep_rem, sleep_rem),
+                                    sleep_score = COALESCE(excluded.sleep_score, sleep_score)
+                            ''', (s_date, sleep_duration, sleep_deep, sleep_rem, sleep_score))
+            except Exception as sleep_err:
+                print(f"Error fetching sleep from Withings: {sleep_err}")
+                
+            try:
+                act_url = 'https://wbsapi.withings.net/v2/measure'
+                payload_act = {
+                    'action': 'getactivity',
+                    'startdateymd': start_date_str,
+                    'enddateymd': end_date_str
+                }
+                async with httpx.AsyncClient() as client:
+                    res = await client.post(act_url, data=payload_act, headers={'Authorization': f"Bearer {access_token}"}, timeout=10.0)
+                    res.raise_for_status()
+                    act_body = res.json()
+                if act_body.get('status') == 0:
+                    activities = act_body.get('body', {}).get('activities', [])
+                    for act in activities:
+                        a_date = act.get('date')
+                        steps = act.get('steps')
+                        distance = act.get('distance')
+                        calories = act.get('calories')
+                        elevation = act.get('elevation')
+                        if steps is not None:
+                            cursor.execute('''
+                                INSERT INTO withings_measurements (date, steps, distance, calories, elevation)
+                                VALUES (?, ?, ?, ?, ?)
+                                ON CONFLICT(date) DO UPDATE SET
+                                    steps = COALESCE(excluded.steps, steps),
+                                    distance = COALESCE(excluded.distance, distance),
+                                    calories = COALESCE(excluded.calories, calories),
+                                    elevation = COALESCE(excluded.elevation, elevation)
+                            ''', (a_date, steps, distance, calories, elevation))
+            except Exception as act_err:
+                print(f"Error fetching activity from Withings: {act_err}")
+                
+            conn.commit()
         set_sync_state("withings", "success")
     except Exception as e:
         print(f"[WITHINGS SYNC TASK ERROR]: {e}")
@@ -253,15 +244,14 @@ def run_withings_sync_task(client_id, client_secret, refresh_token):
 
 @router.get("/api/withings/sync")
 async def get_withings_sync(background_tasks: BackgroundTasks):
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_withings_client_id'")
-    row_id = cursor.fetchone()
-    cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_withings_client_secret'")
-    row_secret = cursor.fetchone()
-    cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_withings_refresh_token'")
-    row_refresh = cursor.fetchone()
-    conn.close()
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_withings_client_id'")
+        row_id = cursor.fetchone()
+        cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_withings_client_secret'")
+        row_secret = cursor.fetchone()
+        cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_withings_refresh_token'")
+        row_refresh = cursor.fetchone()
     
     client_id = row_id[0].strip() if row_id else ""
     client_secret = row_secret[0].strip() if row_secret else ""
@@ -283,11 +273,10 @@ async def delete_withings_log(date: str = Query(..., description="Date to delete
     if not date_to_delete:
         raise HTTPException(status_code=400, detail="Datum saknas.")
     try:
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
-        cursor.execute('DELETE FROM withings_measurements WHERE date = ?', (date_to_delete,))
-        conn.commit()
-        conn.close()
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM withings_measurements WHERE date = ?', (date_to_delete,))
+            conn.commit()
         return {'status': 'success', 'message': f"Mätning för {date_to_delete} borttagen."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -304,19 +293,19 @@ async def post_withings_data(request: Request):
         bone_mass = float(data.get('bone_mass')) if data.get('bone_mass') is not None else None
         heart_pulse = float(data.get('heart_pulse')) if data.get('heart_pulse') is not None else None
         
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
-        cursor.execute('''
-            INSERT INTO withings_measurements (date, weight, fat_ratio, bone_mass, heart_pulse)
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(date) DO UPDATE SET
-                weight = excluded.weight,
-                fat_ratio = excluded.fat_ratio,
-                bone_mass = excluded.bone_mass,
-                heart_pulse = excluded.heart_pulse
-        ''', (date_str, weight, fat_ratio, bone_mass, heart_pulse))
-        conn.commit()
-        conn.close()
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO withings_measurements (date, weight, fat_ratio, bone_mass, heart_pulse)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(date) DO UPDATE SET
+                    weight = excluded.weight,
+                    fat_ratio = excluded.fat_ratio,
+                    bone_mass = excluded.bone_mass,
+                    heart_pulse = excluded.heart_pulse
+            ''', (date_str, weight, fat_ratio, bone_mass, heart_pulse))
+            conn.commit()
         return {'status': 'success', 'message': 'Withings-logg sparad.'}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+

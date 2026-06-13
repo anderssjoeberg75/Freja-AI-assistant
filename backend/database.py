@@ -2,13 +2,26 @@
 
 import datetime
 import sqlite3
+from contextlib import contextmanager
 
 from backend.config import DB_FILE
 
 
+@contextmanager
+def get_db_connection():
+    """Context manager for SQLite database connections, enabling WAL mode and timeout."""
+    conn = sqlite3.connect(DB_FILE, timeout=30)
+    conn.execute("PRAGMA journal_mode=WAL")
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
 def init_db():
     """Initializes the SQLite database and creates the keys and garmin_health tables if they don't exist."""
-    conn = sqlite3.connect(DB_FILE)
+    conn = sqlite3.connect(DB_FILE, timeout=30)
+    conn.execute("PRAGMA journal_mode=WAL")
     cursor = conn.cursor()
     cursor.execute('\n        CREATE TABLE IF NOT EXISTS api_keys (\n            key_name TEXT PRIMARY KEY,\n            key_value TEXT\n        )\n    ')
     cursor.execute('''

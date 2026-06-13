@@ -63,14 +63,15 @@ class TelegramBotTests(unittest.TestCase):
             core_delete_calendar_event
         )
         
+        import asyncio
         # 1. Create event via core
-        res = core_save_calendar_event(
+        res = asyncio.run(core_save_calendar_event(
             summary="Telegram Möte",
             start_time="2026-06-12T17:00:00",
             end_time="2026-06-12T18:00:00",
             description="Telegram test händelse",
             location="Distans"
-        )
+        ))
         self.assertEqual(res["status"], "success")
         event_id = res["event"]["id"]
         
@@ -81,7 +82,7 @@ class TelegramBotTests(unittest.TestCase):
         self.assertEqual(matching[0]["summary"], "Telegram Möte")
         
         # 3. Delete event via core
-        del_res = core_delete_calendar_event(db_id=event_id)
+        del_res = asyncio.run(core_delete_calendar_event(db_id=event_id))
         self.assertEqual(del_res["status"], "success")
         
         # Verify deleted

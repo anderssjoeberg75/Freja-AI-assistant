@@ -1,10 +1,9 @@
 """Chat history routes using FastAPI."""
 
 import datetime
-import sqlite3
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
-from backend.config import DB_FILE
+from backend.database import get_db_connection
 
 router = APIRouter()
 
@@ -16,16 +15,15 @@ class ChatMessage(BaseModel):
 @router.get("/api/chat/history")
 async def get_chat_history(limit: int = Query(50, description="Number of messages to fetch")):
     try:
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
-        cursor.execute('''
-            SELECT sender, content, timestamp, channel 
-            FROM chat_history 
-            ORDER BY id DESC 
-            LIMIT ?
-        ''', (limit,))
-        rows = cursor.fetchall()
-        conn.close()
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT sender, content, timestamp, channel 
+                FROM chat_history 
+                ORDER BY id DESC 
+                LIMIT ?
+            ''', (limit,))
+            rows = cursor.fetchall()
         
         # Format in chronological order
         rows.reverse()
@@ -46,14 +44,13 @@ async def get_chat_history(limit: int = Query(50, description="Number of message
 async def save_chat_message(message: ChatMessage):
     try:
         timestamp = datetime.datetime.now().isoformat()
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
-        cursor.execute('''
-            INSERT INTO chat_history (sender, content, timestamp, channel)
-            VALUES (?, ?, ?, ?)
-        ''', (message.sender, message.content, timestamp, message.channel))
-        conn.commit()
-        conn.close()
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO chat_history (sender, content, timestamp, channel)
+                VALUES (?, ?, ?, ?)
+            ''', (message.sender, message.content, timestamp, message.channel))
+            conn.commit()
         return {"status": "success", "message": "Message saved to history."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
@@ -61,11 +58,11 @@ async def save_chat_message(message: ChatMessage):
 @router.post("/api/chat/clear")
 async def clear_chat_history():
     try:
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
-        cursor.execute('DELETE FROM chat_history')
-        conn.commit()
-        conn.close()
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM chat_history')
+            conn.commit()
         return {"status": "success", "message": "Chat history cleared."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+

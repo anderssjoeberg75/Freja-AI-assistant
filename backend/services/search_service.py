@@ -1,17 +1,20 @@
 """Web search integration service."""
 
 import urllib.parse
-import urllib.request
+import httpx
+from bs4 import BeautifulSoup
 
-def perform_search(query):
+async def perform_search(query):
     """Perform a web search and parse the top organic results."""
-    from bs4 import BeautifulSoup
     url = 'https://html.duckduckgo.com/html/?' + urllib.parse.urlencode({'q': query})
-    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'})
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    }
     results = []
     try:
-        with urllib.request.urlopen(req, timeout=8) as response:
-            html_content = response.read().decode('utf-8')
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, headers=headers, timeout=8.0)
+            html_content = response.text
             soup = BeautifulSoup(html_content, 'html.parser')
             for result_div in soup.find_all('div', class_='result'):
                 title_a = result_div.find('a', class_='result__a')
@@ -37,3 +40,4 @@ def perform_search(query):
         print(f'Search backend error: {e}')
         return {'error': str(e)}
     return results
+

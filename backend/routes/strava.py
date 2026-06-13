@@ -1,14 +1,11 @@
 """Strava API routes using FastAPI."""
 
 import datetime
-import json
-import sqlite3
+import httpx
 import time
-import urllib.parse
-import urllib.request
 from fastapi import APIRouter, HTTPException, Query, Request, BackgroundTasks
 from fastapi.responses import HTMLResponse
-from backend.config import DB_FILE
+from backend.database import get_db_connection
 from backend.services.sync_status import set_sync_state
 from backend.services.strava_service import get_strava_access_token
 
@@ -20,13 +17,12 @@ async def get_strava_callback(code: str = Query("", description="Authorization c
     if not code:
         return HTMLResponse('<h3>Fel: Ingen auktoriseringskod hittades i anropet.</h3>', status_code=400)
     try:
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
-        cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_strava_client_id'")
-        row_id = cursor.fetchone()
-        cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_strava_client_secret'")
-        row_secret = cursor.fetchone()
-        conn.close()
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_strava_client_id'")
+            row_id = cursor.fetchone()
+            cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_strava_client_secret'")
+            row_secret = cursor.fetchone()
         
         client_id = row_id[0].strip() if row_id else ""
         client_secret = row_secret[0].strip() if row_secret else ""
@@ -35,30 +31,30 @@ async def get_strava_callback(code: str = Query("", description="Authorization c
             return HTMLResponse('<h3>Fel: Strava Client ID eller Client Secret saknas i F.R.E.J.A. databasen. Spara dessa i Inställningar först.</h3>', status_code=400)
             
         token_url = "https://www.strava.com/oauth/token"
-        token_data = urllib.parse.urlencode({
+        payload = {
             'client_id': client_id,
             'client_secret': client_secret,
             'code': code,
             'grant_type': 'authorization_code'
-        }).encode('utf-8')
+        }
         
-        req = urllib.request.Request(token_url, data=token_data, method='POST')
-        with urllib.request.urlopen(req, timeout=10) as response:
-            res_body = json.loads(response.read().decode('utf-8'))
+        async with httpx.AsyncClient() as client:
+            res = await client.post(token_url, data=payload, timeout=10.0)
+            res.raise_for_status()
+            res_body = res.json()
             
         new_refresh_token = res_body.get('refresh_token')
         if not new_refresh_token:
             raise Exception('Kunde inte hämta refresh token från Strava svar.')
             
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
-        cursor.execute('''
-            INSERT INTO api_keys (key_name, key_value)
-            VALUES (?, ?)
-            ON CONFLICT(key_name) DO UPDATE SET key_value = excluded.key_value
-        ''', ('freja_strava_refresh_token', new_refresh_token))
-        conn.commit()
-        conn.close()
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO api_keys (key_name, key_value)
+                VALUES (?, ?)
+                ON CONFLICT(key_name) DO UPDATE SET key_value = excluded.key_value
+            ''', ('freja_strava_refresh_token', new_refresh_token))
+            conn.commit()
         
         success_html = """
         <!DOCTYPE html>
@@ -112,56 +108,54 @@ async def get_strava_callback(code: str = Query("", description="Authorization c
     except Exception as e:
         return HTMLResponse(f'<h3>Fel vid auktorisering: {str(e)}</h3>', status_code=500)
 
-def run_strava_sync_task(client_id, client_secret, refresh_token):
+async def run_strava_sync_task(client_id, client_secret, refresh_token):
     try:
         if client_id == '123456' or refresh_token in ('refreshtokentoken', 'MOCK_REFRESH_TOKEN'):
             # Load mock data
-            conn = sqlite3.connect(DB_FILE)
-            cursor = conn.cursor()
-            today = datetime.date.today()
-            mock_activities = [
-                (-1, 'Morgonlöpning i parken', 'Löpning', (today - datetime.timedelta(days=1)).strftime('%Y-%m-%d'), 8500.0, 2800, 2950, 45.0, 3.03, 4.2, 148.0, 172.0, 620.0),
-                (-2, 'Kvällscykling', 'Cykling', (today - datetime.timedelta(days=3)).strftime('%Y-%m-%d'), 25000.0, 3600, 3800, 120.0, 6.94, 11.2, 135.0, 155.0, 780.0),
-                (-3, 'Styrkepass - Ben & Bål', 'Styrketräning', (today - datetime.timedelta(days=5)).strftime('%Y-%m-%d'), 0.0, 2700, 3200, 0.0, 0.0, 0.0, 118.0, 145.0, 350.0),
-                (-4, 'Snabbdistans Löpning', 'Löpning', (today - datetime.timedelta(days=8)).strftime('%Y-%m-%d'), 5200.0, 1750, 1800, 25.0, 2.97, 4.0, 142.0, 168.0, 380.0),
-                (-5, 'Aktiv återhämtning Promenad', 'Promenad', (today - datetime.timedelta(days=11)).strftime('%Y-%m-%d'), 4000.0, 3000, 3100, 15.0, 1.33, 1.8, 98.0, 115.0, 220.0)
-            ]
-            added_count = 0
-            for act in mock_activities:
-                cursor.execute('''
-                    INSERT INTO strava_activities (id, name, type, date, distance, moving_time, elapsed_time, total_elevation_gain, average_speed, max_speed, average_heartrate, max_heartrate, calories)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(id) DO UPDATE SET
-                        name = excluded.name,
-                        type = excluded.type,
-                        date = excluded.date,
-                        distance = excluded.distance,
-                        moving_time = excluded.moving_time,
-                        elapsed_time = excluded.elapsed_time,
-                        total_elevation_gain = excluded.total_elevation_gain,
-                        average_speed = excluded.average_speed,
-                        max_speed = excluded.max_speed,
-                        average_heartrate = excluded.average_heartrate,
-                        max_heartrate = excluded.max_heartrate,
-                        calories = excluded.calories
-                ''', act)
-                added_count += 1
-            conn.commit()
-            conn.close()
+            with get_db_connection() as conn:
+                cursor = conn.cursor()
+                today = datetime.date.today()
+                mock_activities = [
+                    (-1, 'Morgonlöpning i parken', 'Löpning', (today - datetime.timedelta(days=1)).strftime('%Y-%m-%d'), 8500.0, 2800, 2950, 45.0, 3.03, 4.2, 148.0, 172.0, 620.0),
+                    (-2, 'Kvällscykling', 'Cykling', (today - datetime.timedelta(days=3)).strftime('%Y-%m-%d'), 25000.0, 3600, 3800, 120.0, 6.94, 11.2, 135.0, 155.0, 780.0),
+                    (-3, 'Styrkepass - Ben & Bål', 'Styrketräning', (today - datetime.timedelta(days=5)).strftime('%Y-%m-%d'), 0.0, 2700, 3200, 0.0, 0.0, 0.0, 118.0, 145.0, 350.0),
+                    (-4, 'Snabbdistans Löpning', 'Löpning', (today - datetime.timedelta(days=8)).strftime('%Y-%m-%d'), 5200.0, 1750, 1800, 25.0, 2.97, 4.0, 142.0, 168.0, 380.0),
+                    (-5, 'Aktiv återhämtning Promenad', 'Promenad', (today - datetime.timedelta(days=11)).strftime('%Y-%m-%d'), 4000.0, 3000, 3100, 15.0, 1.33, 1.8, 98.0, 115.0, 220.0)
+                ]
+                for act in mock_activities:
+                    cursor.execute('''
+                        INSERT INTO strava_activities (id, name, type, date, distance, moving_time, elapsed_time, total_elevation_gain, average_speed, max_speed, average_heartrate, max_heartrate, calories)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(id) DO UPDATE SET
+                            name = excluded.name,
+                            type = excluded.type,
+                            date = excluded.date,
+                            distance = excluded.distance,
+                            moving_time = excluded.moving_time,
+                            elapsed_time = excluded.elapsed_time,
+                            total_elevation_gain = excluded.total_elevation_gain,
+                            average_speed = excluded.average_speed,
+                            max_speed = excluded.max_speed,
+                            average_heartrate = excluded.average_heartrate,
+                            max_heartrate = excluded.max_heartrate,
+                            calories = excluded.calories
+                    ''', act)
+                conn.commit()
             set_sync_state("strava", "success")
             return
             
         token_url = 'https://www.strava.com/oauth/token'
-        token_data = urllib.parse.urlencode({
+        payload = {
             'client_id': client_id,
             'client_secret': client_secret,
             'refresh_token': refresh_token,
             'grant_type': 'refresh_token'
-        }).encode('utf-8')
+        }
         
-        req = urllib.request.Request(token_url, data=token_data, method='POST')
-        with urllib.request.urlopen(req, timeout=10) as response:
-            res_body = json.loads(response.read().decode('utf-8'))
+        async with httpx.AsyncClient() as client:
+            res = await client.post(token_url, data=payload, timeout=10.0)
+            res.raise_for_status()
+            res_body = res.json()
             
         access_token = res_body.get('access_token')
         new_refresh_token = res_body.get('refresh_token')
@@ -169,90 +163,52 @@ def run_strava_sync_task(client_id, client_secret, refresh_token):
             raise Exception('Inget access_token returnerades från Strava OAuth.')
             
         if new_refresh_token and new_refresh_token != refresh_token:
-            conn = sqlite3.connect(DB_FILE)
-            cursor = conn.cursor()
-            cursor.execute('''
-                INSERT INTO api_keys (key_name, key_value)
-                VALUES (?, ?)
-                ON CONFLICT(key_name) DO UPDATE SET key_value = excluded.key_value
-            ''', ('freja_strava_refresh_token', new_refresh_token))
-            conn.commit()
-            conn.close()
+            with get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT INTO api_keys (key_name, key_value)
+                    VALUES (?, ?)
+                    ON CONFLICT(key_name) DO UPDATE SET key_value = excluded.key_value
+                ''', ('freja_strava_refresh_token', new_refresh_token))
+                conn.commit()
             
         after_time = int(time.time()) - 14 * 24 * 3600
         activities_url = f"https://www.strava.com/api/v3/athlete/activities?after={after_time}&per_page=30"
-        req_activities = urllib.request.Request(activities_url, headers={'Authorization': f"Bearer {access_token}"}, method='GET')
-        with urllib.request.urlopen(req_activities, timeout=10) as response:
-            activities = json.loads(response.read().decode('utf-8'))
+        
+        async with httpx.AsyncClient() as client:
+            res = await client.get(activities_url, headers={'Authorization': f"Bearer {access_token}"}, timeout=10.0)
+            res.raise_for_status()
+            activities = res.json()
             
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
-        added_count = 0
-        for act in activities:
-            act_id = act.get('id')
-            name = act.get('name')
-            act_type = act.get('type')
-            type_mapping = {
-                'Run': 'Löpning',
-                'Ride': 'Cykling',
-                'WeightTraining': 'Styrketräning',
-                'Swim': 'Simning',
-                'Walk': 'Promenad',
-                'Yoga': 'Yoga'
-            }
-            if act_type in type_mapping:
-                act_type = type_mapping[act_type]
-            start_date_local = act.get('start_date_local', '')
-            date_str = start_date_local[:10] if start_date_local else ""
-            distance = act.get('distance', 0.0)
-            moving_time = act.get('moving_time', 0)
-            elapsed_time = act.get('elapsed_time', 0)
-            total_elevation_gain = act.get('total_elevation_gain', 0.0)
-            average_speed = act.get('average_speed', 0.0)
-            max_speed = act.get('max_speed', 0.0)
-            average_heartrate = act.get('average_heartrate')
-            max_heartrate = act.get('max_heartrate')
-            calories = act.get('calories')
-            if calories is None and act.get('kilojoules') is not None:
-                calories = float(act.get('kilojoules')) * 1.1
-            cursor.execute('''
-                INSERT INTO strava_activities (id, name, type, date, distance, moving_time, elapsed_time, total_elevation_gain, average_speed, max_speed, average_heartrate, max_heartrate, calories)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(id) DO UPDATE SET
-                    name = excluded.name,
-                    type = excluded.type,
-                    date = excluded.date,
-                    distance = excluded.distance,
-                    moving_time = excluded.moving_time,
-                    elapsed_time = excluded.elapsed_time,
-                    total_elevation_gain = excluded.total_elevation_gain,
-                    average_speed = excluded.average_speed,
-                    max_speed = excluded.max_speed,
-                    average_heartrate = excluded.average_heartrate,
-                    max_heartrate = excluded.max_heartrate,
-                    calories = excluded.calories
-            ''', (act_id, name, act_type, date_str, distance, moving_time, elapsed_time, total_elevation_gain, average_speed, max_speed, average_heartrate, max_heartrate, calories))
-            added_count += 1
-            
-        cursor.execute("DELETE FROM strava_activities WHERE id < 0")
-        conn.commit()
-        conn.close()
-        set_sync_state("strava", "success")
-    except Exception as e:
-        print(f"Strava sync failed, falling back to mock: {e}")
-        try:
-            conn = sqlite3.connect(DB_FILE)
+        with get_db_connection() as conn:
             cursor = conn.cursor()
-            today = datetime.date.today()
-            mock_activities = [
-                (-1, 'Morgonlöpning i parken', 'Löpning', (today - datetime.timedelta(days=1)).strftime('%Y-%m-%d'), 8500.0, 2800, 2950, 45.0, 3.03, 4.2, 148.0, 172.0, 620.0),
-                (-2, 'Kvällscykling', 'Cykling', (today - datetime.timedelta(days=3)).strftime('%Y-%m-%d'), 25000.0, 3600, 3800, 120.0, 6.94, 11.2, 135.0, 155.0, 780.0),
-                (-3, 'Styrkepass - Ben & Bål', 'Styrketräning', (today - datetime.timedelta(days=5)).strftime('%Y-%m-%d'), 0.0, 2700, 3200, 0.0, 0.0, 0.0, 118.0, 145.0, 350.0),
-                (-4, 'Snabbdistans Löpning', 'Löpning', (today - datetime.timedelta(days=8)).strftime('%Y-%m-%d'), 5200.0, 1750, 1800, 25.0, 2.97, 4.0, 142.0, 168.0, 380.0),
-                (-5, 'Aktiv återhämtning Promenad', 'Promenad', (today - datetime.timedelta(days=11)).strftime('%Y-%m-%d'), 4000.0, 3000, 3100, 15.0, 1.33, 1.8, 98.0, 115.0, 220.0)
-            ]
-            added_count = 0
-            for act in mock_activities:
+            for act in activities:
+                act_id = act.get('id')
+                name = act.get('name')
+                act_type = act.get('type')
+                type_mapping = {
+                    'Run': 'Löpning',
+                    'Ride': 'Cykling',
+                    'WeightTraining': 'Styrketräning',
+                    'Swim': 'Simning',
+                    'Walk': 'Promenad',
+                    'Yoga': 'Yoga'
+                }
+                if act_type in type_mapping:
+                    act_type = type_mapping[act_type]
+                start_date_local = act.get('start_date_local', '')
+                date_str = start_date_local[:10] if start_date_local else ""
+                distance = act.get('distance', 0.0)
+                moving_time = act.get('moving_time', 0)
+                elapsed_time = act.get('elapsed_time', 0)
+                total_elevation_gain = act.get('total_elevation_gain', 0.0)
+                average_speed = act.get('average_speed', 0.0)
+                max_speed = act.get('max_speed', 0.0)
+                average_heartrate = act.get('average_heartrate')
+                max_heartrate = act.get('max_heartrate')
+                calories = act.get('calories')
+                if calories is None and act.get('kilojoules') is not None:
+                    calories = float(act.get('kilojoules')) * 1.1
                 cursor.execute('''
                     INSERT INTO strava_activities (id, name, type, date, distance, moving_time, elapsed_time, total_elevation_gain, average_speed, max_speed, average_heartrate, max_heartrate, calories)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -269,10 +225,43 @@ def run_strava_sync_task(client_id, client_secret, refresh_token):
                         average_heartrate = excluded.average_heartrate,
                         max_heartrate = excluded.max_heartrate,
                         calories = excluded.calories
-                ''', act)
-                added_count += 1
+                ''', (act_id, name, act_type, date_str, distance, moving_time, elapsed_time, total_elevation_gain, average_speed, max_speed, average_heartrate, max_heartrate, calories))
+                
+            cursor.execute("DELETE FROM strava_activities WHERE id < 0")
             conn.commit()
-            conn.close()
+        set_sync_state("strava", "success")
+    except Exception as e:
+        print(f"Strava sync failed, falling back to mock: {e}")
+        try:
+            with get_db_connection() as conn:
+                cursor = conn.cursor()
+                today = datetime.date.today()
+                mock_activities = [
+                    (-1, 'Morgonlöpning i parken', 'Löpning', (today - datetime.timedelta(days=1)).strftime('%Y-%m-%d'), 8500.0, 2800, 2950, 45.0, 3.03, 4.2, 148.0, 172.0, 620.0),
+                    (-2, 'Kvällscykling', 'Cykling', (today - datetime.timedelta(days=3)).strftime('%Y-%m-%d'), 25000.0, 3600, 3800, 120.0, 6.94, 11.2, 135.0, 155.0, 780.0),
+                    (-3, 'Styrkepass - Ben & Bål', 'Styrketräning', (today - datetime.timedelta(days=5)).strftime('%Y-%m-%d'), 0.0, 2700, 3200, 0.0, 0.0, 0.0, 118.0, 145.0, 350.0),
+                    (-4, 'Snabbdistans Löpning', 'Löpning', (today - datetime.timedelta(days=8)).strftime('%Y-%m-%d'), 5200.0, 1750, 1800, 25.0, 2.97, 4.0, 142.0, 168.0, 380.0),
+                    (-5, 'Aktiv återhämtning Promenad', 'Promenad', (today - datetime.timedelta(days=11)).strftime('%Y-%m-%d'), 4000.0, 3000, 3100, 15.0, 1.33, 1.8, 98.0, 115.0, 220.0)
+                ]
+                for act in mock_activities:
+                    cursor.execute('''
+                        INSERT INTO strava_activities (id, name, type, date, distance, moving_time, elapsed_time, total_elevation_gain, average_speed, max_speed, average_heartrate, max_heartrate, calories)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(id) DO UPDATE SET
+                            name = excluded.name,
+                            type = excluded.type,
+                            date = excluded.date,
+                            distance = excluded.distance,
+                            moving_time = excluded.moving_time,
+                            elapsed_time = excluded.elapsed_time,
+                            total_elevation_gain = excluded.total_elevation_gain,
+                            average_speed = excluded.average_speed,
+                            max_speed = excluded.max_speed,
+                            average_heartrate = excluded.average_heartrate,
+                            max_heartrate = excluded.max_heartrate,
+                            calories = excluded.calories
+                    ''', act)
+                conn.commit()
             set_sync_state("strava", "success")
         except Exception as mock_err:
             print(f"[STRAVA SYNC TASK ERROR]: {mock_err}")
@@ -280,15 +269,14 @@ def run_strava_sync_task(client_id, client_secret, refresh_token):
 
 @router.get("/api/strava/sync")
 async def get_strava_sync(background_tasks: BackgroundTasks):
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_strava_client_id'")
-    row_id = cursor.fetchone()
-    cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_strava_client_secret'")
-    row_secret = cursor.fetchone()
-    cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_strava_refresh_token'")
-    row_refresh = cursor.fetchone()
-    conn.close()
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_strava_client_id'")
+        row_id = cursor.fetchone()
+        cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_strava_client_secret'")
+        row_secret = cursor.fetchone()
+        cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_strava_refresh_token'")
+        row_refresh = cursor.fetchone()
     
     client_id = row_id[0].strip() if row_id else ""
     client_secret = row_secret[0].strip() if row_secret else ""
@@ -307,16 +295,15 @@ async def get_strava_sync(background_tasks: BackgroundTasks):
 @router.get("/api/strava/data")
 async def get_strava_data(days: int = Query(7, description="Number of days to retrieve")):
     try:
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
-        cursor.execute('''
-            SELECT id, name, type, date, distance, moving_time, elapsed_time, total_elevation_gain, average_speed, max_speed, average_heartrate, max_heartrate, calories 
-            FROM strava_activities 
-            ORDER BY date DESC 
-            LIMIT ?
-        ''', (days,))
-        rows = cursor.fetchall()
-        conn.close()
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT id, name, type, date, distance, moving_time, elapsed_time, total_elevation_gain, average_speed, max_speed, average_heartrate, max_heartrate, calories 
+                FROM strava_activities 
+                ORDER BY date DESC 
+                LIMIT ?
+            ''', (days,))
+            rows = cursor.fetchall()
         
         results = []
         for row in rows:
@@ -377,11 +364,10 @@ async def delete_strava_log(id: str = Query(..., description="ID of activity to 
     if not id_to_delete:
         raise HTTPException(status_code=400, detail="ID saknas.")
     try:
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
-        cursor.execute('DELETE FROM strava_activities WHERE id = ?', (id_to_delete,))
-        conn.commit()
-        conn.close()
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM strava_activities WHERE id = ?', (id_to_delete,))
+            conn.commit()
         return {'status': 'success', 'message': f"Aktivitet {id_to_delete} borttagen."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -434,22 +420,25 @@ async def get_strava_activity_details(id: str = Query(..., description="ID of ac
 
     try:
         is_mock_id = activity_id.startswith('-') or activity_id in ('7', '8', '9')
-        access_token = get_strava_access_token()
+        access_token = await get_strava_access_token()
         if access_token == 'MOCK_ACCESS_TOKEN' or is_mock_id:
             return serve_mock_details()
             
         try:
             act_url = f"https://www.strava.com/api/v3/activities/{activity_id}"
-            req_act = urllib.request.Request(act_url, headers={'Authorization': f"Bearer {access_token}"}, method='GET')
-            with urllib.request.urlopen(req_act, timeout=10) as response:
-                activity = json.loads(response.read().decode('utf-8'))
+            
+            async with httpx.AsyncClient() as client:
+                res = await client.get(act_url, headers={'Authorization': f"Bearer {access_token}"}, timeout=10.0)
+                res.raise_for_status()
+                activity = res.json()
                 
             laps_url = f"https://www.strava.com/api/v3/activities/{activity_id}/laps"
-            req_laps = urllib.request.Request(laps_url, headers={'Authorization': f"Bearer {access_token}"}, method='GET')
             laps = []
             try:
-                with urllib.request.urlopen(req_laps, timeout=10) as response:
-                    raw_laps = json.loads(response.read().decode('utf-8'))
+                async with httpx.AsyncClient() as client:
+                    res = await client.get(laps_url, headers={'Authorization': f"Bearer {access_token}"}, timeout=10.0)
+                    res.raise_for_status()
+                    raw_laps = res.json()
                     for idx, lap in enumerate(raw_laps):
                         laps.append({
                             'lap_index': idx + 1,
@@ -465,12 +454,13 @@ async def get_strava_activity_details(id: str = Query(..., description="ID of ac
                 print(f"Error fetching laps for activity {activity_id}: {laps_err}")
                 
             zones_url = f"https://www.strava.com/api/v3/activities/{activity_id}/zones"
-            req_zones = urllib.request.Request(zones_url, headers={'Authorization': f"Bearer {access_token}"}, method='GET')
             hr_zones = []
             power_zones = []
             try:
-                with urllib.request.urlopen(req_zones, timeout=10) as response:
-                    raw_zones = json.loads(response.read().decode('utf-8'))
+                async with httpx.AsyncClient() as client:
+                    res = await client.get(zones_url, headers={'Authorization': f"Bearer {access_token}"}, timeout=10.0)
+                    res.raise_for_status()
+                    raw_zones = res.json()
                     for z in raw_zones:
                         z_type = z.get('type')
                         z_list = z.get('distribution_buckets', [])
@@ -564,21 +554,23 @@ async def get_strava_athlete_stats():
         'all_swim_totals': {'count': 80, 'distance': 180000.0, 'moving_time': 250000, 'elapsed_time': 260000, 'elevation_gain': 0.0}
     }
     try:
-        access_token = get_strava_access_token()
+        access_token = await get_strava_access_token()
         if access_token == 'MOCK_ACCESS_TOKEN':
             return mock_stats
         try:
             athlete_url = "https://www.strava.com/api/v3/athlete"
-            req_athlete = urllib.request.Request(athlete_url, headers={'Authorization': f"Bearer {access_token}"}, method='GET')
-            with urllib.request.urlopen(req_athlete, timeout=10) as response:
-                athlete = json.loads(response.read().decode('utf-8'))
+            async with httpx.AsyncClient() as client:
+                res = await client.get(athlete_url, headers={'Authorization': f"Bearer {access_token}"}, timeout=10.0)
+                res.raise_for_status()
+                athlete = res.json()
             athlete_id = athlete.get('id')
             if not athlete_id:
                 raise Exception('Kunde inte hämta atlet-ID från profil.')
             stats_url = f"https://www.strava.com/api/v3/athletes/{athlete_id}/stats"
-            req_stats = urllib.request.Request(stats_url, headers={'Authorization': f"Bearer {access_token}"}, method='GET')
-            with urllib.request.urlopen(req_stats, timeout=10) as response:
-                stats = json.loads(response.read().decode('utf-8'))
+            async with httpx.AsyncClient() as client:
+                res = await client.get(stats_url, headers={'Authorization': f"Bearer {access_token}"}, timeout=10.0)
+                res.raise_for_status()
+                stats = res.json()
             return stats
         except Exception as api_err:
             print(f"Failed to fetch real athlete stats ({api_err}), falling back to mock stats.")
@@ -605,14 +597,14 @@ async def post_strava_data(request: Request):
         max_heartrate = float(data.get('max_heartrate')) if data.get('max_heartrate') is not None else None
         calories = float(data.get('calories')) if data.get('calories') is not None else None
         
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
-        cursor.execute('''
-            INSERT INTO strava_activities (name, type, date, distance, moving_time, elapsed_time, total_elevation_gain, average_speed, max_speed, average_heartrate, max_heartrate, calories)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (name, act_type, date_str, distance, moving_time, elapsed_time, total_elevation_gain, average_speed, max_speed, average_heartrate, max_heartrate, calories))
-        conn.commit()
-        conn.close()
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO strava_activities (name, type, date, distance, moving_time, elapsed_time, total_elevation_gain, average_speed, max_speed, average_heartrate, max_heartrate, calories)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (name, act_type, date_str, distance, moving_time, elapsed_time, total_elevation_gain, average_speed, max_speed, average_heartrate, max_heartrate, calories))
+            conn.commit()
         return {'status': 'success', 'message': 'Strava-aktivitet sparad.'}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+

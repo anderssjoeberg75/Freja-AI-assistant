@@ -10,4 +10,4 @@ async def get_search(q: str = Query("", alias="q")):
     query = q.strip()
     if not query:
         return []
-    return perform_search(query)
+    return await perform_search(query)

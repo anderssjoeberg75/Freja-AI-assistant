@@ -1,18 +1,16 @@
 """Mem0 API secure proxy route."""
 
-import sqlite3
-import requests
+import httpx
 from fastapi import APIRouter, HTTPException, Request, Response, Query
-from backend.config import DB_FILE
+from backend.database import get_db_connection
 
 router = APIRouter()
 
 def get_mem0_api_key():
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_mem0_apikey'")
-    row = cursor.fetchone()
-    conn.close()
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_mem0_apikey'")
+        row = cursor.fetchone()
     return row[0].strip() if row else ""
 
 @router.post("/api/mem0/add")
@@ -32,9 +30,10 @@ async def proxy_mem0_add(request: Request):
     }
 
     try:
-        response = requests.post("https://api.mem0.ai/v3/memories/add/", json=payload, headers=headers, timeout=30)
-        return Response(content=response.content, status_code=response.status_code, media_type="application/json")
-    except requests.exceptions.RequestException as e:
+        async with httpx.AsyncClient() as client:
+            response = await client.post("https://api.mem0.ai/v3/memories/add/", json=payload, headers=headers, timeout=30.0)
+            return Response(content=response.content, status_code=response.status_code, media_type="application/json")
+    except httpx.RequestError as e:
         raise HTTPException(status_code=500, detail=f"Failed to communicate with Mem0 API: {str(e)}")
 
 @router.post("/api/mem0/search")
@@ -54,9 +53,10 @@ async def proxy_mem0_search(request: Request):
     }
 
     try:
-        response = requests.post("https://api.mem0.ai/v3/memories/search/", json=payload, headers=headers, timeout=30)
-        return Response(content=response.content, status_code=response.status_code, media_type="application/json")
-    except requests.exceptions.RequestException as e:
+        async with httpx.AsyncClient() as client:
+            response = await client.post("https://api.mem0.ai/v3/memories/search/", json=payload, headers=headers, timeout=30.0)
+            return Response(content=response.content, status_code=response.status_code, media_type="application/json")
+    except httpx.RequestError as e:
         raise HTTPException(status_code=500, detail=f"Failed to communicate with Mem0 API: {str(e)}")
 
 @router.post("/api/mem0/all")
@@ -76,9 +76,10 @@ async def proxy_mem0_all(request: Request):
     }
 
     try:
-        response = requests.post("https://api.mem0.ai/v3/memories/", json=payload, headers=headers, timeout=30)
-        return Response(content=response.content, status_code=response.status_code, media_type="application/json")
-    except requests.exceptions.RequestException as e:
+        async with httpx.AsyncClient() as client:
+            response = await client.post("https://api.mem0.ai/v3/memories/", json=payload, headers=headers, timeout=30.0)
+            return Response(content=response.content, status_code=response.status_code, media_type="application/json")
+    except httpx.RequestError as e:
         raise HTTPException(status_code=500, detail=f"Failed to communicate with Mem0 API: {str(e)}")
 
 @router.delete("/api/mem0/delete/{memory_id}")
@@ -92,9 +93,10 @@ async def proxy_mem0_delete(memory_id: str):
     }
 
     try:
-        response = requests.delete(f"https://api.mem0.ai/v3/memories/{memory_id}/", headers=headers, timeout=30)
-        return Response(content=response.content, status_code=response.status_code, media_type="application/json")
-    except requests.exceptions.RequestException as e:
+        async with httpx.AsyncClient() as client:
+            response = await client.delete(f"https://api.mem0.ai/v3/memories/{memory_id}/", headers=headers, timeout=30.0)
+            return Response(content=response.content, status_code=response.status_code, media_type="application/json")
+    except httpx.RequestError as e:
         raise HTTPException(status_code=500, detail=f"Failed to communicate with Mem0 API: {str(e)}")
 
 @router.delete("/api/mem0/wipe")
@@ -108,7 +110,9 @@ async def proxy_mem0_wipe(user_id: str = Query(..., description="User ID to wipe
     }
 
     try:
-        response = requests.delete(f"https://api.mem0.ai/v1/memories/?user_id={user_id}", headers=headers, timeout=30)
-        return Response(content=response.content, status_code=response.status_code, media_type="application/json")
-    except requests.exceptions.RequestException as e:
+        async with httpx.AsyncClient() as client:
+            response = await client.delete(f"https://api.mem0.ai/v1/memories/?user_id={user_id}", headers=headers, timeout=30.0)
+            return Response(content=response.content, status_code=response.status_code, media_type="application/json")
+    except httpx.RequestError as e:
         raise HTTPException(status_code=500, detail=f"Failed to communicate with Mem0 API: {str(e)}")
+

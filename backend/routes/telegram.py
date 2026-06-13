@@ -1,8 +1,7 @@
 """Telegram integration API route router using FastAPI."""
 
-import sqlite3
 from fastapi import APIRouter, HTTPException, Request
-from backend.config import DB_FILE
+from backend.database import get_db_connection
 from backend.services.telegram_service import get_telegram_config, recent_messages
 
 router = APIRouter()
@@ -32,25 +31,25 @@ async def post_telegram_config(request: Request):
         token = data.get("token", "").strip()
         chat_id = data.get("chat_id", "").strip()
         
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
-        
-        # Insert or update keys
-        cursor.execute('''
-            INSERT INTO api_keys (key_name, key_value)
-            VALUES ('freja_telegram_bot_token', ?)
-            ON CONFLICT(key_name) DO UPDATE SET key_value = excluded.key_value
-        ''', (token,))
-        
-        cursor.execute('''
-            INSERT INTO api_keys (key_name, key_value)
-            VALUES ('freja_telegram_chat_id', ?)
-            ON CONFLICT(key_name) DO UPDATE SET key_value = excluded.key_value
-        ''', (chat_id,))
-        
-        conn.commit()
-        conn.close()
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Insert or update keys
+            cursor.execute('''
+                INSERT INTO api_keys (key_name, key_value)
+                VALUES ('freja_telegram_bot_token', ?)
+                ON CONFLICT(key_name) DO UPDATE SET key_value = excluded.key_value
+            ''', (token,))
+            
+            cursor.execute('''
+                INSERT INTO api_keys (key_name, key_value)
+                VALUES ('freja_telegram_chat_id', ?)
+                ON CONFLICT(key_name) DO UPDATE SET key_value = excluded.key_value
+            ''', (chat_id,))
+            
+            conn.commit()
         
         return {"status": "success", "message": "Telegram inställningar sparade."}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+

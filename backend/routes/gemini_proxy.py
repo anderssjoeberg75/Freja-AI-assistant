@@ -1,9 +1,8 @@
 """Gemini API secure proxy route."""
 
-import sqlite3
-import requests
+import httpx
 from fastapi import APIRouter, HTTPException, Query, Request
-from backend.config import DB_FILE
+from backend.database import get_db_connection
 
 router = APIRouter()
 
@@ -18,11 +17,10 @@ async def proxy_gemini_generate(
         raise HTTPException(status_code=400, detail="Invalid JSON payload")
 
     # Retrieve API key from SQLite keys.db
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_gemini_apikey'")
-    row = cursor.fetchone()
-    conn.close()
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_gemini_apikey'")
+        row = cursor.fetchone()
 
     api_key = row[0].strip() if row else ""
     if not api_key:
@@ -32,8 +30,12 @@ async def proxy_gemini_generate(
     google_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
     
     try:
-        response = requests.post(google_url, json=payload, timeout=30)
-        # Forward headers and response
-        return response.json()
-    except requests.exceptions.RequestException as e:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(google_url, json=payload, timeout=30.0)
+            response.raise_for_status()
+            return response.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"Google Gemini API error: {e.response.text}")
+    except httpx.RequestError as e:
         raise HTTPException(status_code=500, detail=f"Failed to communicate with Google Gemini API: {str(e)}")
+
