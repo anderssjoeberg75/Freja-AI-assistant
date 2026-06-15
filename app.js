@@ -2431,20 +2431,84 @@ class FrejaUIController {
     async handleToolCall(call) {
         this.writeLog(`TOOL CALL REQUESTED: ${call.name}`, "sys");
         
-        const tool = window.FrejaTools ? window.FrejaTools[call.name] : null;
+        const toolsMetadata = {
+            "get_weather": {
+                name: "get_weather",
+                displayName: "Väderprognos",
+                permissionKey: "freja_tool_get_weather_allowed"
+            },
+            "google_search": {
+                name: "google_search",
+                displayName: "Google Sökning",
+                permissionKey: "freja_tool_google_search_allowed"
+            },
+            "get_garmin_health": {
+                name: "get_garmin_health",
+                displayName: "Garmin Hälsodata",
+                permissionKey: "freja_tool_get_garmin_health_allowed"
+            },
+            "get_withings_health": {
+                name: "get_withings_health",
+                displayName: "Withings Hälsodata",
+                permissionKey: "freja_tool_get_withings_health_allowed"
+            },
+            "get_strava_data": {
+                name: "get_strava_data",
+                displayName: "Strava Aktiviteter",
+                permissionKey: "freja_tool_get_strava_data_allowed"
+            },
+            "get_strava_activity_analysis": {
+                name: "get_strava_activity_analysis",
+                displayName: "Strava Aktivitetsanalys",
+                permissionKey: "freja_tool_get_strava_activity_analysis_allowed"
+            },
+            "get_strava_athlete_stats": {
+                name: "get_strava_athlete_stats",
+                displayName: "Strava Atletstatistik",
+                permissionKey: "freja_tool_get_strava_athlete_stats_allowed"
+            },
+            "manage_google_calendar": {
+                name: "manage_google_calendar",
+                displayName: "Google Kalender",
+                permissionKey: "freja_tool_manage_google_calendar_allowed"
+            }
+        };
+        
+        const tool = toolsMetadata[call.name];
         if (!tool) {
-            this.writeLog(`ERROR: Tool '${call.name}' not registered in systems`, "err");
-            return { error: `Tool '${call.name}' not registered.` };
+            this.writeLog(`ERROR: Tool '${call.name}' not recognized in systems`, "err");
+            return { error: `Tool '${call.name}' not recognized.` };
         }
+        
+        // Helper to execute tool via backend API
+        const executeBackendTool = async (name, args) => {
+            const res = await fetch("/api/tools/execute", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ name, args })
+            });
+            if (!res.ok) {
+                const err = await res.json();
+                throw new Error(err.detail || `HTTP ${res.status}`);
+            }
+            const result = await res.json();
+            
+            // Dispatch calendar update event to reload dashboard UI if needed
+            if (name === "manage_google_calendar" && args && args.action && args.action !== "list") {
+                console.log("[APP] Calendar modified. Dispatching freja-calendar-updated event.");
+                window.dispatchEvent(new Event('freja-calendar-updated'));
+            }
+            return result;
+        };
         
         // Check permission (either true/false from localStorage)
         const isAllowed = localStorage.getItem(tool.permissionKey) === "true";
         
         if (isAllowed) {
-            this.writeLog(`EXECUTING TOOL: ${tool.name}`, "sys");
+            this.writeLog(`EXECUTING TOOL: ${tool.displayName}`, "sys");
             try {
-                const result = await tool.execute(call.args);
-                this.writeLog(`TOOL EXECUTION SUCCESS: ${tool.name}`, "sys");
+                const result = await executeBackendTool(call.name, call.args);
+                this.writeLog(`TOOL EXECUTION SUCCESS: ${tool.displayName}`, "sys");
                 return result;
             } catch (err) {
                 this.writeLog(`TOOL EXECUTION ERROR: ${err.message}`, "err");
@@ -2452,7 +2516,7 @@ class FrejaUIController {
             }
         } else {
             // Permission is not granted, ask the user!
-            this.writeLog(`PERMISSION REQUIRED FOR TOOL: ${tool.name}`, "warn");
+            this.writeLog(`PERMISSION REQUIRED FOR TOOL: ${tool.displayName}`, "warn");
             
             // We return a Promise that resolves when the user allows or denies
             const allowed = await new Promise((resolve) => {
@@ -2460,17 +2524,17 @@ class FrejaUIController {
             });
             
             if (allowed) {
-                this.writeLog(`EXECUTING TOOL POST-APPROVAL: ${tool.name}`, "sys");
+                this.writeLog(`EXECUTING TOOL POST-APPROVAL: ${tool.displayName}`, "sys");
                 try {
-                    const result = await tool.execute(call.args);
-                    this.writeLog(`TOOL EXECUTION SUCCESS: ${tool.name}`, "sys");
+                    const result = await executeBackendTool(call.name, call.args);
+                    this.writeLog(`TOOL EXECUTION SUCCESS: ${tool.displayName}`, "sys");
                     return result;
                 } catch (err) {
                     this.writeLog(`TOOL EXECUTION ERROR: ${err.message}`, "err");
                     return { error: `Execution failed: ${err.message}` };
                 }
             } else {
-                this.writeLog(`TOOL ACCESS DENIED BY USER: ${tool.name}`, "warn");
+                this.writeLog(`TOOL ACCESS DENIED BY USER: ${tool.displayName}`, "warn");
                 return { error: "User denied permission to run this tool." };
             }
         }

@@ -7,12 +7,9 @@ import re
 import datetime
 import httpx
 from backend.database import get_db_connection
-from backend.services.search_service import perform_search
-from backend.routes.google_calendar import (
-    core_get_calendar_data,
-    core_save_calendar_event,
-    core_delete_calendar_event
-)
+from backend.config import PROJECT_ROOT
+from backend.services.tool_registry import TOOL_DECLARATIONS, execute_tool
+import fcntl
 
 # Active conversation history cache mapped by telegram chat_id
 chat_histories = {}
@@ -80,131 +77,9 @@ def markdown_to_html(text):
     escaped = re.sub(r'`(.*?)`', r'<code>\1</code>', escaped)
     return escaped
 
-def fetch_db_health_summary(days: int = 7):
-    """Retrieves health log history from SQLite database tables."""
-    try:
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            
-            # Garmin health logs
-            cursor.execute('''
-                SELECT date, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status
-                FROM garmin_health ORDER BY date DESC LIMIT ?
-            ''', (days,))
-            garmin_rows = cursor.fetchall()
-            
-            # Strava activities
-            cursor.execute('''
-                SELECT name, type, date, distance, moving_time, calories
-                FROM strava_activities ORDER BY date DESC LIMIT ?
-            ''', (days,))
-            strava_rows = cursor.fetchall()
-            
-            # Withings measurements
-            cursor.execute('''
-                SELECT date, weight, fat_ratio, heart_pulse, sleep_score, steps
-                FROM withings_measurements ORDER BY date DESC LIMIT ?
-            ''', (days,))
-            withings_rows = cursor.fetchall()
-        
-        return {
-            "garmin": [
-                {
-                    "date": r[0], "steps": r[1], "sleep_hours": r[2], "resting_hr": r[3],
-                    "active_calories": r[4], "workout_type": r[5], "workout_duration": r[6],
-                    "body_battery": r[7], "hrv": r[8], "recovery_time": r[9], "training_status": r[10]
-                } for r in garmin_rows
-            ],
-            "strava": [
-                {
-                    "name": r[0], "type": r[1], "date": r[2], "distance_meters": r[3], "moving_time_seconds": r[4], "calories": r[5]
-                } for r in strava_rows
-            ],
-            "withings": [
-                {
-                    "date": r[0], "weight": r[1], "fat_ratio": r[2], "heart_pulse": r[3], "sleep_score": r[4], "steps": r[5]
-                } for r in withings_rows
-            ]
-        }
-    except Exception as e:
-        print(f"[TELEGRAM] Database retrieval error: {e}")
-        return {"error": str(e)}
-
 async def query_gemini_with_tools(contents, api_key, system_prompt):
     """Executes the conversational loop with Gemini including Python-side tools."""
-    tools = [{
-        "functionDeclarations": [
-            {
-                "name": "google_search",
-                "description": "Sök efter information på internet med DuckDuckGo.",
-                "parameters": {
-                    "type": "OBJECT",
-                    "properties": {
-                        "query": {"type": "STRING", "description": "Söksträng"}
-                    },
-                    "required": ["query"]
-                }
-            },
-            {
-                "name": "get_health_summary",
-                "description": "Hämta färsk hälsostatistik (steg, sömn, vikt, träning) för de senaste N dagarna.",
-                "parameters": {
-                    "type": "OBJECT",
-                    "properties": {
-                        "days": {"type": "INTEGER", "description": "Antal dagar att gå tillbaka (standard 7)"}
-                    },
-                    "required": ["days"]
-                }
-            },
-            {
-                "name": "manage_google_calendar",
-                "description": (
-                    "Hanterar användarens kalenderhändelser. Du kan boka/skapa nya händelser, "
-                    "ändra/editera befintliga händelser, radera/ta bort händelser eller lista "
-                    "händelser under en viss tidsperiod (dagar)."
-                ),
-                "parameters": {
-                    "type": "OBJECT",
-                    "properties": {
-                        "action": {
-                            "type": "STRING",
-                            "description": "Åtgärd att utföra: 'list', 'create', 'edit', eller 'delete'.",
-                            "enum": ["list", "create", "edit", "delete"]
-                        },
-                        "event_id": {
-                            "type": "INTEGER",
-                            "description": "Det unika databas-ID:t för händelsen (krävs vid 'edit' och 'delete')."
-                        },
-                        "summary": {
-                            "type": "STRING",
-                            "description": "Händelsens titel eller sammanfattning (krävs vid 'create' och 'edit')."
-                        },
-                        "start_time": {
-                            "type": "STRING",
-                            "description": "Starttid i ISO-format (t.ex. '2026-06-12T14:00:00', krävs vid 'create' och 'edit')."
-                        },
-                        "end_time": {
-                            "type": "STRING",
-                            "description": "Sluttid i ISO-format (t.ex. '2026-06-12T15:00:00', krävs vid 'create' och 'edit')."
-                        },
-                        "description": {
-                            "type": "STRING",
-                            "description": "Detaljerad beskrivning eller mötesanteckningar (valfritt)."
-                        },
-                        "location": {
-                            "type": "STRING",
-                            "description": "Plats eller möteslänk (valfritt)."
-                        },
-                        "days": {
-                            "type": "INTEGER",
-                            "description": "Antal dagar bakåt och framåt från idag att hämta vid 'list'. Standard är 30 dagar."
-                        }
-                    },
-                    "required": ["action"]
-                }
-            }
-        ]
-    }]
+    tools = [{"functionDeclarations": TOOL_DECLARATIONS}]
     
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
     
@@ -254,36 +129,7 @@ async def query_gemini_with_tools(contents, api_key, system_prompt):
             
             print(f"[TELEGRAM BOT] Gemini calling tool: {func_name} with args: {func_args}")
             
-            result = None
-            if func_name == "google_search":
-                result = await perform_search(func_args.get("query", ""))
-            elif func_name == "get_health_summary":
-                result = fetch_db_health_summary(func_args.get("days", 7))
-            elif func_name == "manage_google_calendar":
-                action = func_args.get("action", "").lower()
-                try:
-                    if action == "list":
-                        days = int(func_args.get("days", 30))
-                        result = core_get_calendar_data(days=days)
-                    elif action in ("create", "edit"):
-                        db_id = func_args.get("event_id")
-                        if db_id is not None:
-                            db_id = int(db_id)
-                        result = await core_save_calendar_event(
-                            summary=func_args.get("summary", ""),
-                            start_time=func_args.get("start_time", ""),
-                            end_time=func_args.get("end_time", ""),
-                            description=func_args.get("description", ""),
-                            location=func_args.get("location", ""),
-                            db_id=db_id
-                        )
-                    elif action == "delete":
-                        db_id = int(func_args.get("event_id"))
-                        result = await core_delete_calendar_event(db_id=db_id)
-                    else:
-                        result = {"error": f"Unknown action: {action}"}
-                except Exception as e:
-                    result = {"error": str(e)}
+            result = await execute_tool(func_name, func_args)
                 
             # Append function response to payload contents
             payload["contents"].append({
@@ -298,8 +144,23 @@ async def query_gemini_with_tools(contents, api_key, system_prompt):
             
     return "F.R.E.J.A. avbröt konversationen: för många funktionsanrop (loop limit nådd)."
 
+telegram_lock_file = None
+
 async def telegram_worker_loop():
     """Asynchronous Telegram Bot update polling loop."""
+    global telegram_lock_file
+    
+    # Try to acquire process-level file lock to prevent multi-worker conflicts
+    lock_file_path = os.path.join(PROJECT_ROOT, ".telegram_bot.lock")
+    try:
+        telegram_lock_file = open(lock_file_path, "w")
+        fcntl.flock(telegram_lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        print("[TELEGRAM] Another server process is already running the Telegram Bot. Skipping polling thread.")
+        return
+    except Exception as e:
+        print(f"[TELEGRAM] Lock file initialization failed: {e}")
+        
     print("[TELEGRAM] Background polling worker thread initialized.")
     offset = 0
     

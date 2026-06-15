@@ -194,16 +194,17 @@ class GeminiClient {
             }
         };
 
-        // Attach registered tools to the payload
-        const toolsPayload = [];
-        if (window.FrejaTools) {
-            const declarations = Object.values(window.FrejaTools).map(t => t.declaration);
-            if (declarations.length > 0) {
-                toolsPayload.push({ functionDeclarations: declarations });
+        // Attach registered tools to the payload from the backend
+        try {
+            const toolsResponse = await fetch("/api/tools/declarations");
+            if (toolsResponse.ok) {
+                const declarations = await toolsResponse.json();
+                if (declarations && declarations.length > 0) {
+                    payload.tools = [{ functionDeclarations: declarations }];
+                }
             }
-        }
-        if (toolsPayload.length > 0) {
-            payload.tools = toolsPayload;
+        } catch (toolErr) {
+            console.warn("[GEMINI] Failed to fetch backend tool declarations:", toolErr);
         }
 
         try {

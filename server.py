@@ -24,6 +24,7 @@ from backend.routes.telegram import router as telegram_router
 from backend.routes.chat import router as chat_router
 from backend.routes.sync import router as sync_router
 from backend.routes.google_calendar import router as google_calendar_router
+from backend.routes.tools import router as tools_router
 
 # Initialize the SQLite database schemas
 init_db()
@@ -52,6 +53,7 @@ app.include_router(telegram_router)
 app.include_router(chat_router)
 app.include_router(sync_router)
 app.include_router(google_calendar_router)
+app.include_router(tools_router)
 
 # Serve index.html specifically at "/"
 @app.get("/")

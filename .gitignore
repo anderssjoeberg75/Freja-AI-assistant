@@ -19,3 +19,5 @@ Thumbs.db
 # Workspace / temp / caches
 scratch/
 .garminconnect/
+.telegram_bot.lock
+

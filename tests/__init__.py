@@ -1,1 +1,0 @@
-"""Freja backend test suite."""
