@@ -1,0 +1,327 @@
+"""Local Codex Developer Tools Service.
+
+Provides sandbox-free code execution, Git operations, codebase self-auditing,
+and autonomous debugging capabilities using the local host environment and Gemini.
+"""
+
+import os
+import sys
+import subprocess
+import hashlib
+import datetime
+import httpx
+import json
+import asyncio
+import re
+from backend.config import PROJECT_ROOT
+from backend.database import get_db_connection
+
+# Ignored patterns for codebase auditing
+IGNORED_DIRS = {
+    '.git', '__pycache__', 'venv', 'node_modules', 'backend/cache', 
+    'freja_io_temp', '.garminconnect', '.pytest_cache', 'htmlcov'
+}
+ALLOWED_EXTENSIONS = {'.py', '.js', '.html', '.css', '.json', '.md', '.sh', '.txt'}
+IGNORED_FILES = {'keys.db', 'freja.db', '.telegram_bot.lock', 'package-lock.json'}
+
+
+async def run_subprocess_command(cmd_str: str, cwd: str = PROJECT_ROOT) -> dict:
+    """Helper to run a shell command asynchronously and return results."""
+    try:
+        proc = await asyncio.create_subprocess_shell(
+            cmd_str,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=cwd
+        )
+        stdout, stderr = await proc.communicate()
+        exit_code = proc.returncode
+        stdout_str = stdout.decode("utf-8", errors="ignore")
+        stderr_str = stderr.decode("utf-8", errors="ignore")
+        output = stdout_str + stderr_str
+        
+        return {
+            "exit_code": exit_code,
+            "stdout": stdout_str,
+            "stderr": stderr_str,
+            "output": output
+        }
+    except Exception as e:
+        return {
+            "exit_code": -1,
+            "stdout": "",
+            "stderr": str(e),
+            "output": f"Subprocess exception: {str(e)}"
+        }
+
+
+async def execute_codex_code_impl(args: dict) -> dict:
+    """Executes Python code or shell commands locally on the host."""
+    language = args.get("language", "python").lower()
+    code = args.get("code", "")
+    
+    if not code:
+        return {"error": "Ingen kod eller kommando angavs."}
+        
+    if language == "python":
+        # Create temp folder inside backend/cache/ if it doesn't exist
+        cache_dir = os.path.join(PROJECT_ROOT, "backend", "cache")
+        os.makedirs(cache_dir, exist_ok=True)
+        temp_file = os.path.join(cache_dir, f"temp_codex_{int(datetime.datetime.now().timestamp())}.py")
+        
+        try:
+            with open(temp_file, "w", encoding="utf-8") as f:
+                f.write(code)
+            
+            # Execute python script
+            cmd = f"{sys.executable} {temp_file}"
+            res = await run_subprocess_command(cmd)
+            return {
+                "message": "Körde Python-kod lokalt på värdmaskinen.",
+                "exit_code": res["exit_code"],
+                "stdout": res["stdout"],
+                "stderr": res["stderr"],
+                "output": res["output"]
+            }
+        finally:
+            if os.path.exists(temp_file):
+                try:
+                    os.remove(temp_file)
+                except Exception:
+                    pass
+    else:
+        # Run shell command directly
+        res = await run_subprocess_command(code)
+        return {
+            "message": "Körde kommandot i lokalt skal.",
+            "exit_code": res["exit_code"],
+            "stdout": res["stdout"],
+            "stderr": res["stderr"],
+            "output": res["output"]
+        }
+
+
+async def codex_git_ops_impl(args: dict) -> dict:
+    """Runs git commands locally within the workspace."""
+    action = args.get("action", "").lower()
+    argument = args.get("argument", "")
+    
+    if not action:
+        return {"error": "Git-åtgärd saknas."}
+        
+    git_cmds = {
+        "status": "git status",
+        "log": "git log -n 5",
+        "push": "git push",
+        "clone": f"git clone {argument}",
+        "checkout": f"git checkout {argument}",
+        "commit": f"git add . && git commit -m '{argument}'"
+    }
+    
+    cmd = git_cmds.get(action)
+    if not cmd:
+        return {"error": f"Okänd git-åtgärd: '{action}'."}
+        
+    res = await run_subprocess_command(cmd)
+    return {
+        "action": action,
+        "command": cmd,
+        "exit_code": res["exit_code"],
+        "stdout": res["stdout"],
+        "stderr": res["stderr"],
+        "output": res["output"]
+    }
+
+
+async def call_gemini_api(prompt: str, system_instruction: str = "") -> str:
+    """Helper to query the official Google Gemini API using local settings credentials."""
+    # Fetch API key from db
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_gemini_apikey'")
+        row = cursor.fetchone()
+        
+    api_key = row[0].strip() if row else ""
+    if not api_key:
+        raise Exception("Gemini API-nyckel saknas i databasen.")
+        
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+    
+    contents = []
+    if system_instruction:
+        # System instructions are placed in systemInstruction block
+        payload = {
+            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+            "systemInstruction": {"parts": [{"text": system_instruction}]},
+            "generationConfig": {"temperature": 0.2}
+        }
+    else:
+        payload = {
+            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+            "generationConfig": {"temperature": 0.2}
+        }
+        
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(url, json=payload, timeout=60.0)
+        resp.raise_for_status()
+        resp_json = resp.json()
+        
+    text = resp_json.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+    return text
+
+
+async def codex_audit_codebase_impl(args: dict = None) -> dict:
+    """Analyzes the Freja python/JS codebase for bugs and code quality, writing the review to a file."""
+    # 1. Read files recursively
+    code_content = ""
+    file_count = 0
+    
+    for root, dirs, files in os.walk(PROJECT_ROOT):
+        # Filter directories in place
+        dirs[:] = [d for d in dirs if d not in IGNORED_DIRS]
+        
+        for file in files:
+            ext = os.path.splitext(file)[1]
+            if ext in ALLOWED_EXTENSIONS and file not in IGNORED_FILES:
+                file_path = os.path.join(root, file)
+                rel_path = os.path.relpath(file_path, PROJECT_ROOT)
+                try:
+                    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                        code_content += f"\n--- FIL: {rel_path} ---\n{f.read()}\n"
+                        file_count += 1
+                except Exception as e:
+                    print(f"[CODEX AUDIT] Kunde inte läsa {rel_path}: {e}")
+                    
+    if file_count == 0:
+        return {"error": "Inga filer hittades att granska."}
+        
+    # Limit character context size to prevent token exhaustion (e.g. max 180,000 chars)
+    if len(code_content) > 180000:
+        code_content = code_content[:180000] + "\n\n... [TRUNCATED DUE TO SIZE LIMITS] ..."
+        
+    system_instruction = """Du är en expert och senior mjukvaruarkitekt.
+Analysera den bifogade källkoden med avseende på:
+1. Arkitektoniska mönster och eventuella överträdelser.
+2. Kodkvalitet, säkerhet och prestandaproblem.
+3. Förbättringar och förslag på refaktorisering.
+4. Potentiella buggar eller kantfall.
+
+Strukturera ditt svar EXAKT enligt följande:
+1. Kort sammanfattning (Punktlista de viktigaste fynden).
+2. Separator exakt som: ---RAPPORT_START---
+3. Fullständig och detaljerad Markdown-rapport nedanför separatorn på SVENSKA.
+
+Använd emojis för att göra rapporten mer läsbar (t.ex. 🔴 för kritiska fel, ⚠️ för varningar, ✅ för styrkor, 💡 för tips).
+"""
+    
+    prompt = f"Här är källkoden för projektet ({file_count} filer):\n{code_content}"
+    
+    try:
+        report_text = await call_gemini_api(prompt, system_instruction)
+    except Exception as e:
+        return {"error": f"Misslyckades att generera kodgranskning: {str(e)}"}
+        
+    # Write report to docs/ directory
+    docs_dir = os.path.join(PROJECT_ROOT, "docs")
+    os.makedirs(docs_dir, exist_ok=True)
+    
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"code_audit_{timestamp}.md"
+    filepath = os.path.join(docs_dir, filename)
+    
+    try:
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write(report_text)
+    except Exception as e:
+        return {"error": f"Kunde inte spara rapporten till fil: {str(e)}"}
+        
+    # Extract summary
+    summary = report_text.split("---RAPPORT_START---")[0].strip() if "---RAPPORT_START---" in report_text else report_text[:800]
+    
+    return {
+        "summary": summary,
+        "report_file": filepath,
+        "file_count_analyzed": file_count
+    }
+
+
+async def codex_run_and_fix_impl(args: dict) -> dict:
+    """Runs a script or test suite command and attempts to automatically fix errors if it fails."""
+    command = args.get("command", "")
+    file_path = args.get("file_path", "")
+    max_retries = int(args.get("max_retries", 3) or 3)
+    
+    if not command or not file_path:
+        return {"error": "Både 'command' och 'file_path' krävs för att köra run_and_fix."}
+        
+    abs_file_path = os.path.abspath(os.path.join(PROJECT_ROOT, file_path))
+    if not os.path.exists(abs_file_path):
+        return {"error": f"Målfilen hittades inte på: {abs_file_path}"}
+        
+    history = []
+    
+    for attempt in range(max_retries + 1):
+        # Execute the command
+        res = await run_subprocess_command(command)
+        exit_code = res["exit_code"]
+        output = res["output"]
+        
+        if exit_code == 0:
+            return {
+                "status": "success",
+                "message": f"Kommando lyckades på försök {attempt + 1}!",
+                "output": output,
+                "history": history
+            }
+            
+        if attempt == max_retries:
+            return {
+                "status": "failed",
+                "message": f"Misslyckades efter {max_retries} auto-fix försök.",
+                "output": output,
+                "history": history
+            }
+            
+        # Try to fix: read current code
+        try:
+            with open(abs_file_path, "r", encoding="utf-8") as f:
+                current_code = f.read()
+        except Exception as read_err:
+            return {"error": f"Kunde inte läsa källkodsfilen: {str(read_err)}"}
+            
+        # Ask Gemini to fix it
+        prompt = f"""Kommando-exekveringen `{command}` misslyckades för filen `{file_path}`.
+
+Kommando-output:
+{output}
+
+Nuvarande kod i `{file_path}`:
+```
+{current_code}
+```
+
+Hitta felet och rätta källkoden. 
+VIKTIGT: Returnera enbart den fullständiga, uppdaterade källkoden. Skriv inga kommentarer, förklaringar eller markdown-kodblock (som ```python). Ge mig enbart rå, ren kod som kan skrivas direkt till filen.
+"""
+        
+        try:
+            fixed_code = await call_gemini_api(prompt, "Du är en AI-kodningsassistent som svarar med enbart ren kod utan markdown-omslag.")
+            
+            # Clean markdown code block wraps if LLM ignored instructions
+            if fixed_code.startswith("```"):
+                fixed_code = fixed_code.split("\n", 1)[1]
+            if fixed_code.endswith("```"):
+                fixed_code = fixed_code.rsplit("\n", 1)[0]
+                
+            # Write fixed code back to file
+            with open(abs_file_path, "w", encoding="utf-8") as f:
+                f.write(fixed_code.strip() + "\n")
+                
+            history.append(f"Försök {attempt + 1}: Korrigerade källkoden baserat på exekveringsfel.")
+        except Exception as e:
+            return {
+                "error": f"Fel uppstod vid generering av auto-fix på försök {attempt + 1}: {str(e)}",
+                "history": history
+            }
+            
+    return {"error": "Oväntat slut på loopen."}

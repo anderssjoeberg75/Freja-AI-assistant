@@ -25,6 +25,12 @@ from backend.routes.google_calendar import (
     core_save_calendar_event,
     core_delete_calendar_event,
 )
+from backend.services.codex_service import (
+    execute_codex_code_impl,
+    codex_git_ops_impl,
+    codex_audit_codebase_impl,
+    codex_run_and_fix_impl,
+)
 
 # 1. TOOL DECLARATIONS (Gemini JSON format)
 TOOL_DECLARATIONS = [
@@ -159,6 +165,101 @@ TOOL_DECLARATIONS = [
             },
             "required": ["action"]
         }
+    },
+    {
+        "name": "execute_codex_code",
+        "description": "Kör Python-kod eller skalkommandon lokalt på värdmaskinen. Används för att köra skript, tester eller systemadministration.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "language": {
+                    "type": "STRING",
+                    "description": "Språket att köra: 'python' eller 'shell'.",
+                    "enum": ["python", "shell"]
+                },
+                "code": {
+                    "type": "STRING",
+                    "description": "Koden eller kommandot som ska exekveras."
+                }
+            },
+            "required": ["language", "code"]
+        }
+    },
+    {
+        "name": "run_code",
+        "description": "Alias för execute_codex_code. Kör Python-kod eller skalkommandon lokalt.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "language": {
+                    "type": "STRING",
+                    "description": "Språket att köra: 'python' eller 'shell'.",
+                    "enum": ["python", "shell"]
+                },
+                "code": {
+                    "type": "STRING",
+                    "description": "Koden eller kommandot som ska exekveras."
+                }
+            },
+            "required": ["language", "code"]
+        }
+    },
+    {
+        "name": "codex_git_ops",
+        "description": "Hanterar git-operationer i den lokala källkodskatalogen (t.ex. status, commit, log, push, checkout).",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "action": {
+                    "type": "STRING",
+                    "description": "Git-åtgärden: 'status', 'log', 'push', 'checkout', 'clone' eller 'commit'.",
+                    "enum": ["status", "log", "push", "checkout", "clone", "commit"]
+                },
+                "argument": {
+                    "type": "STRING",
+                    "description": "Argument för åtgärden (t.ex. branch-namn, commit-meddelande eller repolänk)."
+                }
+            },
+            "required": ["action"]
+        }
+    },
+    {
+        "name": "codex_audit_codebase",
+        "description": "Genomför en självanalys (audit) av källkoden för att identifiera buggar, prestandaproblem och kodförbättringar samt sparar en utförlig rapport.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {}
+        }
+    },
+    {
+        "name": "tool_analyze_code",
+        "description": "Alias för codex_audit_codebase. Genomför en självanalys (audit) av källkoden.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {}
+        }
+    },
+    {
+        "name": "codex_run_and_fix",
+        "description": "Kör ett kommando och försöker automatiskt rätta källkoden i den angivna filen om kommandot/testet misslyckas.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "command": {
+                    "type": "STRING",
+                    "description": "Kommandot som ska köras, t.ex. 'pytest tests/test_file.py' eller 'python3 script.py'."
+                },
+                "file_path": {
+                    "type": "STRING",
+                    "description": "Relativ sökväg till filen som ska auto-rättas vid fel, t.ex. 'backend/routes/sync.py'."
+                },
+                "max_retries": {
+                    "type": "INTEGER",
+                    "description": "Max antal försök att auto-rätta källkoden (standard 3)."
+                }
+            },
+            "required": ["command", "file_path"]
+        }
     }
 ]
 
@@ -172,6 +273,12 @@ TOOL_PERMISSION_KEYS = {
     "get_strava_activity_analysis": "freja_tool_get_strava_activity_analysis_allowed",
     "get_strava_athlete_stats": "freja_tool_get_strava_athlete_stats_allowed",
     "manage_google_calendar": "freja_tool_manage_google_calendar_allowed",
+    "execute_codex_code": "freja_tool_execute_codex_code_allowed",
+    "run_code": "freja_tool_run_code_allowed",
+    "codex_git_ops": "freja_tool_codex_git_ops_allowed",
+    "codex_audit_codebase": "freja_tool_codex_audit_codebase_allowed",
+    "tool_analyze_code": "freja_tool_tool_analyze_code_allowed",
+    "codex_run_and_fix": "freja_tool_codex_run_and_fix_allowed",
 }
 
 # 2. TOOL EXECUTORS IMPLEMENTATION
@@ -614,6 +721,12 @@ EXECUTOR_MAP = {
     "get_strava_activity_analysis": exec_strava_activity_analysis,
     "get_strava_athlete_stats": exec_strava_athlete_stats,
     "manage_google_calendar": exec_manage_google_calendar,
+    "execute_codex_code": execute_codex_code_impl,
+    "run_code": execute_codex_code_impl,
+    "codex_git_ops": codex_git_ops_impl,
+    "codex_audit_codebase": codex_audit_codebase_impl,
+    "tool_analyze_code": codex_audit_codebase_impl,
+    "codex_run_and_fix": codex_run_and_fix_impl,
 }
 
 async def execute_tool(name: str, args: dict) -> dict:

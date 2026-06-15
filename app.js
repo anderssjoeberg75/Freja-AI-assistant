@@ -351,6 +351,30 @@ class FrejaUIController {
             chkSearch.checked = searchAllowed;
         }
 
+        const codexExecAllowed = localStorage.getItem("freja_tool_execute_codex_code_allowed") === "true" || localStorage.getItem("freja_tool_run_code_allowed") === "true";
+        const chkCodexExec = document.getElementById('chk-tool-execute_codex_code');
+        if (chkCodexExec) {
+            chkCodexExec.checked = codexExecAllowed;
+        }
+
+        const codexGitAllowed = localStorage.getItem("freja_tool_codex_git_ops_allowed") === "true";
+        const chkCodexGit = document.getElementById('chk-tool-codex_git_ops');
+        if (chkCodexGit) {
+            chkCodexGit.checked = codexGitAllowed;
+        }
+
+        const codexAuditAllowed = localStorage.getItem("freja_tool_codex_audit_codebase_allowed") === "true" || localStorage.getItem("freja_tool_tool_analyze_code_allowed") === "true";
+        const chkCodexAudit = document.getElementById('chk-tool-codex_audit_codebase');
+        if (chkCodexAudit) {
+            chkCodexAudit.checked = codexAuditAllowed;
+        }
+
+        const codexFixAllowed = localStorage.getItem("freja_tool_codex_run_and_fix_allowed") === "true";
+        const chkCodexFix = document.getElementById('chk-tool-codex_run_and_fix');
+        if (chkCodexFix) {
+            chkCodexFix.checked = codexFixAllowed;
+        }
+
         const garminAllowed = localStorage.getItem("freja_tool_get_garmin_health_allowed") === "true";
         const chkGarmin = document.getElementById('chk-tool-get_garmin_health');
         if (chkGarmin) {
@@ -1543,6 +1567,28 @@ class FrejaUIController {
                 localStorage.setItem("freja_tool_google_search_allowed", chkSearch.checked);
             }
 
+            const chkCodexExec = document.getElementById('chk-tool-execute_codex_code');
+            if (chkCodexExec) {
+                localStorage.setItem("freja_tool_execute_codex_code_allowed", chkCodexExec.checked);
+                localStorage.setItem("freja_tool_run_code_allowed", chkCodexExec.checked);
+            }
+
+            const chkCodexGit = document.getElementById('chk-tool-codex_git_ops');
+            if (chkCodexGit) {
+                localStorage.setItem("freja_tool_codex_git_ops_allowed", chkCodexGit.checked);
+            }
+
+            const chkCodexAudit = document.getElementById('chk-tool-codex_audit_codebase');
+            if (chkCodexAudit) {
+                localStorage.setItem("freja_tool_codex_audit_codebase_allowed", chkCodexAudit.checked);
+                localStorage.setItem("freja_tool_tool_analyze_code_allowed", chkCodexAudit.checked);
+            }
+
+            const chkCodexFix = document.getElementById('chk-tool-codex_run_and_fix');
+            if (chkCodexFix) {
+                localStorage.setItem("freja_tool_codex_run_and_fix_allowed", chkCodexFix.checked);
+            }
+
             // Save keys to secure SQLite database
             await self.saveKeysToServer({
                 freja_gemini_apikey: apiKey,
@@ -2471,6 +2517,36 @@ class FrejaUIController {
                 name: "manage_google_calendar",
                 displayName: "Google Kalender",
                 permissionKey: "freja_tool_manage_google_calendar_allowed"
+            },
+            "execute_codex_code": {
+                name: "execute_codex_code",
+                displayName: "Kodexekvering",
+                permissionKey: "freja_tool_execute_codex_code_allowed"
+            },
+            "run_code": {
+                name: "run_code",
+                displayName: "Kodexekvering",
+                permissionKey: "freja_tool_run_code_allowed"
+            },
+            "codex_git_ops": {
+                name: "codex_git_ops",
+                displayName: "Git-operationer",
+                permissionKey: "freja_tool_codex_git_ops_allowed"
+            },
+            "codex_audit_codebase": {
+                name: "codex_audit_codebase",
+                displayName: "Kodgranskning",
+                permissionKey: "freja_tool_codex_audit_codebase_allowed"
+            },
+            "tool_analyze_code": {
+                name: "tool_analyze_code",
+                displayName: "Kodgranskning",
+                permissionKey: "freja_tool_tool_analyze_code_allowed"
+            },
+            "codex_run_and_fix": {
+                name: "codex_run_and_fix",
+                displayName: "Kod auto-rättning",
+                permissionKey: "freja_tool_codex_run_and_fix_allowed"
             }
         };
         
