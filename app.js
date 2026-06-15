@@ -693,6 +693,27 @@ class FrejaUIController {
             modalMemory.classList.remove('active');
         });
 
+        // Save Memory API Settings from Memory modal
+        const btnSaveMemoryApi = document.getElementById('btn-save-memory-api');
+        if (btnSaveMemoryApi) {
+            btnSaveMemoryApi.addEventListener('click', async () => {
+                soundSynth.playClick();
+                
+                const mem0Key = document.getElementById('input-mem0-key').value.trim();
+                const mem0Enabled = document.getElementById('chk-use-mem0').checked;
+                
+                self.memory.saveSettings(mem0Key, mem0Enabled);
+                
+                // Save keys to secure SQLite database
+                await self.saveKeysToServer({
+                    freja_mem0_apikey: mem0Key
+                });
+                
+                self.writeLog("NEURAL MEMORY CONFIGURATION SECURED", "sys");
+                soundSynth.playNotify();
+            });
+        }
+
         // Toggle Garmin Fit Dashboard Modal
         const btnGarmin = document.getElementById('btn-garmin');
         const modalGarmin = document.getElementById('modal-garmin');
@@ -784,6 +805,44 @@ class FrejaUIController {
                     self.writeLog(`GARMIN SYNC ERROR: ${err.message}`, "err");
                     soundSynth.playError();
                 }
+            });
+        }
+
+        // Save Garmin account/permission settings from Garmin modal
+        const btnSaveGarminApi = document.getElementById('btn-save-garmin-api');
+        if (btnSaveGarminApi) {
+            btnSaveGarminApi.addEventListener('click', async () => {
+                soundSynth.playClick();
+                
+                const garminEmail = document.getElementById('input-garmin-email').value.trim();
+                const garminPassword = document.getElementById('input-garmin-password').value;
+                
+                localStorage.setItem("freja_garmin_email", garminEmail);
+                localStorage.setItem("freja_garmin_password", garminPassword);
+                
+                const chkGarmin = document.getElementById('chk-tool-get_garmin_health');
+                if (chkGarmin) {
+                    const isAllowed = chkGarmin.checked;
+                    localStorage.setItem("freja_tool_get_garmin_health_allowed", isAllowed);
+                    
+                    const capGarmin = document.getElementById('cap-garmin');
+                    if (capGarmin) {
+                        if (isAllowed) {
+                            capGarmin.classList.add('active');
+                        } else {
+                            capGarmin.classList.remove('active');
+                        }
+                    }
+                }
+                
+                // Save keys to secure SQLite database
+                await self.saveKeysToServer({
+                    freja_garmin_email: garminEmail,
+                    freja_garmin_password: garminPassword
+                });
+                
+                self.writeLog("GARMIN CONNECT CONFIGURATION SECURED", "sys");
+                soundSynth.playNotify();
             });
         }
 
@@ -920,6 +979,63 @@ class FrejaUIController {
             });
         }
 
+        // Save Strava API settings from dashboard
+        const btnSaveStravaApi = document.getElementById('btn-save-strava-api');
+        if (btnSaveStravaApi) {
+            btnSaveStravaApi.addEventListener('click', async () => {
+                soundSynth.playClick();
+                
+                const stravaClientId = document.getElementById('input-strava-client-id').value.trim();
+                const stravaClientSecret = document.getElementById('input-strava-client-secret').value;
+                const stravaRefreshToken = document.getElementById('input-strava-refresh-token').value;
+                
+                localStorage.setItem("freja_strava_client_id", stravaClientId);
+                localStorage.setItem("freja_strava_client_secret", stravaClientSecret);
+                localStorage.setItem("freja_strava_refresh_token", stravaRefreshToken);
+                
+                const chkStrava = document.getElementById('chk-tool-get_strava_data');
+                const chkStravaAnalysis = document.getElementById('chk-tool-get_strava_activity_analysis');
+                const chkStravaStats = document.getElementById('chk-tool-get_strava_athlete_stats');
+                
+                let anyStravaAllowed = false;
+                
+                if (chkStrava) {
+                    const isAllowed = chkStrava.checked;
+                    localStorage.setItem("freja_tool_get_strava_data_allowed", isAllowed);
+                    if (isAllowed) anyStravaAllowed = true;
+                }
+                if (chkStravaAnalysis) {
+                    const isAllowed = chkStravaAnalysis.checked;
+                    localStorage.setItem("freja_tool_get_strava_activity_analysis_allowed", isAllowed);
+                    if (isAllowed) anyStravaAllowed = true;
+                }
+                if (chkStravaStats) {
+                    const isAllowed = chkStravaStats.checked;
+                    localStorage.setItem("freja_tool_get_strava_athlete_stats_allowed", isAllowed);
+                    if (isAllowed) anyStravaAllowed = true;
+                }
+                
+                const capStrava = document.getElementById('cap-strava');
+                if (capStrava) {
+                    if (anyStravaAllowed) {
+                        capStrava.classList.add('active');
+                    } else {
+                        capStrava.classList.remove('active');
+                    }
+                }
+                
+                // Save keys to secure SQLite database
+                await self.saveKeysToServer({
+                    freja_strava_client_id: stravaClientId,
+                    freja_strava_client_secret: stravaClientSecret,
+                    freja_strava_refresh_token: stravaRefreshToken
+                });
+                
+                self.writeLog("STRAVA API CONFIGURATION SECURED", "sys");
+                soundSynth.playNotify();
+            });
+        }
+
         // Toggle Withings API config password visibility
         const btnToggleWithingsSecret = document.getElementById('btn-toggle-withings-secret');
         const inputWithingsSecret = document.getElementById('input-withings-client-secret');
@@ -1046,6 +1162,47 @@ class FrejaUIController {
             });
         }
 
+        // Save Withings API settings from Withings modal
+        const btnSaveWithingsApi = document.getElementById('btn-save-withings-api');
+        if (btnSaveWithingsApi) {
+            btnSaveWithingsApi.addEventListener('click', async () => {
+                soundSynth.playClick();
+                
+                const withingsClientId = document.getElementById('input-withings-client-id').value.trim();
+                const withingsClientSecret = document.getElementById('input-withings-client-secret').value;
+                const withingsRefreshToken = document.getElementById('input-withings-refresh-token').value;
+                
+                localStorage.setItem("freja_withings_client_id", withingsClientId);
+                localStorage.setItem("freja_withings_client_secret", withingsClientSecret);
+                localStorage.setItem("freja_withings_refresh_token", withingsRefreshToken);
+                
+                const chkWithings = document.getElementById('chk-tool-get_withings_health');
+                if (chkWithings) {
+                    const isAllowed = chkWithings.checked;
+                    localStorage.setItem("freja_tool_get_withings_health_allowed", isAllowed);
+                    
+                    const capWithings = document.getElementById('cap-withings');
+                    if (capWithings) {
+                        if (isAllowed) {
+                            capWithings.classList.add('active');
+                        } else {
+                            capWithings.classList.remove('active');
+                        }
+                    }
+                }
+                
+                // Save keys to secure SQLite database
+                await self.saveKeysToServer({
+                    freja_withings_client_id: withingsClientId,
+                    freja_withings_client_secret: withingsClientSecret,
+                    freja_withings_refresh_token: withingsRefreshToken
+                });
+                
+                self.writeLog("WITHINGS API CONFIGURATION SECURED", "sys");
+                soundSynth.playNotify();
+            });
+        }
+
         // Toggle Google Calendar API config password visibility
         const btnToggleGoogleSecret = document.getElementById('btn-toggle-google-calendar-secret');
         const inputGoogleSecret = document.getElementById('input-google-calendar-client-secret');
@@ -1074,6 +1231,47 @@ class FrejaUIController {
                     inputGoogleToken.type = 'password';
                     btnToggleGoogleToken.innerHTML = '<i class="fa-solid fa-eye"></i>';
                 }
+            });
+        }
+
+        // Save Google Calendar API settings from Google Calendar modal
+        const btnSaveGoogleCalendarApi = document.getElementById('btn-save-google-calendar-api');
+        if (btnSaveGoogleCalendarApi) {
+            btnSaveGoogleCalendarApi.addEventListener('click', async () => {
+                soundSynth.playClick();
+                
+                const googleClientId = document.getElementById('input-google-calendar-client-id').value.trim();
+                const googleClientSecret = document.getElementById('input-google-calendar-client-secret').value;
+                const googleRefreshToken = document.getElementById('input-google-calendar-refresh-token').value;
+                
+                localStorage.setItem("freja_google_calendar_client_id", googleClientId);
+                localStorage.setItem("freja_google_calendar_client_secret", googleClientSecret);
+                localStorage.setItem("freja_google_calendar_refresh_token", googleRefreshToken);
+                
+                const chkGoogleCalendar = document.getElementById('chk-tool-manage_google_calendar');
+                if (chkGoogleCalendar) {
+                    const isAllowed = chkGoogleCalendar.checked;
+                    localStorage.setItem("freja_tool_manage_google_calendar_allowed", isAllowed);
+                    
+                    const capGoogleCalendar = document.getElementById('cap-google_calendar');
+                    if (capGoogleCalendar) {
+                        if (isAllowed) {
+                            capGoogleCalendar.classList.add('active');
+                        } else {
+                            capGoogleCalendar.classList.remove('active');
+                        }
+                    }
+                }
+                
+                // Save keys to secure SQLite database
+                await self.saveKeysToServer({
+                    freja_google_calendar_client_id: googleClientId,
+                    freja_google_calendar_client_secret: googleClientSecret,
+                    freja_google_calendar_refresh_token: googleRefreshToken
+                });
+                
+                self.writeLog("GOOGLE CALENDAR API CONFIGURATION SECURED", "sys");
+                soundSynth.playNotify();
             });
         }
 
@@ -1334,12 +1532,6 @@ class FrejaUIController {
             localStorage.setItem("freja_eleven_custom_voice", elevenCustomVoice);
             self.speech.elevenCustomVoice = elevenCustomVoice;
 
-            // Commit Mem0 configs
-            const mem0Key = document.getElementById('input-mem0-key').value.trim();
-            const mem0Enabled = document.getElementById('chk-use-mem0').checked;
-            
-            self.memory.saveSettings(mem0Key, mem0Enabled);
-
             // Save tool permissions
             const chkWeather = document.getElementById('chk-tool-get_weather');
             if (chkWeather) {
@@ -1351,124 +1543,10 @@ class FrejaUIController {
                 localStorage.setItem("freja_tool_google_search_allowed", chkSearch.checked);
             }
 
-            const chkGarmin = document.getElementById('chk-tool-get_garmin_health');
-            if (chkGarmin) {
-                const isAllowed = chkGarmin.checked;
-                localStorage.setItem("freja_tool_get_garmin_health_allowed", isAllowed);
-                
-                const capGarmin = document.getElementById('cap-garmin');
-                if (capGarmin) {
-                    if (isAllowed) {
-                        capGarmin.classList.add('active');
-                    } else {
-                        capGarmin.classList.remove('active');
-                    }
-                }
-            }
-
-            const chkStrava = document.getElementById('chk-tool-get_strava_data');
-            const chkStravaAnalysis = document.getElementById('chk-tool-get_strava_activity_analysis');
-            const chkStravaStats = document.getElementById('chk-tool-get_strava_athlete_stats');
-            
-            let anyStravaAllowed = false;
-            
-            if (chkStrava) {
-                const isAllowed = chkStrava.checked;
-                localStorage.setItem("freja_tool_get_strava_data_allowed", isAllowed);
-                if (isAllowed) anyStravaAllowed = true;
-            }
-            if (chkStravaAnalysis) {
-                const isAllowed = chkStravaAnalysis.checked;
-                localStorage.setItem("freja_tool_get_strava_activity_analysis_allowed", isAllowed);
-                if (isAllowed) anyStravaAllowed = true;
-            }
-            if (chkStravaStats) {
-                const isAllowed = chkStravaStats.checked;
-                localStorage.setItem("freja_tool_get_strava_athlete_stats_allowed", isAllowed);
-                if (isAllowed) anyStravaAllowed = true;
-            }
-            
-            const capStrava = document.getElementById('cap-strava');
-            if (capStrava) {
-                if (anyStravaAllowed) {
-                    capStrava.classList.add('active');
-                } else {
-                    capStrava.classList.remove('active');
-                }
-            }
-
-            const chkWithings = document.getElementById('chk-tool-get_withings_health');
-            if (chkWithings) {
-                const isAllowed = chkWithings.checked;
-                localStorage.setItem("freja_tool_get_withings_health_allowed", isAllowed);
-                
-                const capWithings = document.getElementById('cap-withings');
-                if (capWithings) {
-                    if (isAllowed) {
-                        capWithings.classList.add('active');
-                    } else {
-                        capWithings.classList.remove('active');
-                    }
-                }
-            }
-
-            const garminEmail = document.getElementById('input-garmin-email').value.trim();
-            const garminPassword = document.getElementById('input-garmin-password').value;
-            localStorage.setItem("freja_garmin_email", garminEmail);
-            localStorage.setItem("freja_garmin_password", garminPassword);
-
-            const stravaClientId = document.getElementById('input-strava-client-id').value.trim();
-            const stravaClientSecret = document.getElementById('input-strava-client-secret').value;
-            const stravaRefreshToken = document.getElementById('input-strava-refresh-token').value;
-            localStorage.setItem("freja_strava_client_id", stravaClientId);
-            localStorage.setItem("freja_strava_client_secret", stravaClientSecret);
-            localStorage.setItem("freja_strava_refresh_token", stravaRefreshToken);
-
-            const withingsClientId = document.getElementById('input-withings-client-id').value.trim();
-            const withingsClientSecret = document.getElementById('input-withings-client-secret').value;
-            const withingsRefreshToken = document.getElementById('input-withings-refresh-token').value;
-            localStorage.setItem("freja_withings_client_id", withingsClientId);
-            localStorage.setItem("freja_withings_client_secret", withingsClientSecret);
-            localStorage.setItem("freja_withings_refresh_token", withingsRefreshToken);
-
-            const googleClientId = document.getElementById('input-google-calendar-client-id').value.trim();
-            const googleClientSecret = document.getElementById('input-google-calendar-client-secret').value;
-            const googleRefreshToken = document.getElementById('input-google-calendar-refresh-token').value;
-            localStorage.setItem("freja_google_calendar_client_id", googleClientId);
-            localStorage.setItem("freja_google_calendar_client_secret", googleClientSecret);
-            localStorage.setItem("freja_google_calendar_refresh_token", googleRefreshToken);
-
-            const chkGoogleCalendar = document.getElementById('chk-tool-manage_google_calendar');
-            if (chkGoogleCalendar) {
-                const isAllowed = chkGoogleCalendar.checked;
-                localStorage.setItem("freja_tool_manage_google_calendar_allowed", isAllowed);
-                
-                const capGoogleCalendar = document.getElementById('cap-google_calendar');
-                if (capGoogleCalendar) {
-                    if (isAllowed) {
-                        capGoogleCalendar.classList.add('active');
-                    } else {
-                        capGoogleCalendar.classList.remove('active');
-                    }
-                }
-            }
-
             // Save keys to secure SQLite database
             await self.saveKeysToServer({
                 freja_gemini_apikey: apiKey,
-                freja_eleven_apikey: elevenKey,
-                freja_mem0_apikey: mem0Key,
-                freja_garmin_email: garminEmail,
-                freja_garmin_password: garminPassword,
-                freja_strava_client_id: stravaClientId,
-                freja_strava_client_secret: stravaClientSecret,
-                freja_strava_refresh_token: stravaRefreshToken,
-                freja_withings_client_id: withingsClientId,
-                freja_withings_client_secret: withingsClientSecret,
-                freja_withings_refresh_token: withingsRefreshToken,
-                freja_google_calendar_client_id: googleClientId,
-                freja_google_calendar_client_secret: googleClientSecret,
-                freja_google_calendar_refresh_token: googleRefreshToken
+                freja_eleven_apikey: elevenKey
             });
 
             modalSettings.classList.remove('active');

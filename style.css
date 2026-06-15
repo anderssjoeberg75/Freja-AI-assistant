@@ -1571,3 +1571,42 @@ body {
     color: #ff3b30;
     transform: scale(1.1);
 }
+
+/* Strava & Other Tool API Details accordion styling */
+.strava-api-details summary::-webkit-details-marker,
+.memory-api-details summary::-webkit-details-marker,
+.garmin-api-details summary::-webkit-details-marker,
+.withings-api-details summary::-webkit-details-marker,
+.google-calendar-api-details summary::-webkit-details-marker {
+    display: none;
+}
+.strava-api-details summary,
+.memory-api-details summary,
+.garmin-api-details summary,
+.withings-api-details summary,
+.google-calendar-api-details summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    list-style: none;
+}
+.strava-api-details summary::after,
+.memory-api-details summary::after,
+.garmin-api-details summary::after,
+.withings-api-details summary::after,
+.google-calendar-api-details summary::after {
+    content: '\f078'; /* FontAwesome angle-down */
+    font-family: 'Font Awesome 6 Free';
+    font-weight: 900;
+    transition: transform 0.2s ease;
+    font-size: 10px;
+    color: var(--color-primary);
+}
+.strava-api-details[open] summary::after,
+.memory-api-details[open] summary::after,
+.garmin-api-details[open] summary::after,
+.withings-api-details[open] summary::after,
+.google-calendar-api-details[open] summary::after {
+    transform: rotate(180deg);
+}
+
