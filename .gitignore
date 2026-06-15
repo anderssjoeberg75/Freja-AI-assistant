@@ -20,4 +20,6 @@ Thumbs.db
 scratch/
 .garminconnect/
 .telegram_bot.lock
+backend/cache/
+
 

@@ -1,10 +1,16 @@
 """ElevenLabs API secure proxy route."""
 
 import httpx
+import hashlib
+import os
 from fastapi import APIRouter, HTTPException, Request, Response
 from backend.database import get_db_connection
+from backend.config import PROJECT_ROOT
 
 router = APIRouter()
+
+CACHE_DIR = os.path.join(PROJECT_ROOT, "backend", "cache", "voice")
+os.makedirs(CACHE_DIR, exist_ok=True)
 
 @router.post("/api/elevenlabs/tts/{voice_id}")
 async def proxy_elevenlabs_tts(voice_id: str, request: Request):
@@ -12,6 +18,25 @@ async def proxy_elevenlabs_tts(voice_id: str, request: Request):
         payload = await request.json()
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON payload")
+
+    text = payload.get("text", "")
+    voice_settings = payload.get("voice_settings", {})
+    model_id = payload.get("model_id", "")
+    
+    # Generate cache key based on voice_id and payload parameters
+    hash_input = f"{voice_id}_{text}_{model_id}_{str(voice_settings)}".encode("utf-8")
+    cache_key = hashlib.sha256(hash_input).hexdigest()
+    cache_path = os.path.join(CACHE_DIR, f"{cache_key}.mp3")
+    
+    # Check if voice file is already cached
+    if os.path.exists(cache_path):
+        print(f"[ELEVENLABS] Serving cached voice audio for text: '{text[:20]}...'")
+        try:
+            with open(cache_path, "rb") as f:
+                cached_audio = f.read()
+            return Response(content=cached_audio, media_type="audio/mpeg")
+        except Exception as e:
+            print(f"[ELEVENLABS] Failed to read cache file: {e}")
 
     # Retrieve API key from SQLite keys.db
     with get_db_connection() as conn:
@@ -39,6 +64,14 @@ async def proxy_elevenlabs_tts(voice_id: str, request: Request):
                     status_code=response.status_code,
                     media_type="application/json"
                 )
+            
+            # Save audio stream to cache
+            try:
+                with open(cache_path, "wb") as f:
+                    f.write(response.content)
+            except Exception as e:
+                print(f"[ELEVENLABS] Failed to write cache file: {e}")
+                
             # Return audio stream
             return Response(
                 content=response.content,

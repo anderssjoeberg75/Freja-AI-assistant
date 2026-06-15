@@ -14,6 +14,7 @@ class GeminiClient {
         this.history = [];
         this.systemPrompt = "Du är FREJA, en intelligent och artig AI-assistent. Svara kortfattat.";
         this.lastFrameBuffer = null;
+        this.lastWebcamCaptureTime = 0;
         this.loadApiKey();
     }
 
@@ -23,6 +24,12 @@ class GeminiClient {
     captureWebcamSnapshot() {
         const video = document.getElementById('webcam-video');
         if (!video || !video.classList.contains('active')) return null;
+        
+        const now = Date.now();
+        if (this.lastWebcamCaptureTime && (now - this.lastWebcamCaptureTime < 8000)) {
+            console.log("[GEMINI] Throttling webcam capture to protect tokens.");
+            return null;
+        }
         
         try {
             // Check pixel difference using a downscaled 40x30 canvas
@@ -70,6 +77,10 @@ class GeminiClient {
             
             // Encode as compressed JPEG (70% quality)
             const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+            
+            // Update last capture time since we succeeded
+            this.lastWebcamCaptureTime = now;
+            
             return dataUrl.split(',')[1];
         } catch (e) {
             console.error("[GEMINI] Failed to capture webcam snapshot:", e);
