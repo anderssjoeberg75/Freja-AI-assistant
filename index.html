@@ -305,12 +305,23 @@
             </div>
             <div class="modal-body">
                 <div class="settings-group">
+                    <label for="input-access-token">Freja Access Token</label>
+                    <div class="input-password-container">
+                        <input type="password" id="input-access-token" placeholder="Ange ditt säkerhetstoken..." class="hud-input">
+                        <button type="button" id="btn-toggle-access-token" class="btn-toggle-input"><i class="fa-solid fa-eye"></i></button>
+                    </div>
+                    <p class="settings-help">Detta token skyddar din backend mot obehörig åtkomst. Spara samma token i webbläsaren för att ansluta.</p>
+                </div>
+
+                <hr class="panel-divider">
+
+                <div class="settings-group">
                     <label for="input-api-key">Gemini API Key</label>
                     <div class="input-password-container">
                         <input type="password" id="input-api-key" placeholder="AIzaSy..." class="hud-input">
                         <button type="button" id="btn-toggle-key" class="btn-toggle-input"><i class="fa-solid fa-eye"></i></button>
                     </div>
-                    <p class="settings-help">Din API-nyckel sparas säkert i din lokala webbläsare (localStorage). Du kan skaffa en gratis nyckel i <a href="https://aistudio.google.com/" target="_blank" class="hud-link">Google AI Studio</a>.</p>
+                    <p class="settings-help">Din API-nyckel sparas krypterat och säkert i databasen på servern. Klienten lagrar endast en maskerad referens. Skaffa nyckel i <a href="https://aistudio.google.com/" target="_blank" class="hud-link">Google AI Studio</a>.</p>
                 </div>
 
                  <div class="settings-group">
@@ -976,6 +987,34 @@
             <button id="btn-initialize-audio" class="hud-btn-huge">STARTA GRÄNSSNITTET</button>
         </div>
     </div>
+
+    <!-- SECURE API AUTHENTICATION OVERLAY -->
+    <div class="hud-modal" id="modal-auth-login">
+        <div class="modal-content glass-morphic" style="max-width: 400px; padding: 10px 0;">
+            <div class="modal-header">
+                <h2><i class="fa-solid fa-shield-halved"></i> SECURE ACCESS REQUIRED</h2>
+            </div>
+            <div class="modal-body">
+                <p style="font-size: 11px; line-height: 1.5; color: var(--color-text-muted); margin-bottom: 10px;">
+                    F.R.E.J.A. API-backend är skyddad. Vänligen ange ditt åtkomsttoken för att verifiera din session.
+                </p>
+                <div class="settings-group">
+                    <label for="input-login-token">Access Token</label>
+                    <div class="input-password-container">
+                        <input type="password" id="input-login-token" placeholder="Ange token..." class="hud-input">
+                        <button type="button" id="btn-toggle-login-token" class="btn-toggle-input"><i class="fa-solid fa-eye"></i></button>
+                    </div>
+                </div>
+                <div id="login-error-msg" style="color: var(--color-error); font-family: var(--font-mono); font-size: 10px; display: none; margin-top: 5px;">
+                    <i class="fa-solid fa-circle-exclamation"></i> FELAKTIGT ÅTKOMSTTOKEN. FÖRSÖK IGEN.
+                </div>
+            </div>
+            <div class="modal-footer" style="padding: 10px 20px;">
+                <button id="btn-submit-login" class="hud-btn btn-primary" style="width: 100%;"><i class="fa-solid fa-key"></i> ANSLUT SESSION</button>
+            </div>
+        </div>
+    </div>
+
 
     <script src="sound.js?v=7"></script>
     <script src="visualizer.js?v=7"></script>

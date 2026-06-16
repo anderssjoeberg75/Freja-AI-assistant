@@ -3,9 +3,33 @@
 import urllib.parse
 import httpx
 from bs4 import BeautifulSoup
+from starlette.concurrency import run_in_threadpool
+
+def perform_ddg_api_search(query: str):
+    """Query DuckDuckGo using the official duckduckgo_search DDGS library synchronously."""
+    from duckduckgo_search import DDGS
+    results = []
+    with DDGS() as ddgs:
+        for r in ddgs.text(query, max_results=5):
+            results.append({
+                'title': r.get('title', ''),
+                'snippet': r.get('body', ''),
+                'link': r.get('href', '')
+            })
+    return results
 
 async def perform_search(query):
-    """Perform a web search and parse the top organic results."""
+    """Perform a web search using DDG JSON API (primary) or HTML scraping (fallback)."""
+    # 1. Try stable JSON API via duckduckgo_search first
+    try:
+        results = await run_in_threadpool(perform_ddg_api_search, query)
+        if results:
+            print(f"[Search Service] Successfully fetched {len(results)} results using DDGS API.")
+            return results
+    except Exception as api_err:
+        print(f"[Search Service] DDG API search failed, falling back to HTML scraper: {api_err}")
+
+    # 2. Fallback to HTML BeautifulSoup scraping
     url = 'https://html.duckduckgo.com/html/?' + urllib.parse.urlencode({'q': query})
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
@@ -37,7 +61,9 @@ async def perform_search(query):
                     if len(results) >= 5:
                         break
     except Exception as e:
-        print(f'Search backend error: {e}')
+        print(f'Search backend error (Scraper): {e}')
         return {'error': str(e)}
+        
     return results
+
 

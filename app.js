@@ -1,3 +1,42 @@
+// Intercept all fetch requests to inject X-Freja-Token automatically for F.R.E.J.A. API endpoints.
+// Also handle 401 Unauthorized globally by showing the login modal overlay.
+window.originalFetch = window.fetch;
+window.fetch = async function(url, options = {}) {
+    let urlStr = typeof url === 'string' ? url : (url instanceof Request ? url.url : '');
+    
+    // Append header only for F.R.E.J.A. backend api endpoints, excluding external URLs
+    if (urlStr.includes('/api/') && (!urlStr.startsWith('http') || urlStr.startsWith(window.location.origin + '/api/'))) {
+        const token = localStorage.getItem('freja_access_token') || 'freja_secret';
+        options.headers = options.headers || {};
+        
+        if (options.headers instanceof Headers) {
+            options.headers.set('X-Freja-Token', token);
+        } else if (Array.isArray(options.headers)) {
+            const index = options.headers.findIndex(([k]) => k.toLowerCase() === 'x-freja-token');
+            if (index !== -1) {
+                options.headers[index][1] = token;
+            } else {
+                options.headers.push(['X-Freja-Token', token]);
+            }
+        } else {
+            options.headers['X-Freja-Token'] = token;
+        }
+    }
+    
+    try {
+        const response = await window.originalFetch(url, options);
+        if (response.status === 401 && urlStr.includes('/api/')) {
+            const loginModal = document.getElementById('modal-auth-login');
+            if (loginModal) {
+                loginModal.classList.add('active');
+            }
+        }
+        return response;
+    } catch (err) {
+        throw err;
+    }
+};
+
 /**
  * F.R.E.J.A. - Central Orchestrator & UI Controller
  * 
@@ -126,6 +165,9 @@ class FrejaUIController {
             const response = await fetch('/api/keys');
             if (response.ok) {
                 const keys = await response.json();
+                if (keys.freja_access_token !== undefined) {
+                    localStorage.setItem("freja_access_token", keys.freja_access_token);
+                }
                 if (keys.freja_gemini_apikey !== undefined) {
                     localStorage.setItem("freja_gemini_apikey", keys.freja_gemini_apikey);
                 }
@@ -199,12 +241,15 @@ class FrejaUIController {
             });
             if (response.ok) {
                 this.writeLog("API KEYS SECURED IN DATABASE", "sys");
+                return true;
             } else {
                 this.writeLog("API KEYS SAVE ERROR: DATABASE OFFLINE", "err");
+                return false;
             }
         } catch (e) {
             console.error("[FREJA] Failed to save keys to server:", e);
             this.writeLog("API KEYS SAVE ERROR: CONNECTION FAILED", "err");
+            return false;
         }
     }
 
@@ -212,6 +257,10 @@ class FrejaUIController {
      * Pulls previously cached configuration values from LocalStorage.
      */
     initializeUI() {
+        const accessToken = localStorage.getItem("freja_access_token") || "freja_secret";
+        const inputAccessToken = document.getElementById('input-access-token');
+        if (inputAccessToken) inputAccessToken.value = accessToken;
+
         // Load voice speech rates
         const rate = localStorage.getItem("freja_speech_rate") || "1.0";
         const pitch = localStorage.getItem("freja_speech_pitch") || "1.0";
@@ -651,6 +700,75 @@ class FrejaUIController {
             soundSynth.playClick();
             modalSettings.classList.remove('active');
         });
+
+        // Toggle Access Token visibility mask
+        const btnToggleAccessToken = document.getElementById('btn-toggle-access-token');
+        const inputAccessTokenField = document.getElementById('input-access-token');
+        if (btnToggleAccessToken && inputAccessTokenField) {
+            btnToggleAccessToken.addEventListener('click', () => {
+                soundSynth.playClick();
+                if (inputAccessTokenField.type === 'password') {
+                    inputAccessTokenField.type = 'text';
+                    btnToggleAccessToken.innerHTML = '<i class="fa-solid fa-eye-slash"></i>';
+                } else {
+                    inputAccessTokenField.type = 'password';
+                    btnToggleAccessToken.innerHTML = '<i class="fa-solid fa-eye"></i>';
+                }
+            });
+        }
+
+        // Login Submit action for auth overlay
+        const btnSubmitLogin = document.getElementById('btn-submit-login');
+        const inputLoginToken = document.getElementById('input-login-token');
+        const loginErrorMsg = document.getElementById('login-error-msg');
+        const modalAuthLogin = document.getElementById('modal-auth-login');
+        if (btnSubmitLogin && inputLoginToken && modalAuthLogin) {
+            btnSubmitLogin.addEventListener('click', async () => {
+                soundSynth.playClick();
+                const token = inputLoginToken.value.trim();
+                if (!token) return;
+                
+                // Test connection with token
+                localStorage.setItem('freja_access_token', token);
+                try {
+                    const res = await window.originalFetch('/api/keys', {
+                        headers: { 'X-Freja-Token': token }
+                    });
+                    if (res.ok) {
+                        modalAuthLogin.classList.remove('active');
+                        if (loginErrorMsg) loginErrorMsg.style.display = 'none';
+                        self.writeLog("ACCESS TOKEN GRANTED. SESSION RE-ESTABLISHED.", "sys");
+                        soundSynth.playNotify();
+                        // Reload keys
+                        await self.loadKeysFromServer();
+                        self.initializeUI();
+                    } else {
+                        localStorage.removeItem('freja_access_token');
+                        if (loginErrorMsg) loginErrorMsg.style.display = 'block';
+                        soundSynth.playError();
+                    }
+                } catch (err) {
+                    localStorage.removeItem('freja_access_token');
+                    if (loginErrorMsg) loginErrorMsg.style.display = 'block';
+                    soundSynth.playError();
+                }
+            });
+        }
+
+        // Toggle Login Token visibility mask
+        const btnToggleLoginToken = document.getElementById('btn-toggle-login-token');
+        if (btnToggleLoginToken && inputLoginToken) {
+            btnToggleLoginToken.addEventListener('click', () => {
+                soundSynth.playClick();
+                if (inputLoginToken.type === 'password') {
+                    inputLoginToken.type = 'text';
+                    btnToggleLoginToken.innerHTML = '<i class="fa-solid fa-eye-slash"></i>';
+                } else {
+                    inputLoginToken.type = 'password';
+                    btnToggleLoginToken.innerHTML = '<i class="fa-solid fa-eye"></i>';
+                }
+            });
+        }
 
         // Toggle API Keys visibility masks
         const btnToggleKey = document.getElementById('btn-toggle-key');
@@ -1600,11 +1718,18 @@ class FrejaUIController {
                 localStorage.setItem("freja_tool_download_facebook_photos_allowed", chkFacebookDownload.checked);
             }
 
+            const accessTokenVal = document.getElementById('input-access-token').value.trim();
+
             // Save keys to secure SQLite database
-            await self.saveKeysToServer({
+            const success = await self.saveKeysToServer({
+                freja_access_token: accessTokenVal,
                 freja_gemini_apikey: apiKey,
                 freja_eleven_apikey: elevenKey
             });
+
+            if (success && accessTokenVal) {
+                localStorage.setItem("freja_access_token", accessTokenVal);
+            }
 
             modalSettings.classList.remove('active');
             self.writeLog("INTERFACE NETWORK CONFIGURATIONS SECURED", "sys");

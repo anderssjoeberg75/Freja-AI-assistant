@@ -25,6 +25,48 @@ ALLOWED_EXTENSIONS = {'.py', '.js', '.html', '.css', '.json', '.md', '.sh', '.tx
 IGNORED_FILES = {'keys.db', 'freja.db', '.telegram_bot.lock', 'package-lock.json'}
 
 
+import ast
+
+def verify_safe_python_code(code: str):
+    """Parses the Python code into an AST and throws ValueError if suspicious operations are detected."""
+    blocked_calls = {'eval', 'exec', 'open', 'compile', 'input'}
+    blocked_modules = {'os', 'sys', 'subprocess', 'shutil', 'pty', 'platform', 'socket', 'urllib', 'http', 'httpx', 'requests', 'sqlite3', 'ctypes'}
+    
+    try:
+        root = ast.parse(code)
+    except SyntaxError as e:
+        raise ValueError(f"Syntaxfel i Python-koden: {e}")
+        
+    for node in ast.walk(root):
+        if isinstance(node, ast.Import):
+            for name in node.names:
+                if name.name.split('.')[0] in blocked_modules:
+                    raise ValueError(f"Säkerhetsfel: Import av modulen '{name.name}' är blockerad i sandbox-läge.")
+        elif isinstance(node, ast.ImportFrom):
+            if node.module and node.module.split('.')[0] in blocked_modules:
+                raise ValueError(f"Säkerhetsfel: Import från modulen '{node.module}' är blockerad i sandbox-läge.")
+        elif isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name):
+                if node.func.id in blocked_calls:
+                    raise ValueError(f"Säkerhetsfel: Anrop av funktionen '{node.func.id}' är blockerad i sandbox-läge.")
+            elif isinstance(node.func, ast.Attribute):
+                if node.func.attr in blocked_calls:
+                    raise ValueError(f"Säkerhetsfel: Anrop av attributet '{node.func.attr}' är blockerad i sandbox-läge.")
+
+def verify_safe_shell_command(cmd_str: str):
+    """Checks the shell command string for suspicious or dangerous operations."""
+    blocked_commands = {'rm', 'mv', 'wget', 'curl', 'sudo', 'chmod', 'chown', 'dd', 'mkfs', 'nc', 'netcat', 'bash', 'sh', 'zsh', 'ssh'}
+    
+    tokens = re.split(r'\s+|[;|&&|\|]', cmd_str)
+    for token in tokens:
+        token_clean = token.strip().lower()
+        if token_clean in blocked_commands:
+            raise ValueError(f"Säkerhetsfel: Kommandot eller operatorn '{token}' är blockerad i sandbox-läge.")
+            
+    if '>' in cmd_str:
+        raise ValueError("Säkerhetsfel: Omdirigering (>) är blockerad i sandbox-läge.")
+
+
 async def run_subprocess_command(cmd_str: str, cwd: str = PROJECT_ROOT) -> dict:
     """Helper to run a shell command asynchronously and return results."""
     try:
@@ -62,6 +104,19 @@ async def execute_codex_code_impl(args: dict) -> dict:
     
     if not code:
         return {"error": "Ingen kod eller kommando angavs."}
+        
+    try:
+        if language == "python":
+            verify_safe_python_code(code)
+        else:
+            verify_safe_shell_command(code)
+    except ValueError as val_err:
+        return {
+            "exit_code": -1,
+            "stdout": "",
+            "stderr": str(val_err),
+            "output": f"Säkerhetsfel: {str(val_err)}"
+        }
         
     if language == "python":
         # Create temp folder inside backend/cache/ if it doesn't exist
@@ -253,6 +308,11 @@ async def codex_run_and_fix_impl(args: dict) -> dict:
     
     if not command or not file_path:
         return {"error": "Både 'command' och 'file_path' krävs för att köra run_and_fix."}
+        
+    try:
+        verify_safe_shell_command(command)
+    except ValueError as val_err:
+        return {"error": f"Säkerhetsfel i run_and_fix: {str(val_err)}"}
         
     abs_file_path = os.path.abspath(os.path.join(PROJECT_ROOT, file_path))
     if not os.path.exists(abs_file_path):

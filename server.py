@@ -51,6 +51,11 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# Register Authentication Middleware
+from backend.middleware.auth import FrejaAuthMiddleware
+app.add_middleware(FrejaAuthMiddleware)
+
+
 # Include API routers
 app.include_router(settings_router)
 app.include_router(search_router)

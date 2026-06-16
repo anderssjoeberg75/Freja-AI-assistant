@@ -112,5 +112,9 @@ def init_db():
             ("Läkarbesök", "Årlig hälsokontroll.", f"{in_three_days_str}T08:30:00", f"{in_three_days_str}T09:15:00", "Vårdcentralen City")
         ]
         cursor.executemany('\n            INSERT INTO google_calendar_events (summary, description, start_time, end_time, location)\n            VALUES (?, ?, ?, ?, ?)\n        ', calendar_seed)
+    # Seed default access token if not present
+    cursor.execute("SELECT COUNT(*) FROM api_keys WHERE key_name = 'freja_access_token'")
+    if cursor.fetchone()[0] == 0:
+        cursor.execute("INSERT INTO api_keys (key_name, key_value) VALUES ('freja_access_token', 'freja_secret')")
     conn.commit()
     conn.close()

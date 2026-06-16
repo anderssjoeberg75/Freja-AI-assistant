@@ -62,10 +62,14 @@ async def download_facebook_photos_impl(profile_url: str, limit: int = 1000) -> 
             except Exception:
                 pass
 
-        # We always launch a headful browser to ensure correct layout and bypass headless detection
+        # Launch browser in headless mode with automation evasion arguments
         browser = await p.chromium.launch(
-            headless=False,
-            args=["--no-sandbox", "--disable-setuid-sandbox"]
+            headless=True,
+            args=[
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-blink-features=AutomationControlled"
+            ]
         )
         
         if is_logged_in:

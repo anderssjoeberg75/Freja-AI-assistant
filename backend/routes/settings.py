@@ -12,7 +12,17 @@ async def get_keys():
             cursor = conn.cursor()
             cursor.execute('SELECT key_name, key_value FROM api_keys')
             rows = cursor.fetchall()
-        return {row[0]: row[1] for row in rows}
+        
+        result = {}
+        for row in rows:
+            name, value = row[0], row[1]
+            if not value or not value.strip():
+                result[name] = ""
+            elif name == "freja_access_token":
+                result[name] = value
+            else:
+                result[name] = "[MASKED]"
+        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -23,6 +33,9 @@ async def post_keys(request: Request):
         with get_db_connection() as conn:
             cursor = conn.cursor()
             for key_name, key_value in data.items():
+                # Skip saving if client sends back masked placeholder
+                if key_value in ("[MASKED]", "configured") or (key_value and key_value.startswith("••••")):
+                    continue
                 cursor.execute('''
                     INSERT INTO api_keys (key_name, key_value)
                     VALUES (?, ?)
@@ -32,4 +45,5 @@ async def post_keys(request: Request):
         return {'status': 'success'}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
 

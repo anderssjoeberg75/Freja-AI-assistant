@@ -4,3 +4,5 @@ uvicorn>=0.20.0,<1
 requests>=2.31.0,<3
 httpx>=0.25.0,<1
 playwright
+duckduckgo_search>=6.0.0
+garminconnect
