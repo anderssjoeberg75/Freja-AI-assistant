@@ -52,80 +52,69 @@ async def download_facebook_photos_impl(profile_url: str, limit: int = 1000) -> 
         state_path = PROJECT_ROOT / "facebook_state.json"
         is_logged_in = False
         
-        # Try verifying with headless browser first if state exists
         if state_path.exists():
-            print("[Facebook Scraper] Loading saved session to verify...")
-            verify_browser = await p.chromium.launch(
-                headless=True,
-                args=["--no-sandbox", "--disable-setuid-sandbox"]
-            )
             try:
-                verify_context = await verify_browser.new_context(
-                    viewport={"width": 1280, "height": 800},
-                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                    storage_state=str(state_path)
-                )
-                verify_page = await verify_context.new_page()
-                await verify_page.goto("https://www.facebook.com", wait_until="domcontentloaded", timeout=20000)
-                # Check for login email input
-                email_input = verify_page.locator("input[name='email']")
-                if await email_input.count() == 0:
-                    is_logged_in = True
-                    print("[Facebook Scraper] Session verified. Already logged in.")
-            except Exception as verify_err:
-                print(f"[Facebook Scraper] Session verification failed: {verify_err}")
-            finally:
-                await verify_browser.close()
+                import json
+                with open(state_path, 'r') as f:
+                    saved_data = json.load(f)
+                cookies = saved_data.get("cookies", [])
+                is_logged_in = any(c.get("name") == "c_user" for c in cookies)
+            except Exception:
+                pass
 
-        if not is_logged_in:
-            print("[Facebook Scraper] Not logged in. Launching interactive browser for login...")
-            login_browser = await p.chromium.launch(
-                headless=False,
-                args=["--no-sandbox", "--disable-setuid-sandbox"]
+        # We always launch a headful browser to ensure correct layout and bypass headless detection
+        browser = await p.chromium.launch(
+            headless=False,
+            args=["--no-sandbox", "--disable-setuid-sandbox"]
+        )
+        
+        if is_logged_in:
+            print("[Facebook Scraper] Loading saved session state...")
+            context = await browser.new_context(
+                viewport={"width": 1280, "height": 800},
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                storage_state=str(state_path)
             )
-            login_context = await login_browser.new_context(
+        else:
+            print("[Facebook Scraper] No valid session found. Launching clean context...")
+            context = await browser.new_context(
                 viewport={"width": 1280, "height": 800},
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             )
-            login_page = await login_context.new_page()
-            await login_page.goto("https://www.facebook.com")
+            
+        page = await context.new_page()
+        
+        if not is_logged_in:
+            print("[Facebook Scraper] Not logged in. Loading Facebook home...")
+            await page.goto("https://www.facebook.com", wait_until="domcontentloaded", timeout=25000)
+            await page.wait_for_timeout(2000)
             
             print("[Facebook Scraper] Waiting for user to complete login in the opened browser window...")
-            # Wait up to 120 seconds for the user to log in
-            for _ in range(60):
-                await login_page.wait_for_timeout(2000)
+            for _ in range(60): # wait up to 120s
+                await page.wait_for_timeout(2000)
                 if ABORT_DOWNLOAD:
                     break
                 try:
-                    email_count = await login_page.locator("input[name='email']").count()
-                    # If email field is gone and we are not on a login/checkpoint page, we assume logged in
-                    if email_count == 0 and "facebook.com" in login_page.url and "login" not in login_page.url:
+                    state = await context.storage_state()
+                    cookies = state.get("cookies", [])
+                    if any(c.get("name") == "c_user" for c in cookies):
                         is_logged_in = True
-                        print("[Facebook Scraper] Login detected! Saving session state...")
-                        await login_context.storage_state(path=str(state_path))
+                        print("[Facebook Scraper] Login detected (c_user found)! Saving session state...")
+                        await context.storage_state(path=str(state_path))
+                        await page.wait_for_timeout(2000)
+                        await context.storage_state(path=str(state_path))
                         break
                 except Exception:
                     pass
-            
-            await login_browser.close()
-            
             if not is_logged_in:
+                await browser.close()
                 raise Exception("Facebook-inloggning misslyckades eller avbröts av användaren.")
-        
-        # Now launch the headless browser for scraping using the validated/saved state
-        browser = await p.chromium.launch(
-            headless=True,
-            args=["--no-sandbox", "--disable-setuid-sandbox"]
-        )
-        context = await browser.new_context(
-            viewport={"width": 1280, "height": 800},
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            storage_state=str(state_path)
-        )
-        page = await context.new_page()
-        
+        else:
+            print("[Facebook Scraper] Session verified (c_user exists). Direct load.")
+            
+        # Proceed to scrape the profile page directly in the same headful browser instance!
         try:
-            print(f"[Facebook Scraper] Loading profile page...")
+            print(f"[Facebook Scraper] Loading profile page: {profile_url} ...")
             await page.goto(profile_url, wait_until="domcontentloaded", timeout=30000)
             await page.wait_for_timeout(3000)
             
