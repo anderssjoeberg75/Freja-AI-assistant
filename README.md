@@ -55,12 +55,15 @@ To unlock F.R.E.J.A.'s full cognitive capabilities, configure your credentials i
 * 🎙️ **Hands-free Voice Controls**: Speak naturally after activating the microphone. F.R.E.J.A. automatically pauses speech recognition while speaking to prevent capturing its own voice loop.
 * 👁️ **Neural Optics Scanner**: Choose your webcam directly from the HUD panel. F.R.E.J.A. captures frames in the background to analyze objects, expressions, or visual queries via Gemini's multimodal vision model.
 * 🧠 **Neural Memory Vault**: Remembers personal details, names, cities, and habits across sessions. Open the Vault modal (brain icon in the header) to view, add, or purge engram cards manually.
-* 🎨 **Accent Themes**: Swap between multiple cyberpunk neon color themes in real-time:
-  - `Cyan Accent` (Default)
-  - `Emerald Uplink` (Green)
-  - `Crimson Protocol` (Red)
-  - `Amber Diagnostic` (Amber/Gold)
+* 🎨 **Accent Themes**: Swap between multiple cyberpunk neon color themes in real-time.
 * 🎛️ **Terminal Console Log**: Displays diagnostic startup indicators, network transaction payloads, and audio/webcam links in a live feed terminal at the bottom-right.
+* 👥 **Facebook Photo Downloader & Scraper Tool**:
+  - Automatically logins and scrapes high-resolution photos from specific Facebook profiles directly from conversational triggers (e.g., *"Ladda ner bilder från..."*).
+  - **Pre-authenticated Session Persistence**: Includes a standalone utility `python3 save_session.py` to log in once via Playwright and save session cookies/local storage to `facebook_state.json`, bypassing login walls.
+  - **Dynamic Context Cleaning (Anti-Bias)**: Implements dynamic conversation history filtering in the frontend client. Whenever a user submits a download query, historical responses claiming lack of permissions or partial results are purged from active memory to keep the LLM focused on running the tool.
+  - **Cancelable Background Job**: Abort active download queues dynamically via explicit chat messages (e.g., *"Sluta ladda ner"* / *"Avbryt"*) or direct UI button controls.
+  - **Resilient Multi-Strategy Scrolling**: Combines smooth window scrolling, recursive scrollable container traversal, and simulated keyboard commands (`End`/`PageDown`) to unlock infinite scroll content and capture large photo sets.
+  - **Auto-save at Termination**: Updated session states/cookies are automatically saved in the `finally` block before closing the headless browser, protecting authentication from expiring prematurely.
 
 ---
 
@@ -75,6 +78,7 @@ The application separates the browser interface from focused backend modules:
 ├── gemini.js                  # Gemini client and multimodal context handling
 ├── memory.js                  # Mem0 integration and local memory fallback
 ├── speech.js                  # Speech-to-Text and Text-to-Speech engines
+├── save_session.py            # Headful CLI Playwright session setup utility
 ├── tools/                     # Browser-side assistant tool declarations
 ├── server.py                  # Minimal backend composition and startup entry point
 ├── backend/
@@ -86,14 +90,16 @@ The application separates the browser interface from focused backend modules:
 │   │   ├── search.py
 │   │   ├── garmin.py
 │   │   ├── strava.py
+│   │   ├── facebook.py        # Scraping controllers (abort, download status, trigger)
 │   │   └── withings.py
 │   └── services/              # External integration services
+│       └── facebook_service.py # Playwright background browser automation scraper
 └── tests/                     # Backend route regression tests
 ```
 
 Backend routes are registered centrally but implemented in focused domain modules. This keeps the server entry point small and makes route behavior independently testable.
 
-Install the Python runtime dependency before starting the server:
+Install the Python runtime dependencies before starting the server:
 
 ```bash
 python3 -m pip install -r requirements.txt
@@ -113,3 +119,5 @@ python3 -m unittest discover -v
   - We have implemented soft constraints using `ideal` specifications to eliminate the browser `OverconstrainedError`. If your camera does not initialize, check your browser's address bar to ensure camera permissions have been granted.
 * **Microphone Disconnects or Pauses**:
   - Some browsers suspend microphonic listeners if the tab remains inactive in the background. Simply click the microphone button on the HUD to reconnect the interface.
+* **Scraper Fails to Access Profile**:
+  - Run `python3 save_session.py` in your terminal to complete a headful login sequence on Facebook. Playwright will capture the cookies and save them, allowing the background assistant to run smoothly.
