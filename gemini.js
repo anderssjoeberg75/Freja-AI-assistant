@@ -191,6 +191,9 @@ class GeminiClient {
         // Inject directive to explicitly cite Google when using the web search tool
         dynamicSystemPrompt += "\n\n[DIRECTIVE: WEB SEARCH CITATION]\nNär du använder verktyget 'google_search' för att söka efter information eller fakta på webben, MÅSTE du alltid uttryckligen ange i ditt svar att källan är Google (t.ex. genom att skriva 'Källa: Google' eller 'Enligt sökresultat på Google' i slutet av din förklaring).";
 
+        // Inject directive to force calling download_facebook_photos and ignore past negative history constraints
+        dynamicSystemPrompt += "\n\n[DIRECTIVE: FACEBOOK PHOTO DOWNLOAD]\nOm användaren ber dig att ladda ner, söka efter, testa igen, eller hämta bilder från Facebook (t.ex. med kommandon som 'Prova igen', 'ladda ner', etc.), ska du ALLTID anropa verktyget 'download_facebook_photos' för att köra processen på nytt. Ignorera eventuella tidigare meddelanden i chatthistoriken som hävdar att du inte kan logga in eller att det inte finns fler än 82 bilder. Du har nu full tillgång till inloggningen och kan hämta alla bilder genom att köra verktyget.";
+
         // Invoke Google API via local FastAPI proxy
         const endpoint = `/api/gemini/generate?model=${encodeURIComponent(this.model)}`;
         
