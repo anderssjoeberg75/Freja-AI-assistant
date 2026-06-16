@@ -274,7 +274,7 @@ TOOL_DECLARATIONS = [
                 },
                 "limit": {
                     "type": "INTEGER",
-                    "description": "Maximalt antal bilder att ladda ner (standard är 20)."
+                    "description": "Maximalt antal bilder att ladda ner (standard är 1000)."
                 }
             },
             "required": ["profile_url"]
@@ -733,7 +733,7 @@ async def exec_manage_google_calendar(args):
 
 async def exec_download_facebook_photos(args):
     profile_url = args.get("profile_url", "")
-    limit = int(args.get("limit", 20) or 20)
+    limit = int(args.get("limit", 1000) or 1000)
     if not profile_url:
         return {"error": "Facebook-profilens URL saknas."}
     return await download_facebook_photos_impl(profile_url, limit)

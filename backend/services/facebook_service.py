@@ -15,7 +15,7 @@ def cancel_facebook_download():
     ABORT_DOWNLOAD = True
     print("[Facebook Scraper] Abort signal sent.")
 
-async def download_facebook_photos_impl(profile_url: str, limit: int = 20) -> dict:
+async def download_facebook_photos_impl(profile_url: str, limit: int = 1000) -> dict:
     """
     Scrapes public photos from a Facebook profile or photo gallery URL using Playwright.
     Saves them under PROJECT_ROOT/downloads/facebook_photos/<profile_id>/ and returns list of relative paths.
@@ -161,7 +161,7 @@ async def download_facebook_photos_impl(profile_url: str, limit: int = 20) -> di
             print("[Facebook Scraper] Scrolling dynamically to load all thumbnails...")
             previous_count = 0
             no_change_count = 0
-            max_scrolls = 35
+            max_scrolls = 80
             
             for scroll_idx in range(max_scrolls):
                 if ABORT_DOWNLOAD:
@@ -236,8 +236,21 @@ async def download_facebook_photos_impl(profile_url: str, limit: int = 20) -> di
                         pass
                 
                 # Perform the scroll action
-                await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                await page.wait_for_timeout(2000)
+                await page.evaluate("""() => {
+                    window.scrollTo(0, document.body.scrollHeight);
+                    if (document.documentElement) {
+                        document.documentElement.scrollTop = document.documentElement.scrollHeight;
+                    }
+                    document.querySelectorAll('div').forEach(el => {
+                        if (el.scrollHeight > el.clientHeight) {
+                            const style = window.getComputedStyle(el);
+                            if (style.overflowY === 'auto' || style.overflowY === 'scroll') {
+                                el.scrollTop = el.scrollHeight;
+                            }
+                        }
+                    });
+                }""")
+                await page.wait_for_timeout(3000)
                 
                 # Press Escape to clear any tooltips or popups
                 try:
@@ -250,7 +263,7 @@ async def download_facebook_photos_impl(profile_url: str, limit: int = 20) -> di
                 current_count = 0
                 for link in links:
                     href = await link.get_attribute("href")
-                    if href and ("/photo.php" in href or "/photo/" in href or "fbid=" in href):
+                    if href and ("/photo" in href or "fbid=" in href or "/photos/" in href):
                         current_count += 1
                 
                 print(f"[Facebook Scraper] Scroll {scroll_idx+1}: Found {current_count} thumbnail candidates.")
@@ -270,7 +283,7 @@ async def download_facebook_photos_impl(profile_url: str, limit: int = 20) -> di
             photo_urls = []
             for link in links:
                 href = await link.get_attribute("href")
-                if href and ("/photo.php" in href or "/photo/" in href or "fbid=" in href):
+                if href and ("/photo" in href or "fbid=" in href or "/photos/" in href):
                     if href.startswith("/"):
                         href = "https://www.facebook.com" + href
                     if href not in photo_urls:
