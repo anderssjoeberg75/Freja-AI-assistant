@@ -168,6 +168,21 @@ class GeminiClient {
             parts: userParts
         });
 
+        // Clean history of negative constraints when requesting a Facebook download
+        const lowerMsg = userMessage.toLowerCase();
+        if (lowerMsg.includes("facebook") || lowerMsg.includes("bilder") || lowerMsg.includes("foton") || lowerMsg.includes("nedladdning") || lowerMsg.includes("prova") || lowerMsg.includes("samma")) {
+            this.history = this.history.filter(h => {
+                const text = (h.parts && h.parts[0] && h.parts[0].text) || "";
+                const lowerText = text.toLowerCase();
+                // If it mentions 82, cannot log in, or no more images, filter it out!
+                if (lowerText.includes("82") || lowerText.includes("inloggning") || lowerText.includes("inte logga in") || lowerText.includes("oförändrat")) {
+                    console.log("[GEMINI] Filtering out biased history item:", text);
+                    return false;
+                }
+                return true;
+            });
+        }
+
         // Run mock offline generator if API key is empty
         if (!this.apiKey) {
             return this.generateMockOfflineResponse(userMessage);
