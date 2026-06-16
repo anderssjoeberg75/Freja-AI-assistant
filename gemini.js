@@ -24,13 +24,13 @@ class GeminiClient {
     captureWebcamSnapshot() {
         const video = document.getElementById('webcam-video');
         if (!video || !video.classList.contains('active')) return null;
-        
+
         const now = Date.now();
         if (this.lastWebcamCaptureTime && (now - this.lastWebcamCaptureTime < 8000)) {
             console.log("[GEMINI] Throttling webcam capture to protect tokens.");
             return null;
         }
-        
+
         try {
             // Check pixel difference using a downscaled 40x30 canvas
             const downscaledCanvas = document.createElement('canvas');
@@ -40,7 +40,7 @@ class GeminiClient {
             dsCtx.drawImage(video, 0, 0, 40, 30);
             const imgData = dsCtx.getImageData(0, 0, 40, 30);
             const data = imgData.data;
-            
+
             let isStatic = false;
             if (this.lastFrameBuffer) {
                 let changedPixels = 0;
@@ -48,8 +48,8 @@ class GeminiClient {
                 const threshold = 15; // intensity difference threshold (0-255)
                 for (let i = 0; i < data.length; i += 4) {
                     const rDiff = Math.abs(data[i] - this.lastFrameBuffer[i]);
-                    const gDiff = Math.abs(data[i+1] - this.lastFrameBuffer[i+1]);
-                    const bDiff = Math.abs(data[i+2] - this.lastFrameBuffer[i+2]);
+                    const gDiff = Math.abs(data[i + 1] - this.lastFrameBuffer[i + 1]);
+                    const bDiff = Math.abs(data[i + 2] - this.lastFrameBuffer[i + 2]);
                     if (rDiff > threshold || gDiff > threshold || bDiff > threshold) {
                         changedPixels++;
                     }
@@ -60,9 +60,9 @@ class GeminiClient {
                     isStatic = true;
                 }
             }
-            
+
             this.lastFrameBuffer = data;
-            
+
             if (isStatic) {
                 console.log("[GEMINI] Webcam stream is static. Bypassing image payload to prevent token bloat.");
                 return null;
@@ -74,13 +74,13 @@ class GeminiClient {
             canvas.height = 300;
             const ctx = canvas.getContext('2d');
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            
+
             // Encode as compressed JPEG (70% quality)
             const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
-            
+
             // Update last capture time since we succeeded
             this.lastWebcamCaptureTime = now;
-            
+
             return dataUrl.split(',')[1];
         } catch (e) {
             console.error("[GEMINI] Failed to capture webcam snapshot:", e);
@@ -131,10 +131,10 @@ class GeminiClient {
      */
     async generateResponse(userMessage, attachImage = false) {
         console.log("[GEMINI] Requesting response for message:", userMessage);
-        
+
         // Capture snapshot if requested and scanner is active
         const webcamBase64 = attachImage ? this.captureWebcamSnapshot() : null;
-        
+
         // Clean older multimodal images from context to avoid token bloat and API quota exhaustion
         this.history.forEach(h => {
             if (h.role === 'user' && Array.isArray(h.parts)) {
@@ -170,27 +170,27 @@ class GeminiClient {
 
         // Clean history of negative constraints when requesting a Facebook download
         const lowerMsg = userMessage.toLowerCase();
-        const isFacebookQuery = lowerMsg.includes("facebook") || 
-                                lowerMsg.includes("bilder") || 
-                                lowerMsg.includes("foton") || 
-                                lowerMsg.includes("nedladdning") || 
-                                lowerMsg.includes("prova") || 
-                                lowerMsg.includes("samma") || 
-                                lowerMsg.includes("hämta");
-                                
+        const isFacebookQuery = lowerMsg.includes("facebook") ||
+            lowerMsg.includes("bilder") ||
+            lowerMsg.includes("foton") ||
+            lowerMsg.includes("nedladdning") ||
+            lowerMsg.includes("prova") ||
+            lowerMsg.includes("samma") ||
+            lowerMsg.includes("hämta");
+
         if (isFacebookQuery) {
             let filteredHistory = this.history.filter(h => {
                 const text = (h.parts && h.parts[0] && h.parts[0].text) || "";
                 const lowerText = text.toLowerCase();
                 // If it relates to facebook, photos, downloads, or limits, purge it!
-                const isPurgeTarget = lowerText.includes("facebook") || 
-                                      lowerText.includes("bild") || 
-                                      lowerText.includes("foto") || 
-                                      lowerText.includes("nedladdning") || 
-                                      lowerText.includes("82") || 
-                                      lowerText.includes("detsamma") || 
-                                      lowerText.includes("oförändrat") || 
-                                      lowerText.includes("inloggning");
+                const isPurgeTarget = lowerText.includes("facebook") ||
+                    lowerText.includes("bild") ||
+                    lowerText.includes("foto") ||
+                    lowerText.includes("nedladdning") ||
+                    lowerText.includes("82") ||
+                    lowerText.includes("detsamma") ||
+                    lowerText.includes("oförändrat") ||
+                    lowerText.includes("inloggning");
                 if (isPurgeTarget) {
                     console.log("[GEMINI] Purged biased history item:", text);
                     return false;
@@ -249,7 +249,7 @@ class GeminiClient {
 
         // Invoke Google API via local FastAPI proxy
         const endpoint = `/api/gemini/generate?model=${encodeURIComponent(this.model)}`;
-        
+
         const payload = {
             contents: this.history,
             systemInstruction: {
@@ -337,7 +337,7 @@ class GeminiClient {
         } catch (e) {
             console.error("[GEMINI] API Request failure:", e);
             soundSynth.playError();
-            
+
             // Clean up the failed context states by removing history back to the user prompt
             while (this.history.length > 0) {
                 const last = this.history[this.history.length - 1];
@@ -346,7 +346,7 @@ class GeminiClient {
                     break;
                 }
             }
-            
+
             return `[ANOMALY] Neural Uplink Failed. Det gick inte att kontakta Gemini. Fel: ${e.message}. Kontrollera din internetanslutning eller din API-nyckel i inställningarna.`;
         }
     }
@@ -360,7 +360,7 @@ class GeminiClient {
             setTimeout(() => {
                 const cleanMsg = msg.toLowerCase().trim();
                 let reply = "";
-                
+
                 // Prevent history size growth in offline demo mode
                 if (this.history.length > 8) {
                     this.history.shift();
@@ -370,9 +370,9 @@ class GeminiClient {
                 const sv = document.getElementById('select-lang-quick').value === 'sv-SE';
 
                 if (cleanMsg.includes('hej') || cleanMsg.includes('hello') || cleanMsg.includes('tjena')) {
-                    reply = sv 
-                        ? "God dag, sir. Jag är för närvarande offline eftersom ingen Gemini API-nyckel är konfigurerad. Mitt röstgränssnitt är fullt aktivt, men min kognitiva länk kräver en API-nyckel."
-                        : "Greetings, sir. I am currently operating offline as no Gemini API key is configured. My vocal systems are online, but my cognitive processor requires an API link.";
+                    reply = sv
+                        ? "God dag Jag är för närvarande offline eftersom ingen Gemini API-nyckel är konfigurerad. Mitt röstgränssnitt är fullt aktivt, men min kognitiva länk kräver en API-nyckel."
+                        : "Greetings. I am currently operating offline as no Gemini API key is configured. My vocal systems are online, but my cognitive processor requires an API link.";
                 } else if (cleanMsg.includes('vem är du') || cleanMsg.includes('who are you') || cleanMsg.includes('namn')) {
                     reply = sv
                         ? "Jag är F.R.E.J.A. (Fully Responsive Electronic Judicial Assistant), din kognitiva nätverksassistent."
@@ -385,11 +385,11 @@ class GeminiClient {
                     const now = new Date();
                     const timeStr = now.toLocaleTimeString(sv ? 'sv-SE' : 'en-US');
                     reply = sv
-                        ? `Klockan är exakt ${timeStr}, sir. Alla kronometrar är synkroniserade.`
-                        : `Chronometers indicate precisely ${timeStr}, sir. All units are fully aligned.`;
+                        ? `Klockan är exakt ${timeStr}.Alla kronometrar är synkroniserade.`
+                        : `Chronometers indicate precisely ${timeStr},All units are fully aligned.`;
                 } else {
                     reply = sv
-                        ? `Jag hörde: "${msg}". Utan en Gemini-länk är min kapacitet begränsad till offline-direktiv, sir. Klicka på kugghjulsikonen uppe till höger för att mata in din API-nyckel.`
+                        ? `Jag hörde: "${msg}". Utan en Gemini-länk är min kapacitet begränsad till offline-direktiv. Klicka på kugghjulsikonen uppe till höger för att mata in din API-nyckel.`
                         : `Captured input: "${msg}". Operating in offline diagnostic mode. To enable full cognitive processing, please insert your Gemini API Key in the settings gear.`;
                 }
 

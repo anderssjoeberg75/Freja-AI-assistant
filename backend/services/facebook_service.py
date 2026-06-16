@@ -150,7 +150,7 @@ async def download_facebook_photos_impl(profile_url: str, limit: int = 1000) -> 
             print("[Facebook Scraper] Scrolling dynamically to load all thumbnails...")
             previous_count = 0
             no_change_count = 0
-            max_scrolls = 80
+            max_scrolls = 150
             
             for scroll_idx in range(max_scrolls):
                 if ABORT_DOWNLOAD:
@@ -225,17 +225,23 @@ async def download_facebook_photos_impl(profile_url: str, limit: int = 1000) -> 
                         pass
                 
                 # Perform the scroll action
+                # 1. Native key presses
+                try:
+                    await page.keyboard.press("End")
+                    await page.wait_for_timeout(500)
+                    await page.keyboard.press("PageDown")
+                except Exception:
+                    pass
+                
+                # 2. Window and element scrolling
                 await page.evaluate("""() => {
                     window.scrollTo(0, document.body.scrollHeight);
                     if (document.documentElement) {
                         document.documentElement.scrollTop = document.documentElement.scrollHeight;
                     }
-                    document.querySelectorAll('div').forEach(el => {
-                        if (el.scrollHeight > el.clientHeight) {
-                            const style = window.getComputedStyle(el);
-                            if (style.overflowY === 'auto' || style.overflowY === 'scroll') {
-                                el.scrollTop = el.scrollHeight;
-                            }
+                    document.querySelectorAll('*').forEach(el => {
+                        if (el.scrollHeight > el.clientHeight && el.clientHeight > 0) {
+                            el.scrollTop = el.scrollHeight;
                         }
                     });
                 }""")
@@ -259,8 +265,8 @@ async def download_facebook_photos_impl(profile_url: str, limit: int = 1000) -> 
                 
                 if current_count == previous_count:
                     no_change_count += 1
-                    if no_change_count >= 4:
-                        print("[Facebook Scraper] No new photos loaded after 4 consecutive scrolls. Stopping scroll loop.")
+                    if no_change_count >= 8:
+                        print("[Facebook Scraper] No new photos loaded after 8 consecutive scrolls. Stopping scroll loop.")
                         break
                 else:
                     no_change_count = 0
