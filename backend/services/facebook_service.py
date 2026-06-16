@@ -367,6 +367,12 @@ async def download_facebook_photos_impl(profile_url: str, limit: int = 1000) -> 
             print(f"[Facebook Scraper] Critical error in scraper loop: {main_err}")
             return {"error": str(main_err), "downloaded_count": len(downloaded_files), "images": downloaded_files}
         finally:
+            try:
+                # Always save storage state at the end of the scraper execution to keep session active
+                print("[Facebook Scraper] Saving updated session state at termination...")
+                await context.storage_state(path=str(state_path))
+            except Exception as save_err:
+                print(f"[Facebook Scraper] Failed to save updated session state: {save_err}")
             await browser.close()
             
     status_str = "cancelled" if ABORT_DOWNLOAD else "success"
