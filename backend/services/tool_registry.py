@@ -31,6 +31,7 @@ from backend.services.codex_service import (
     codex_audit_codebase_impl,
     codex_run_and_fix_impl,
 )
+from backend.services.facebook_service import download_facebook_photos_impl
 
 # 1. TOOL DECLARATIONS (Gemini JSON format)
 TOOL_DECLARATIONS = [
@@ -260,6 +261,24 @@ TOOL_DECLARATIONS = [
             },
             "required": ["command", "file_path"]
         }
+    },
+    {
+        "name": "download_facebook_photos",
+        "description": "Laddar ner foton från en användares Facebook-profil eller fotogalleri (t.ex. .../photos_by) med hjälp av Playwright. Hämtar bilder och sparar dem lokalt.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "profile_url": {
+                    "type": "STRING",
+                    "description": "Den fullständiga URL:en till Facebook-profilens bilder, t.ex. https://www.facebook.com/profile.php?id=61581510724534&sk=photos_by"
+                },
+                "limit": {
+                    "type": "INTEGER",
+                    "description": "Maximalt antal bilder att ladda ner (standard är 20)."
+                }
+            },
+            "required": ["profile_url"]
+        }
     }
 ]
 
@@ -279,6 +298,7 @@ TOOL_PERMISSION_KEYS = {
     "codex_audit_codebase": "freja_tool_codex_audit_codebase_allowed",
     "tool_analyze_code": "freja_tool_tool_analyze_code_allowed",
     "codex_run_and_fix": "freja_tool_codex_run_and_fix_allowed",
+    "download_facebook_photos": "freja_tool_download_facebook_photos_allowed",
 }
 
 # 2. TOOL EXECUTORS IMPLEMENTATION
@@ -711,6 +731,13 @@ async def exec_manage_google_calendar(args):
     except Exception as e:
         return {"error": f"Fel vid kalenderhantering: {str(e)}"}
 
+async def exec_download_facebook_photos(args):
+    profile_url = args.get("profile_url", "")
+    limit = int(args.get("limit", 20) or 20)
+    if not profile_url:
+        return {"error": "Facebook-profilens URL saknas."}
+    return await download_facebook_photos_impl(profile_url, limit)
+
 # 3. DISPATCH EXECUTOR MAP
 EXECUTOR_MAP = {
     "get_weather": exec_weather,
@@ -727,6 +754,7 @@ EXECUTOR_MAP = {
     "codex_audit_codebase": codex_audit_codebase_impl,
     "tool_analyze_code": codex_audit_codebase_impl,
     "codex_run_and_fix": codex_run_and_fix_impl,
+    "download_facebook_photos": exec_download_facebook_photos,
 }
 
 async def execute_tool(name: str, args: dict) -> dict:

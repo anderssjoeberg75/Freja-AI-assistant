@@ -375,6 +375,12 @@ class FrejaUIController {
             chkCodexFix.checked = codexFixAllowed;
         }
 
+        const facebookDownloadAllowed = localStorage.getItem("freja_tool_download_facebook_photos_allowed") === "true";
+        const chkFacebookDownload = document.getElementById('chk-tool-download_facebook_photos');
+        if (chkFacebookDownload) {
+            chkFacebookDownload.checked = facebookDownloadAllowed;
+        }
+
         const garminAllowed = localStorage.getItem("freja_tool_get_garmin_health_allowed") === "true";
         const chkGarmin = document.getElementById('chk-tool-get_garmin_health');
         if (chkGarmin) {
@@ -1589,6 +1595,11 @@ class FrejaUIController {
                 localStorage.setItem("freja_tool_codex_run_and_fix_allowed", chkCodexFix.checked);
             }
 
+            const chkFacebookDownload = document.getElementById('chk-tool-download_facebook_photos');
+            if (chkFacebookDownload) {
+                localStorage.setItem("freja_tool_download_facebook_photos_allowed", chkFacebookDownload.checked);
+            }
+
             // Save keys to secure SQLite database
             await self.saveKeysToServer({
                 freja_gemini_apikey: apiKey,
@@ -2547,6 +2558,11 @@ class FrejaUIController {
                 name: "codex_run_and_fix",
                 displayName: "Kod auto-rättning",
                 permissionKey: "freja_tool_codex_run_and_fix_allowed"
+            },
+            "download_facebook_photos": {
+                name: "download_facebook_photos",
+                displayName: "Facebook Bildnedladdning",
+                permissionKey: "freja_tool_download_facebook_photos_allowed"
             }
         };
         

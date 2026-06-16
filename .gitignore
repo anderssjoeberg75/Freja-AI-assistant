@@ -22,4 +22,6 @@ scratch/
 .telegram_bot.lock
 backend/cache/
 
-
+# Secret keys and local state/downloads
+facebook_state.json
+downloads/
