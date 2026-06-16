@@ -170,17 +170,55 @@ class GeminiClient {
 
         // Clean history of negative constraints when requesting a Facebook download
         const lowerMsg = userMessage.toLowerCase();
-        if (lowerMsg.includes("facebook") || lowerMsg.includes("bilder") || lowerMsg.includes("foton") || lowerMsg.includes("nedladdning") || lowerMsg.includes("prova") || lowerMsg.includes("samma")) {
-            this.history = this.history.filter(h => {
+        const isFacebookQuery = lowerMsg.includes("facebook") || 
+                                lowerMsg.includes("bilder") || 
+                                lowerMsg.includes("foton") || 
+                                lowerMsg.includes("nedladdning") || 
+                                lowerMsg.includes("prova") || 
+                                lowerMsg.includes("samma") || 
+                                lowerMsg.includes("hämta");
+                                
+        if (isFacebookQuery) {
+            let filteredHistory = this.history.filter(h => {
                 const text = (h.parts && h.parts[0] && h.parts[0].text) || "";
                 const lowerText = text.toLowerCase();
-                // If it mentions 82, cannot log in, or no more images, filter it out!
-                if (lowerText.includes("82") || lowerText.includes("inloggning") || lowerText.includes("inte logga in") || lowerText.includes("oförändrat")) {
-                    console.log("[GEMINI] Filtering out biased history item:", text);
+                // If it relates to facebook, photos, downloads, or limits, purge it!
+                const isPurgeTarget = lowerText.includes("facebook") || 
+                                      lowerText.includes("bild") || 
+                                      lowerText.includes("foto") || 
+                                      lowerText.includes("nedladdning") || 
+                                      lowerText.includes("82") || 
+                                      lowerText.includes("detsamma") || 
+                                      lowerText.includes("oförändrat") || 
+                                      lowerText.includes("inloggning");
+                if (isPurgeTarget) {
+                    console.log("[GEMINI] Purged biased history item:", text);
                     return false;
                 }
                 return true;
             });
+
+            // Normalize history to guarantee alternating roles starting with 'user'
+            const normalized = [];
+            let lastRole = null;
+            for (const item of filteredHistory) {
+                if (item.role === 'user') {
+                    if (lastRole === 'user') {
+                        normalized[normalized.length - 1].parts[0].text += "\n" + item.parts[0].text;
+                    } else {
+                        normalized.push(item);
+                        lastRole = 'user';
+                    }
+                } else if (item.role === 'model') {
+                    if (lastRole === 'model') {
+                        normalized[normalized.length - 1].parts[0].text += "\n" + item.parts[0].text;
+                    } else if (lastRole === 'user') {
+                        normalized.push(item);
+                        lastRole = 'model';
+                    }
+                }
+            }
+            this.history = normalized;
         }
 
         // Run mock offline generator if API key is empty
