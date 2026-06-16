@@ -8,11 +8,21 @@ from pathlib import Path
 from playwright.async_api import async_playwright
 from backend.config import PROJECT_ROOT
 
+ABORT_DOWNLOAD = False
+
+def cancel_facebook_download():
+    global ABORT_DOWNLOAD
+    ABORT_DOWNLOAD = True
+    print("[Facebook Scraper] Abort signal sent.")
+
 async def download_facebook_photos_impl(profile_url: str, limit: int = 20) -> dict:
     """
     Scrapes public photos from a Facebook profile or photo gallery URL using Playwright.
     Saves them under PROJECT_ROOT/downloads/facebook_photos/<profile_id>/ and returns list of relative paths.
     """
+    global ABORT_DOWNLOAD
+    ABORT_DOWNLOAD = False
+
     downloads_dir = PROJECT_ROOT / "downloads" / "facebook_photos"
     downloads_dir.mkdir(parents=True, exist_ok=True)
     
@@ -100,6 +110,9 @@ async def download_facebook_photos_impl(profile_url: str, limit: int = 20) -> di
             max_scrolls = 35
             
             for scroll_idx in range(max_scrolls):
+                if ABORT_DOWNLOAD:
+                    print("[Facebook Scraper] Abort signal detected in scroll loop. Stopping.")
+                    break
                 # Run JS bypass only starting from Scroll 5 (index 4)
                 if scroll_idx >= 4:
                     try:
@@ -216,6 +229,9 @@ async def download_facebook_photos_impl(profile_url: str, limit: int = 20) -> di
             
             # Visit each photo page, wait for the image to render, and download it
             for idx, photo_url in enumerate(photo_urls):
+                if ABORT_DOWNLOAD:
+                    print("[Facebook Scraper] Abort signal detected in download loop. Stopping.")
+                    break
                 try:
                     # Extract unique photo ID from URL to check if the file already exists
                     match_fbid = re.search(r"fbid=(\d+)", photo_url)
@@ -297,9 +313,10 @@ async def download_facebook_photos_impl(profile_url: str, limit: int = 20) -> di
         finally:
             await browser.close()
             
-    print(f"[Facebook Scraper] Download batch complete. Downloaded {len(downloaded_files)} images.")
+    status_str = "cancelled" if ABORT_DOWNLOAD else "success"
+    print(f"[Facebook Scraper] Download batch complete. Status: {status_str}. Downloaded {len(downloaded_files)} images.")
     return {
-        "status": "success",
+        "status": status_str,
         "downloaded_count": len(downloaded_files),
         "images": downloaded_files
     }

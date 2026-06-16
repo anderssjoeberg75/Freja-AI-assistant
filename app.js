@@ -2289,6 +2289,26 @@ class FrejaUIController {
      * Executes conversational transactions, drawing replies and managing long-term memory encodes.
      */
     async processUserQuery(text) {
+        const cleanText = text.trim().toLowerCase();
+        if (cleanText === "sluta nedladdning" || cleanText === "avbryt nedladdning" || cleanText === "stoppa nedladdning") {
+            this.writeLog("USER COMMAND DETECTED: CANCEL DOWNLOAD", "sys");
+            try {
+                const res = await fetch("/api/tools/cancel_download", { method: "POST" });
+                if (res.ok) {
+                    this.writeLog("DOWNLOAD CANCELLED BY USER", "sys");
+                    const reply = "Nedladdningen har avbrutits.";
+                    this.appendChatMessage("assistant", reply, true);
+                    await this.speech.speak(reply);
+                    if (window.visualizer) {
+                        window.visualizer.state = 'SLEEPING';
+                    }
+                    return;
+                }
+            } catch (err) {
+                console.error("Failed to cancel download:", err);
+            }
+        }
+
         if (window.visualizer) {
             window.visualizer.state = 'PROCESSING';
         }
