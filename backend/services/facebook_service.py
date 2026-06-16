@@ -49,7 +49,7 @@ async def download_facebook_photos_impl(profile_url: str, limit: int = 1000) -> 
     
     async with async_playwright() as p:
         # Check if we have a saved Facebook session/state and if it is valid
-        state_path = Path("facebook_state.json")
+        state_path = PROJECT_ROOT / "facebook_state.json"
         is_logged_in = False
         
         # Try verifying with headless browser first if state exists
