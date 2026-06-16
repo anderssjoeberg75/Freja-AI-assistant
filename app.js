@@ -329,14 +329,14 @@ class FrejaUIController {
         this.memory.updateCapBadge();
 
         // Load camera settings
-        const savedCam = localStorage.getItem("freja_camera_device_id") || "off";
+        window.FrejaCamera.init();
         const autoOptics = localStorage.getItem("freja_auto_optics") !== "false";
         
         const chkAutoOptics = document.getElementById('chk-auto-optics');
         if (chkAutoOptics) {
             chkAutoOptics.checked = autoOptics;
         }
-        this.savedCameraId = savedCam;
+        this.savedCameraId = window.FrejaCamera.savedCameraId;
 
         // Load tool permissions
         const weatherAllowed = localStorage.getItem("freja_tool_get_weather_allowed") === "true";
@@ -1746,32 +1746,14 @@ class FrejaUIController {
      * Switches the page styling accent themes classes.
      */
     applyTheme(theme) {
-        document.body.className = `theme-${theme}`;
-        localStorage.setItem("freja_theme", theme);
-        
-        const cards = document.querySelectorAll('.theme-choice-card');
-        cards.forEach(card => {
-            if (card.getAttribute('data-theme') === theme) {
-                card.classList.add('active');
-            } else {
-                card.classList.remove('active');
-            }
-        });
-
-        const hue = this.getCurrentThemeHue();
-        if (window.visualizer) {
-            window.visualizer.setThemeHue(hue);
-        }
+        window.FrejaTheme.applyTheme(theme);
     }
 
     /**
      * Resolves the canvas accent hue angle based on the selected CSS theme.
      */
     getCurrentThemeHue() {
-        if (document.body.classList.contains('theme-amber')) return 38;
-        if (document.body.classList.contains('theme-crimson')) return 355;
-        if (document.body.classList.contains('theme-emerald')) return 145;
-        return 185; // Default Cyan
+        return window.FrejaTheme.getCurrentThemeHue();
     }
 
     /**
@@ -2419,66 +2401,14 @@ class FrejaUIController {
      * Translates custom bold lists, ticks, and code block formatting to raw HTML tags.
      */
     parseMarkdown(text) {
-        // Temporary store for code blocks
-        const codeBlocks = [];
-        let html = text;
-        
-        // 1. Extract and escape code blocks
-        html = html.replace(/```([\s\S]*?)```/g, (match, p1) => {
-            const id = `__CODE_BLOCK_${codeBlocks.length}__`;
-            const escaped = this.escapeHTML(p1.trim());
-            codeBlocks.push(`<pre><code>${escaped}</code><button class="copy-code-btn" title="Kopiera kod" onclick="window.uiController.copyCode(this)"><i class="fa-solid fa-copy"></i></button></pre>`);
-            return id;
-        });
-        
-        // 2. Parse inline code ticks
-        html = html.replace(/`([^`]+)`/g, (match, p1) => {
-            return `<code>${this.escapeHTML(p1)}</code>`;
-        });
-        
-        // 3. Parse bold symbols
-        html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-        
-        // 4. Parse italics
-        html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-        
-        // 5. Parse links: [label](url)
-        html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" class="hud-link">$1 <i class="fa-solid fa-arrow-up-right-from-square" style="font-size: 8px;"></i></a>');
-        
-        // 6. Parse list items (lines starting with * or - or •)
-        html = html.replace(/^[-*•]\s+(.+)$/gm, '• $1');
-        
-        // 7. Replace newlines with <br>
-        html = html.replace(/\n/g, '<br>');
-        
-        // 8. Restore code blocks
-        codeBlocks.forEach((block, index) => {
-            html = html.replace(`__CODE_BLOCK_${index}__`, block);
-        });
-        
-        return html;
+        return window.FrejaMarkdown.parseMarkdown(text);
     }
 
     /**
      * Copies code content from code blocks to user clipboard.
      */
     copyCode(button) {
-        const pre = button.parentElement;
-        const code = pre.querySelector('code');
-        if (!code) return;
-        
-        navigator.clipboard.writeText(code.innerText).then(() => {
-            soundSynth.playNotify();
-            const originalHTML = button.innerHTML;
-            button.innerHTML = '<i class="fa-solid fa-check" style="color: var(--color-primary);"></i>';
-            this.writeLog("CODE COPIED TO SYSTEM CLIPBOARD", "sys");
-            setTimeout(() => {
-                button.innerHTML = originalHTML;
-            }, 2000);
-        }).catch(err => {
-            console.error("Failed to copy code: ", err);
-            soundSynth.playError();
-        });
+        window.FrejaMarkdown.copyCode(button);
     }
 
     /**
@@ -2583,14 +2513,54 @@ class FrejaUIController {
                 const err = await res.json();
                 throw new Error(err.detail || `HTTP ${res.status}`);
             }
-            const result = await res.json();
+            const responseData = await res.json();
+            
+            // If the response contains a background task ID, start polling!
+            if (responseData && responseData.task_id) {
+                const taskId = responseData.task_id;
+                this.writeLog(`BACKGROUND TASK INITIATED: ${taskId.substring(0, 8)}...`, "sys");
+                
+                // Polling loop
+                const pollResult = await new Promise((resolve, reject) => {
+                    const pollInterval = setInterval(async () => {
+                        try {
+                            const pollRes = await fetch(`/api/tools/status/${taskId}`);
+                            if (!pollRes.ok) {
+                                clearInterval(pollInterval);
+                                reject(new Error(`Failed to poll status for task ${taskId}`));
+                                return;
+                            }
+                            const statusData = await pollRes.json();
+                            if (statusData.status === "success") {
+                                clearInterval(pollInterval);
+                                resolve(statusData.result);
+                            } else if (statusData.status === "failed") {
+                                clearInterval(pollInterval);
+                                reject(new Error(statusData.error || "Background task failed."));
+                            } else {
+                                console.log(`[APP] Task ${taskId} is still processing...`);
+                            }
+                        } catch (err) {
+                            clearInterval(pollInterval);
+                            reject(err);
+                        }
+                    }, 2000);
+                });
+                
+                // Dispatch calendar update event to reload dashboard UI if needed
+                if (name === "manage_google_calendar" && args && args.action && args.action !== "list") {
+                    console.log("[APP] Calendar modified. Dispatching freja-calendar-updated event.");
+                    window.dispatchEvent(new Event('freja-calendar-updated'));
+                }
+                return pollResult;
+            }
             
             // Dispatch calendar update event to reload dashboard UI if needed
             if (name === "manage_google_calendar" && args && args.action && args.action !== "list") {
                 console.log("[APP] Calendar modified. Dispatching freja-calendar-updated event.");
                 window.dispatchEvent(new Event('freja-calendar-updated'));
             }
-            return result;
+            return responseData;
         };
         
         // Check permission (either true/false from localStorage)
@@ -2711,39 +2681,14 @@ class FrejaUIController {
      * Sanitizes strings to prevent XSS injection.
      */
     escapeHTML(text) {
-        return text
-            .replace(/&/g, "&amp;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;")
-            .replace(/"/g, "&quot;")
-            .replace(/'/g, "&#039;");
+        return window.FrejaMarkdown.escapeHTML(text);
     }
 
     /**
      * Appends a glowing operational tag row into the console logs console terminal.
      */
     writeLog(msg, type = 'sys') {
-        const logContainer = document.getElementById('terminal-log');
-        const now = new Date();
-        const timeStr = now.toTimeString().split(' ')[0];
-        
-        const line = document.createElement('div');
-        line.className = 'log-line';
-        
-        let tag = "[SYS]";
-        if (type === 'user') tag = "[USER]";
-        if (type === 'gemini') tag = "[GMNI]";
-        if (type === 'warn') tag = "[WARN]";
-        if (type === 'err') tag = "[ERR ]";
-        
-        line.innerHTML = `
-            <span class="log-time">${timeStr}</span>
-            <span class="log-tag tag-${type}">${tag}</span>
-            ${msg.toUpperCase()}
-        `;
-        
-        logContainer.appendChild(line);
-        logContainer.scrollTop = logContainer.scrollHeight;
+        window.FrejaDiagnostics.writeLog(msg, type);
     }
 
     /**
@@ -2769,173 +2714,28 @@ class FrejaUIController {
      * Queries the hardware for video camera input devices, populating options lists.
      */
     async loadCameraDevices() {
-        const selectCam = document.getElementById('select-camera');
-        if (!selectCam) return;
-        
-        try {
-            const devices = await navigator.mediaDevices.enumerateDevices();
-            const videoDevices = devices.filter(d => d.kind === 'videoinput');
-            
-            selectCam.innerHTML = '<option value="off">Scanner avstängd</option>';
-            
-            if (videoDevices.length === 0) {
-                console.warn("[CAMERA] No camera devices found.");
-                return;
-            }
-            
-            videoDevices.forEach((device, index) => {
-                const option = document.createElement('option');
-                option.value = device.deviceId;
-                option.textContent = device.label || `Kamera ${index + 1}`;
-                
-                if (this.savedCameraId && device.deviceId === this.savedCameraId) {
-                    option.selected = true;
-                }
-                
-                selectCam.appendChild(option);
-            });
-            
-            // Auto start camera if we have a saved, active camera stream
-            if (this.savedCameraId && this.savedCameraId !== 'off' && !this.cameraStream) {
-                if (videoDevices.some(d => d.deviceId === this.savedCameraId)) {
-                    selectCam.value = this.savedCameraId;
-                    this.startCameraStream(this.savedCameraId);
-                }
-            }
-            
-            console.log("[CAMERA] Enumerated video input devices:", videoDevices);
-        } catch (e) {
-            console.error("[CAMERA] Failed to enumerate devices:", e);
-        }
+        await window.FrejaCamera.loadCameraDevices();
     }
 
     /**
      * Binds camera video media streams to HUD visual feed boxes.
      */
     async startCameraStream(deviceId) {
-        const video = document.getElementById('webcam-video');
-        const status = document.getElementById('scanner-status');
-        const capCamera = document.getElementById('cap-camera');
-        
-        this.stopCameraStream();
-        
-        if (deviceId === 'off') {
-            return;
-        }
-
-        this.writeLog("ESTABLISHING OPTICAL LINK...", "sys");
-        soundSynth.playClick();
-        
-        try {
-            // Resilient constraints using 'ideal' instead of 'exact' to prevent OverconstrainedError
-            const constraints = {
-                video: {
-                    deviceId: deviceId ? { ideal: deviceId } : undefined,
-                    width: { ideal: 640 },
-                    height: { ideal: 480 }
-                }
-            };
-            
-            let stream;
-            try {
-                stream = await navigator.mediaDevices.getUserMedia(constraints);
-            } catch (innerErr) {
-                console.warn("[CAMERA] Detailed constraints failed, trying basic video fallback...", innerErr);
-                // Hard fallback: request standard video without device constraints
-                stream = await navigator.mediaDevices.getUserMedia({ video: true });
-            }
-            
-            this.cameraStream = stream;
-            
-            video.srcObject = stream;
-            video.classList.add('active');
-            
-            if (status) {
-                status.textContent = "SCANNING: SUBJECT ACTIVE";
-            }
-            
-            if (capCamera) {
-                capCamera.classList.add('active');
-            }
-            
-            this.writeLog("OPTICAL CHANNEL SECURED", "sys");
-            soundSynth.playNotify();
-            
-            // Re-enumerate to retrieve friendly camera labels now that permission has been granted
-            setTimeout(() => this.loadCameraDevices(), 500);
-            
-        } catch (e) {
-            console.error("[CAMERA] Failed to acquire stream:", e);
-            this.writeLog("OPTICAL CAPTURE DENIED OR FAILED", "err");
-            soundSynth.playError();
-            
-            document.getElementById('select-camera').value = 'off';
-            this.stopCameraStream();
-        }
+        await window.FrejaCamera.startCameraStream(deviceId);
     }
 
     /**
      * Stops the camera webcam streams and clears hardware binding feeds.
      */
     stopCameraStream() {
-        const video = document.getElementById('webcam-video');
-        const status = document.getElementById('scanner-status');
-        const capCamera = document.getElementById('cap-camera');
-        
-        if (this.cameraStream) {
-            this.cameraStream.getTracks().forEach(track => track.stop());
-            this.cameraStream = null;
-        }
-        
-        if (video) {
-            video.srcObject = null;
-            video.classList.remove('active');
-        }
-        
-        if (status) {
-            status.textContent = "OPTICS OFFLINE";
-        }
-        
-        if (capCamera) {
-            capCamera.classList.remove('active');
-        }
+        window.FrejaCamera.stopCameraStream();
     }
 
     /**
      * Triggers dynamic diagnostic values simulation metrics fluctuations inside HUD cards.
      */
     startDiagnosticSimulation() {
-        const cpuVal = document.getElementById('val-cpu');
-        const cpuBar = document.getElementById('bar-cpu');
-        const tempVal = document.getElementById('val-temp');
-        const tempBar = document.getElementById('bar-temp');
-        const ramVal = document.getElementById('val-ram');
-        const ramBar = document.getElementById('bar-ram');
-        const pingVal = document.getElementById('val-ping');
-        const pingBar = document.getElementById('bar-ping');
-
-        let ramUsage = 6.2;
-
-        setInterval(() => {
-            const cpu = Math.floor(Math.random() * 20) + 12; // 12-32% CPU usage
-            cpuVal.textContent = `${cpu}%`;
-            cpuBar.style.width = `${cpu}%`;
-
-            const temp = 40.5 + (cpu * 0.15) + (Math.random() * 0.4);
-            tempVal.textContent = `${temp.toFixed(1)} °C`;
-            tempBar.style.width = `${Math.min(temp, 100)}%`;
-
-            ramUsage += (Math.random() * 0.1 - 0.05);
-            ramUsage = Math.max(5.8, Math.min(6.8, ramUsage));
-            const ramPercent = (ramUsage / 16) * 100;
-            ramVal.textContent = `${ramUsage.toFixed(1)} GB / 16 GB`;
-            ramBar.style.width = `${ramPercent}%`;
-
-            const ping = Math.floor(Math.random() * 8) + 10; // 10-18ms network latency
-            pingVal.textContent = `${ping} ms`;
-            pingBar.style.width = `${ping * 4}%`;
-
-        }, 3000);
+        window.FrejaDiagnostics.startDiagnosticSimulation();
     }
 }
 

@@ -29,16 +29,27 @@ from backend.routes.tools import router as tools_router
 # Initialize the SQLite database schemas
 init_db()
 
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: Initialize the Telegram background worker
+    task = asyncio.create_task(telegram_worker_loop())
+    yield
+    # Shutdown: Clean up background tasks
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
 # Create FastAPI app
 app = FastAPI(
     title="F.R.E.J.A. Neural Backend",
     description="FastAPI migration serving cybernetic health dashboard diagnostics and secure AI proxying.",
-    version="2.0.0"
+    version="2.0.0",
+    lifespan=lifespan
 )
-
-@app.on_event("startup")
-async def startup_event():
-    asyncio.create_task(telegram_worker_loop())
 
 # Include API routers
 app.include_router(settings_router)

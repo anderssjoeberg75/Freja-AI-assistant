@@ -1,9 +1,29 @@
-"""FastAPI Router for Unified Tools Execution."""
-
-from fastapi import APIRouter, HTTPException, Request
+import uuid
+from fastapi import APIRouter, HTTPException, Request, BackgroundTasks
 from backend.services.tool_registry import TOOL_DECLARATIONS, execute_tool
 
 router = APIRouter()
+
+# Global dict to store status and results of background tasks
+TOOL_TASKS = {}
+
+async def run_tool_background(task_id: str, name: str, args: dict):
+    try:
+        print(f"[Tool Background] Starting task {task_id} for tool '{name}'...")
+        result = await execute_tool(name, args)
+        TOOL_TASKS[task_id] = {
+            "status": "success",
+            "progress": 100,
+            "result": result
+        }
+        print(f"[Tool Background] Task {task_id} ('{name}') completed successfully.")
+    except Exception as e:
+        TOOL_TASKS[task_id] = {
+            "status": "failed",
+            "progress": 100,
+            "error": str(e)
+        }
+        print(f"[Tool Background] Task {task_id} ('{name}') failed: {e}")
 
 @router.get("/api/tools/declarations")
 async def get_tools_declarations():
@@ -11,8 +31,8 @@ async def get_tools_declarations():
     return TOOL_DECLARATIONS
 
 @router.post("/api/tools/execute")
-async def post_execute_tool(request: Request):
-    """Executes a tool on the backend and returns the JSON result."""
+async def post_execute_tool(request: Request, background_tasks: BackgroundTasks):
+    """Starts a tool in the background and returns a task_id immediately."""
     try:
         body = await request.json()
         name = body.get("name")
@@ -21,7 +41,24 @@ async def post_execute_tool(request: Request):
         if not name:
             raise HTTPException(status_code=400, detail="Verktygsnamn saknas (name).")
             
-        result = await execute_tool(name, args)
-        return result
+        task_id = str(uuid.uuid4())
+        TOOL_TASKS[task_id] = {
+            "status": "processing",
+            "progress": 0,
+            "result": None
+        }
+        
+        # Enqueue the background task
+        background_tasks.add_task(run_tool_background, task_id, name, args)
+        
+        return {"task_id": task_id, "status": "processing"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/api/tools/status/{task_id}")
+async def get_tool_status(task_id: str):
+    """Returns the status and result/error of a background task."""
+    task = TOOL_TASKS.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Uppgiften hittades inte (Task not found).")
+    return task
