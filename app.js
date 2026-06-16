@@ -2384,8 +2384,14 @@ class FrejaUIController {
                 if (history && history.length > 0) {
                     const chatHistory = document.getElementById('chat-history');
                     chatHistory.innerHTML = "";
+                    this.gemini.history = []; // Clear current session history to avoid duplicate entries
                     history.forEach(msg => {
                         this.appendChatMessage(msg.sender, msg.content, false);
+                        const role = msg.sender === 'user' ? 'user' : 'model';
+                        this.gemini.history.push({
+                            role: role,
+                            parts: [{ text: msg.content }]
+                        });
                     });
                 }
             }

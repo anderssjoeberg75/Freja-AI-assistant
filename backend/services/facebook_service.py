@@ -48,26 +48,80 @@ async def download_facebook_photos_impl(profile_url: str, limit: int = 20) -> di
     print(f"[Facebook Scraper] Initiating download for {profile_url} (limit: {limit})")
     
     async with async_playwright() as p:
+        # Check if we have a saved Facebook session/state and if it is valid
+        state_path = Path("facebook_state.json")
+        is_logged_in = False
+        
+        # Try verifying with headless browser first if state exists
+        if state_path.exists():
+            print("[Facebook Scraper] Loading saved session to verify...")
+            verify_browser = await p.chromium.launch(
+                headless=True,
+                args=["--no-sandbox", "--disable-setuid-sandbox"]
+            )
+            try:
+                verify_context = await verify_browser.new_context(
+                    viewport={"width": 1280, "height": 800},
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    storage_state=str(state_path)
+                )
+                verify_page = await verify_context.new_page()
+                await verify_page.goto("https://www.facebook.com", wait_until="domcontentloaded", timeout=20000)
+                # Check for login email input
+                email_input = verify_page.locator("input[name='email']")
+                if await email_input.count() == 0:
+                    is_logged_in = True
+                    print("[Facebook Scraper] Session verified. Already logged in.")
+            except Exception as verify_err:
+                print(f"[Facebook Scraper] Session verification failed: {verify_err}")
+            finally:
+                await verify_browser.close()
+
+        if not is_logged_in:
+            print("[Facebook Scraper] Not logged in. Launching interactive browser for login...")
+            login_browser = await p.chromium.launch(
+                headless=False,
+                args=["--no-sandbox", "--disable-setuid-sandbox"]
+            )
+            login_context = await login_browser.new_context(
+                viewport={"width": 1280, "height": 800},
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            )
+            login_page = await login_context.new_page()
+            await login_page.goto("https://www.facebook.com")
+            
+            print("[Facebook Scraper] Waiting for user to complete login in the opened browser window...")
+            # Wait up to 120 seconds for the user to log in
+            for _ in range(60):
+                await login_page.wait_for_timeout(2000)
+                if ABORT_DOWNLOAD:
+                    break
+                try:
+                    email_count = await login_page.locator("input[name='email']").count()
+                    # If email field is gone and we are not on a login/checkpoint page, we assume logged in
+                    if email_count == 0 and "facebook.com" in login_page.url and "login" not in login_page.url:
+                        is_logged_in = True
+                        print("[Facebook Scraper] Login detected! Saving session state...")
+                        await login_context.storage_state(path=str(state_path))
+                        break
+                except Exception:
+                    pass
+            
+            await login_browser.close()
+            
+            if not is_logged_in:
+                raise Exception("Facebook-inloggning misslyckades eller avbröts av användaren.")
+        
+        # Now launch the headless browser for scraping using the validated/saved state
         browser = await p.chromium.launch(
             headless=True,
             args=["--no-sandbox", "--disable-setuid-sandbox"]
         )
-        
-        # Check if we have a saved Facebook session/state
-        state_path = Path("facebook_state.json")
-        if state_path.exists():
-            print("[Facebook Scraper] Loading saved session from facebook_state.json...")
-            context = await browser.new_context(
-                viewport={"width": 1280, "height": 800},
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                storage_state=str(state_path)
-            )
-        else:
-            print("[Facebook Scraper] No saved session found. Running anonymously (logged out).")
-            context = await browser.new_context(
-                viewport={"width": 1280, "height": 800},
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            )
+        context = await browser.new_context(
+            viewport={"width": 1280, "height": 800},
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            storage_state=str(state_path)
+        )
         page = await context.new_page()
         
         try:
