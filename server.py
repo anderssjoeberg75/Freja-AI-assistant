@@ -85,7 +85,7 @@ def run_server():
     print(f"  F.R.E.J.A. Neural Server running on http://localhost:{PORT}")
     print("  API keys database active (FastAPI Mode)")
     print("===========================================================")
-    uvicorn.run("server:app", host="0.0.0.0", port=PORT, log_level="info")
+    uvicorn.run("server:app", host="0.0.0.0", port=PORT, log_level="info", reload=True)
 
 if __name__ == "__main__":
     run_server()

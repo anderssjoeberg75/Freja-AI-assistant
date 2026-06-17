@@ -115,6 +115,11 @@ def init_db():
     # Seed default access token if not present
     cursor.execute("SELECT COUNT(*) FROM api_keys WHERE key_name = 'freja_access_token'")
     if cursor.fetchone()[0] == 0:
-        cursor.execute("INSERT INTO api_keys (key_name, key_value) VALUES ('freja_access_token', 'freja_secret')")
+        cursor.execute("INSERT INTO api_keys (key_name, key_value) VALUES ('freja_access_token', 'freja1234')")
+    else:
+        cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_access_token'")
+        row = cursor.fetchone()
+        if row and row[0] == 'freja_secret':
+            cursor.execute("UPDATE api_keys SET key_value = 'freja1234' WHERE key_name = 'freja_access_token'")
     conn.commit()
     conn.close()

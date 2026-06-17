@@ -6,7 +6,7 @@ window.fetch = async function(url, options = {}) {
     
     // Append header only for F.R.E.J.A. backend api endpoints, excluding external URLs
     if (urlStr.includes('/api/') && (!urlStr.startsWith('http') || urlStr.startsWith(window.location.origin + '/api/'))) {
-        const token = localStorage.getItem('freja_access_token') || 'freja_secret';
+        const token = localStorage.getItem('freja_access_token') || 'freja1234';
         options.headers = options.headers || {};
         
         if (options.headers instanceof Headers) {
@@ -25,12 +25,6 @@ window.fetch = async function(url, options = {}) {
     
     try {
         const response = await window.originalFetch(url, options);
-        if (response.status === 401 && urlStr.includes('/api/')) {
-            const loginModal = document.getElementById('modal-auth-login');
-            if (loginModal) {
-                loginModal.classList.add('active');
-            }
-        }
         return response;
     } catch (err) {
         throw err;
@@ -257,7 +251,7 @@ class FrejaUIController {
      * Pulls previously cached configuration values from LocalStorage.
      */
     initializeUI() {
-        const accessToken = localStorage.getItem("freja_access_token") || "freja_secret";
+        const accessToken = localStorage.getItem("freja_access_token") || "freja1234";
         const inputAccessToken = document.getElementById('input-access-token');
         if (inputAccessToken) inputAccessToken.value = accessToken;
 
@@ -511,10 +505,9 @@ class FrejaUIController {
     bindEvents() {
         const self = this;
 
-        // Boot-Up Button & Holographic Overlay release
         const shield = document.getElementById('interaction-shield');
         const initAudioBtn = document.getElementById('btn-initialize-audio');
-        
+
         const removeShield = () => {
             soundSynth.init();
             soundSynth.playStartupSweep();

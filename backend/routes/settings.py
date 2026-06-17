@@ -16,12 +16,7 @@ async def get_keys():
         result = {}
         for row in rows:
             name, value = row[0], row[1]
-            if not value or not value.strip():
-                result[name] = ""
-            elif name == "freja_access_token":
-                result[name] = value
-            else:
-                result[name] = "[MASKED]"
+            result[name] = value.strip() if value else ""
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
