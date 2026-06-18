@@ -79,6 +79,77 @@ class FrejaUIController {
         }
     }
 
+    async pollFacebookDownloadProgress(taskId) {
+        if (this.facebookDownloadInterval) return; // already polling
+        
+        const self = this;
+        self.writeLog(`BACKGROUND FACEBOOK DOWNLOAD MONITOR ACTIVE. Task ID: ${taskId.substring(0, 8)}...`, "sys");
+        
+        this.facebookDownloadInterval = setInterval(async () => {
+            try {
+                const res = await fetch(`/api/tools/status/${taskId}`);
+                if (!res.ok) {
+                    clearInterval(self.facebookDownloadInterval);
+                    self.facebookDownloadInterval = null;
+                    self.writeLog(`FACEBOOK DOWNLOAD ERROR: Failed to fetch task status.`, "err");
+                    soundSynth.playError();
+                    return;
+                }
+                const statusData = await res.json();
+                
+                if (statusData.status === "success") {
+                    clearInterval(self.facebookDownloadInterval);
+                    self.facebookDownloadInterval = null;
+                    
+                    self.writeLog(`[FACEBOOK DOWNLOAD] COMPLETED SUCCESSFULLY. Saved ${statusData.result.downloaded_count} images.`, "sys");
+                    soundSynth.playNotify();
+                    
+                    if (self.speech && self.speech.autoSpeak) {
+                        self.speech.speak(`Nedladdningen av Facebook-bilder är klar. Hämtade ${statusData.result.downloaded_count} bilder.`);
+                    }
+                    
+                    self.appendChatMessage("assistant", `**[SYSTEMMEDDELANDE]** Nedladdningen av Facebook-bilder är klar! Totalt hämtades ${statusData.result.downloaded_count} bilder.`, false);
+                    
+                } else if (statusData.status === "failed") {
+                    clearInterval(self.facebookDownloadInterval);
+                    self.facebookDownloadInterval = null;
+                    
+                    self.writeLog(`[FACEBOOK DOWNLOAD] FAILED: ${statusData.error || "Okänt fel"}`, "err");
+                    soundSynth.playError();
+                    
+                    if (self.speech && self.speech.autoSpeak) {
+                        self.speech.speak(`Nedladdningen av Facebook-bilder misslyckades.`);
+                    }
+                    
+                    self.appendChatMessage("assistant", `**[SYSTEMMEDDELANDE - FEL]** Nedladdningen av Facebook-bilder misslyckades: ${statusData.error || "Okänt fel"}`, false);
+                    
+                } else if (statusData.status === "cancelled") {
+                    clearInterval(self.facebookDownloadInterval);
+                    self.facebookDownloadInterval = null;
+                    
+                    self.writeLog(`[FACEBOOK DOWNLOAD] CANCELLED BY USER.`, "warn");
+                    soundSynth.playError();
+                    
+                    self.appendChatMessage("assistant", `**[SYSTEMMEDDELANDE]** Nedladdningen av Facebook-bilder avbröts.`, false);
+                    
+                } else {
+                    const progress = statusData.progress || 0;
+                    const stage = statusData.stage || "initierar...";
+                    const current = statusData.current || 0;
+                    const total = statusData.total || 0;
+                    
+                    let progressMsg = `[FACEBOOK DOWNLOAD] ${stage}`;
+                    if (total > 0) {
+                        progressMsg += ` (${current}/${total} - ${progress}%)`;
+                    }
+                    self.writeLog(progressMsg, "sys");
+                }
+            } catch (err) {
+                console.error("Error polling facebook download:", err);
+            }
+        }, 3000);
+    }
+
     async pollSyncStatus(provider) {
         if (this[`syncInterval_${provider}`]) return; // already polling
         
@@ -2663,6 +2734,15 @@ class FrejaUIController {
             if (responseData && responseData.task_id) {
                 const taskId = responseData.task_id;
                 this.writeLog(`BACKGROUND TASK INITIATED: ${taskId.substring(0, 8)}...`, "sys");
+                
+                if (name === "download_facebook_photos") {
+                    this.pollFacebookDownloadProgress(taskId);
+                    return {
+                        status: "initiated",
+                        task_id: taskId,
+                        message: "Nedladdningen av Facebook-bilder har påbörjats i bakgrunden. Du kan följa förloppet i terminalen."
+                    };
+                }
                 
                 // Polling loop
                 const pollResult = await new Promise((resolve, reject) => {

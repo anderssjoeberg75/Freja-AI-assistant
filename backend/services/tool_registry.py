@@ -731,12 +731,12 @@ async def exec_manage_google_calendar(args):
     except Exception as e:
         return {"error": f"Fel vid kalenderhantering: {str(e)}"}
 
-async def exec_download_facebook_photos(args):
+async def exec_download_facebook_photos(args, progress_callback=None):
     profile_url = args.get("profile_url", "")
     limit = int(args.get("limit", 1000) or 1000)
     if not profile_url:
         return {"error": "Facebook-profilens URL saknas."}
-    return await download_facebook_photos_impl(profile_url, limit)
+    return await download_facebook_photos_impl(profile_url, limit, progress_callback)
 
 # 3. DISPATCH EXECUTOR MAP
 EXECUTOR_MAP = {
@@ -757,11 +757,16 @@ EXECUTOR_MAP = {
     "download_facebook_photos": exec_download_facebook_photos,
 }
 
-async def execute_tool(name: str, args: dict) -> dict:
+async def execute_tool(name: str, args: dict, progress_callback=None) -> dict:
     """Invokes the appropriate executor function for the given tool name."""
     executor = EXECUTOR_MAP.get(name)
     if not executor:
         return {"error": f"Tool '{name}' is not registered in the system registry."}
+    
+    import inspect
+    sig = inspect.signature(executor)
+    if "progress_callback" in sig.parameters:
+        return await executor(args, progress_callback=progress_callback)
     return await executor(args)
 
 # HELPER MATHEMATICAL ROUNDING FUNCTION

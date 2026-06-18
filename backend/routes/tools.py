@@ -11,7 +11,18 @@ TOOL_TASKS = {}
 async def run_tool_background(task_id: str, name: str, args: dict):
     try:
         print(f"[Tool Background] Starting task {task_id} for tool '{name}'...")
-        result = await execute_tool(name, args)
+        
+        def progress_callback(current: int, total: int, stage: str):
+            percent = int((current / total) * 100) if total > 0 else 0
+            if task_id in TOOL_TASKS:
+                TOOL_TASKS[task_id].update({
+                    "progress": percent,
+                    "current": current,
+                    "total": total,
+                    "stage": stage
+                })
+
+        result = await execute_tool(name, args, progress_callback=progress_callback)
         TOOL_TASKS[task_id] = {
             "status": "success",
             "progress": 100,

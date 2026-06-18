@@ -15,7 +15,7 @@ def cancel_facebook_download():
     ABORT_DOWNLOAD = True
     print("[Facebook Scraper] Abort signal sent.")
 
-async def download_facebook_photos_impl(profile_url: str, limit: int = 1000) -> dict:
+async def download_facebook_photos_impl(profile_url: str, limit: int = 1000, progress_callback=None) -> dict:
     """
     Scrapes public photos from a Facebook profile or photo gallery URL using Playwright.
     Saves them under PROJECT_ROOT/downloads/facebook_photos/<profile_id>/ and returns list of relative paths.
@@ -62,9 +62,10 @@ async def download_facebook_photos_impl(profile_url: str, limit: int = 1000) -> 
             except Exception:
                 pass
 
-        # Launch browser in headless mode with automation evasion arguments
+        # Launch browser. Run headless only if we are already logged in.
+        # Otherwise, run headful so the user can see the login window.
         browser = await p.chromium.launch(
-            headless=True,
+            headless=is_logged_in,
             args=[
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
@@ -90,20 +91,62 @@ async def download_facebook_photos_impl(profile_url: str, limit: int = 1000) -> 
         
         if not is_logged_in:
             print("[Facebook Scraper] Not logged in. Loading Facebook home...")
+            if progress_callback:
+                progress_callback(0, 100, "Vänligen logga in på Facebook i det öppnade webbläsarfönstret...")
             await page.goto("https://www.facebook.com", wait_until="domcontentloaded", timeout=25000)
             await page.wait_for_timeout(2000)
             
+            # Dismiss cookie consent dialogs on login page to uncover the form fields
+            cookie_buttons = [
+                "Decline optional cookies",
+                "Decline all",
+                "Reject all",
+                "Avvisa valfria cookies",
+                "Avvisa alla",
+                "Tillåt alla cookies",
+                "Allow all cookies",
+                "Accept all",
+                "Only allow essential cookies",
+                "Neka valfria cookies"
+            ]
+            for btn_text in cookie_buttons:
+                try:
+                    button = page.locator(f"role=button[name*='{btn_text}' i]")
+                    if await button.count() > 0:
+                        await button.first.click()
+                        print(f"[Facebook Scraper] Cookie banner dismissed via: '{btn_text}'")
+                        await page.wait_for_timeout(2000)
+                        break
+                except Exception:
+                    pass
+            
             print("[Facebook Scraper] Waiting for user to complete login in the opened browser window...")
-            for _ in range(60): # wait up to 120s
+            max_login_wait = 60 # wait up to 120s
+            for wait_idx in range(max_login_wait):
                 await page.wait_for_timeout(2000)
                 if ABORT_DOWNLOAD:
                     break
+                if progress_callback:
+                    progress_callback(wait_idx, max_login_wait, "Väntar på inloggning i det öppnade fönstret...")
                 try:
+                    from urllib.parse import urlparse
+                    parsed_url = urlparse(page.url)
+                    path = parsed_url.path.lower()
+                    
+                    # Do not consider login complete if we are on a login or checkpoint page
+                    checkpoint_paths = ["/checkpoint", "/login", "/two_step", "/confirm"]
+                    if any(path.startswith(p) for p in checkpoint_paths):
+                        if progress_callback:
+                            progress_callback(wait_idx, max_login_wait, "Säkerhetssteg/2FA aktivt. Slutför inloggningen i fönstret...")
+                        continue
+
                     state = await context.storage_state()
                     cookies = state.get("cookies", [])
                     if any(c.get("name") == "c_user" for c in cookies):
                         is_logged_in = True
                         print("[Facebook Scraper] Login detected (c_user found)! Saving session state...")
+                        if progress_callback:
+                            progress_callback(100, 100, "Inloggning lyckades! Sparar session...")
                         await context.storage_state(path=str(state_path))
                         await page.wait_for_timeout(2000)
                         await context.storage_state(path=str(state_path))
@@ -152,6 +195,8 @@ async def download_facebook_photos_impl(profile_url: str, limit: int = 1000) -> 
             
             # Scroll down dynamically to load all photo thumbnails
             print("[Facebook Scraper] Scrolling dynamically to load all thumbnails...")
+            if progress_callback:
+                progress_callback(0, max_scrolls, "scrolling")
             previous_count = 0
             no_change_count = 0
             max_scrolls = 150
@@ -266,6 +311,8 @@ async def download_facebook_photos_impl(profile_url: str, limit: int = 1000) -> 
                         current_count += 1
                 
                 print(f"[Facebook Scraper] Scroll {scroll_idx+1}: Found {current_count} thumbnail candidates.")
+                if progress_callback:
+                    progress_callback(scroll_idx + 1, max_scrolls, f"scrolling (hittade {current_count} bilder)")
                 
                 if current_count == previous_count:
                     no_change_count += 1
@@ -292,12 +339,15 @@ async def download_facebook_photos_impl(profile_url: str, limit: int = 1000) -> 
             
             # Limit download count
             photo_urls = photo_urls[:limit]
+            total_photos = len(photo_urls)
             
             # Visit each photo page, wait for the image to render, and download it
             for idx, photo_url in enumerate(photo_urls):
                 if ABORT_DOWNLOAD:
                     print("[Facebook Scraper] Abort signal detected in download loop. Stopping.")
                     break
+                if progress_callback:
+                    progress_callback(idx, total_photos, f"downloading ({len(downloaded_files)} sparade)")
                 try:
                     # Extract unique photo ID from URL to check if the file already exists
                     match_fbid = re.search(r"fbid=(\d+)", photo_url)
@@ -315,6 +365,8 @@ async def download_facebook_photos_impl(profile_url: str, limit: int = 1000) -> 
                         relative_path = f"/downloads/facebook_photos/{profile_id}/{filename}"
                         downloaded_files.append(relative_path)
                         print(f"[Facebook Scraper] Photo {photo_id} already exists in folder. Skipping page load!")
+                        if progress_callback:
+                            progress_callback(idx + 1, total_photos, f"downloading ({len(downloaded_files)} sparade)")
                         continue
 
                     print(f"[Facebook Scraper] Processing photo {idx+1}/{len(photo_urls)}: {photo_url}")
@@ -372,6 +424,9 @@ async def download_facebook_photos_impl(profile_url: str, limit: int = 1000) -> 
                         print(f"[Facebook Scraper] No suitable high-resolution image element found.")
                 except Exception as item_err:
                     print(f"[Facebook Scraper] Error on photo detail page {photo_url}: {item_err}")
+                
+                if progress_callback:
+                    progress_callback(idx + 1, total_photos, f"downloading ({len(downloaded_files)} sparade)")
                     
         except Exception as main_err:
             print(f"[Facebook Scraper] Critical error in scraper loop: {main_err}")

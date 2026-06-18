@@ -179,7 +179,10 @@ class GeminiClient {
             lowerMsg.includes("hämta");
 
         if (isFacebookQuery) {
-            let filteredHistory = this.history.filter(h => {
+            let filteredHistory = this.history.filter((h, index) => {
+                // Keep the current user message unconditionally
+                if (index === this.history.length - 1) return true;
+
                 const text = (h.parts && h.parts[0] && h.parts[0].text) || "";
                 const lowerText = text.toLowerCase();
                 // If it relates to facebook, photos, downloads, or limits, purge it!
