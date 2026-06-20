@@ -9,7 +9,10 @@ import httpx
 from backend.database import get_db_connection
 from backend.config import PROJECT_ROOT
 from backend.services.tool_registry import TOOL_DECLARATIONS, execute_tool
-import fcntl
+if os.name == 'nt':
+    import msvcrt
+else:
+    import fcntl
 
 # Active conversation history cache mapped by telegram chat_id
 chat_histories = {}
@@ -154,8 +157,12 @@ async def telegram_worker_loop():
     lock_file_path = os.path.join(PROJECT_ROOT, ".telegram_bot.lock")
     try:
         telegram_lock_file = open(lock_file_path, "w")
-        fcntl.flock(telegram_lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
+        if os.name == 'nt':
+            telegram_lock_file.seek(0)
+            msvcrt.locking(telegram_lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            fcntl.flock(telegram_lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except (BlockingIOError, PermissionError, OSError):
         print("[TELEGRAM] Another server process is already running the Telegram Bot. Skipping polling thread.")
         return
     except Exception as e:

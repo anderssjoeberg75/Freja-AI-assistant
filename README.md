@@ -8,21 +8,98 @@ F.R.E.J.A. is built using pure modern web standards (Vanilla HTML5, CSS3, ES6 Ja
 
 ---
 
-## 🚀 Quick Start: Running the Project
+## 📥 Installation
 
-Because F.R.E.J.A. accesses your webcam, microphone, and external AI APIs, we highly recommend running the application via a local web server (rather than double-clicking `index.html` directly). This guarantees that browser security protocols allow media capturing streams to initialize correctly.
+F.R.E.J.A. requires **Python 3.10+** and **Git** installed on your system. Follow the steps below for your operating system to set up the environment and install all dependencies.
 
-### Step 1: Spin Up the Neural Server
-Open your terminal, navigate to the project directory, and run the Python backend server:
+### 🪟 Windows Setup
 
+1. **Clone the Repository:**
+   Open PowerShell or Command Prompt and run:
+   ```bash
+   git clone https://github.com/anderssjoeberg75/Freja-AI-assistant.git
+   cd Freja-AI-assistant
+   ```
+
+2. **Create a Virtual Environment:**
+   * **PowerShell**:
+     ```powershell
+     python -m venv venv
+     # If script execution is disabled, run: Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process
+     .\venv\Scripts\Activate.ps1
+     ```
+   * **Command Prompt**:
+     ```cmd
+     python -m venv venv
+     .\venv\Scripts\activate.bat
+     ```
+
+3. **Install Dependencies:**
+   ```cmd
+   python -m pip install --upgrade pip
+   python -m pip install -r requirements.txt
+   ```
+
+4. **Install Playwright Browsers:**
+   This installs the Chromium browser binary required for the Facebook scraper:
+   ```cmd
+   playwright install chromium
+   ```
+
+---
+
+### 🐧 Linux Setup (Ubuntu/Debian)
+
+1. **Install System Prerequisites:**
+   Open your terminal and ensure Python, pip, virtual environment tools, and Git are installed:
+   ```bash
+   sudo apt update
+   sudo apt install python3 python3-pip python3-venv git -y
+   ```
+
+2. **Clone the Repository:**
+   ```bash
+   git clone https://github.com/anderssjoeberg75/Freja-AI-assistant.git
+   cd Freja-AI-assistant
+   ```
+
+3. **Create and Activate Virtual Environment:**
+   ```bash
+   python3 -m venv venv
+   source venv/bin/activate
+   ```
+
+4. **Install Dependencies:**
+   ```bash
+   pip install --upgrade pip
+   pip install -r requirements.txt
+   ```
+
+5. **Install Playwright Browsers & System Dependencies:**
+   Install Chromium and any missing system libraries needed to run the browser in GUI mode:
+   ```bash
+   playwright install chromium
+   playwright install-deps chromium
+   ```
+
+---
+
+## 🚀 Running the Project
+
+Because F.R.E.J.A. accesses your webcam, microphone, and external AI APIs, you must run the application via a local web server (rather than double-clicking `index.html` directly). This guarantees that browser security protocols allow media capturing streams to initialize correctly.
+
+### Step 1: Start the Backend Server
+Ensure your virtual environment is active, then run:
 ```bash
-python3 server.py
+# On Windows (PowerShell or CMD) or Linux:
+python server.py
 ```
+*Note: Depending on your system configuration, you may need to use `python3 server.py` on Linux.*
 
 This starts the web server on port `8000` and initializes the secure SQLite database (`keys.db`) for API keys persistence.
 
 ### Step 2: Access the HUD Interface
-Open your web browser (Chrome, Edge, or Safari are recommended for optimal Speech Recognition support) and go to:
+Open your web browser (Chrome, Edge, or Safari are recommended for optimal Speech Recognition support) and navigate to:
 ```
 http://localhost:8000/
 ```
@@ -99,11 +176,7 @@ The application separates the browser interface from focused backend modules:
 
 Backend routes are registered centrally but implemented in focused domain modules. This keeps the server entry point small and makes route behavior independently testable.
 
-Install the Python runtime dependencies before starting the server:
 
-```bash
-python3 -m pip install -r requirements.txt
-```
 
 Run backend regression tests with:
 

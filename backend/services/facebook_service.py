@@ -165,6 +165,29 @@ async def download_facebook_photos_impl(profile_url: str, limit: int = 1000, pro
             await page.goto(profile_url, wait_until="domcontentloaded", timeout=30000)
             await page.wait_for_timeout(3000)
             
+            # Check if we were redirected to a login page or if login inputs are visible
+            from urllib.parse import urlparse
+            parsed_url = urlparse(page.url)
+            path = parsed_url.path.lower()
+            
+            is_redirected_to_login = any(p in path for p in ["/login", "/checkpoint", "/two_step", "/confirm"])
+            
+            has_login_fields = False
+            try:
+                has_login_fields = await page.locator("input[name='email'], input[id='email']").count() > 0
+            except Exception:
+                pass
+                
+            if is_redirected_to_login or has_login_fields:
+                print("[Facebook Scraper] Loaded cookies are invalid/expired. Removing state file.")
+                try:
+                    if state_path.exists():
+                        state_path.unlink()
+                except Exception:
+                    pass
+                raise Exception("Facebook-sessionen har gått ut eller är ogiltig. Kör 'python save_session.py' för att logga in på nytt.")
+
+            
             # Dismiss cookie consent dialogs
             cookie_buttons = [
                 "Decline optional cookies",
@@ -195,11 +218,12 @@ async def download_facebook_photos_impl(profile_url: str, limit: int = 1000, pro
             
             # Scroll down dynamically to load all photo thumbnails
             print("[Facebook Scraper] Scrolling dynamically to load all thumbnails...")
+            max_scrolls = 150
             if progress_callback:
                 progress_callback(0, max_scrolls, "scrolling")
-            previous_count = 0
+            
+            photo_urls = []
             no_change_count = 0
-            max_scrolls = 150
             
             for scroll_idx in range(max_scrolls):
                 if ABORT_DOWNLOAD:
@@ -302,38 +326,32 @@ async def download_facebook_photos_impl(profile_url: str, limit: int = 1000, pro
                 except Exception:
                     pass
                 
-                # Check current count of candidate links to see if new content loaded
+                # Collect and accumulate unique photo links in this scroll iteration
                 links = await page.locator("a").all()
-                current_count = 0
+                new_links_found = 0
                 for link in links:
-                    href = await link.get_attribute("href")
-                    if href and ("/photo" in href or "fbid=" in href or "/photos/" in href):
-                        current_count += 1
+                    try:
+                        href = await link.get_attribute("href")
+                        if href and ("/photo" in href or "fbid=" in href or "/photos/" in href):
+                            if href.startswith("/"):
+                                href = "https://www.facebook.com" + href
+                            if href not in photo_urls:
+                                photo_urls.append(href)
+                                new_links_found += 1
+                    except Exception:
+                        pass
                 
-                print(f"[Facebook Scraper] Scroll {scroll_idx+1}: Found {current_count} thumbnail candidates.")
+                print(f"[Facebook Scraper] Scroll {scroll_idx+1}: Found {len(photo_urls)} unique photo candidates (added {new_links_found} new in this scroll).")
                 if progress_callback:
-                    progress_callback(scroll_idx + 1, max_scrolls, f"scrolling (hittade {current_count} bilder)")
+                    progress_callback(scroll_idx + 1, max_scrolls, f"scrolling (hittade {len(photo_urls)} bilder)")
                 
-                if current_count == previous_count:
+                if new_links_found == 0:
                     no_change_count += 1
                     if no_change_count >= 8:
                         print("[Facebook Scraper] No new photos loaded after 8 consecutive scrolls. Stopping scroll loop.")
                         break
                 else:
                     no_change_count = 0
-                
-                previous_count = current_count
-                
-            # Collect potential photo links
-            links = await page.locator("a").all()
-            photo_urls = []
-            for link in links:
-                href = await link.get_attribute("href")
-                if href and ("/photo" in href or "fbid=" in href or "/photos/" in href):
-                    if href.startswith("/"):
-                        href = "https://www.facebook.com" + href
-                    if href not in photo_urls:
-                        photo_urls.append(href)
             
             print(f"[Facebook Scraper] Total found: {len(photo_urls)} photo link candidates.")
             

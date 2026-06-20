@@ -604,6 +604,16 @@ class FrejaUIController {
 
             // Greet User post boot-up sequence
             setTimeout(() => {
+                if (self.hasLoadedHistory) {
+                    const sv = document.getElementById('select-lang-quick').value === 'sv-SE';
+                    const resumeMsg = sv
+                        ? "Välkommen tillbaka, sir. Chattsession återupptagen."
+                        : "Welcome back, sir. Chat session resumed.";
+                    self.speech.speak(resumeMsg);
+                    self.writeLog("SESSION RESUMED. CHAT HISTORY SYNCHRONIZED.", "sys");
+                    return;
+                }
+
                 const sv = document.getElementById('select-lang-quick').value === 'sv-SE';
                 const startMsg = sv 
                     ? "System aktiverat. Alla nätverksprotokoll online. Hur kan jag hjälpa dig idag, sir?"
@@ -733,6 +743,7 @@ class FrejaUIController {
                         </div>
                     `;
                     self.writeLog("NEURAL CONTEXT RESET & CHAT CLEARED", "sys");
+                    self.hasLoadedHistory = false;
                 }
             });
         }
@@ -2582,6 +2593,9 @@ class FrejaUIController {
                             parts: [{ text: msg.content }]
                         });
                     });
+                    this.hasLoadedHistory = true;
+                } else {
+                    this.hasLoadedHistory = false;
                 }
             }
         } catch (e) {
