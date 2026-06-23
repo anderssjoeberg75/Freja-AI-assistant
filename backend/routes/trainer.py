@@ -3,10 +3,88 @@
 import datetime
 import httpx
 import json
+import urllib.parse
 from fastapi import APIRouter, HTTPException, Query, Request
 from backend.database import get_db_connection
 
 router = APIRouter()
+
+async def fetch_7day_weather_forecast(location: str = "Stockholm") -> str:
+    try:
+        geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={urllib.parse.quote(location)}&count=1&language=sv&format=json"
+        async with httpx.AsyncClient() as client:
+            res = await client.get(geo_url, timeout=8.0)
+            res.raise_for_status()
+            geo_data = res.json()
+            
+        results = geo_data.get('results')
+        if not results:
+            return f"Kunde inte hitta platsen: '{location}' för väderprognos."
+        
+        first = results[0]
+        lat = first['latitude']
+        lon = first['longitude']
+        name = first['name']
+        country = first.get('country', '')
+        
+        weather_url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&daily=weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,precipitation_sum,relative_humidity_2m_max,relative_humidity_2m_min&timezone=auto"
+        async with httpx.AsyncClient() as client:
+            res = await client.get(weather_url, timeout=8.0)
+            res.raise_for_status()
+            weather_data = res.json()
+            
+        daily = weather_data.get('daily')
+        if not daily:
+            return "Ingen väderprognos returnerades."
+            
+        wmo_codes = {
+            0: "Klart väder och molnfritt",
+            1: "Mestadels klart",
+            2: "Växlande molnighet",
+            3: "Mulet",
+            45: "Dimma",
+            48: "Rimfrost-dimma",
+            51: "Lätt duggregn",
+            53: "Måttligt duggregn",
+            55: "Tätt duggregn",
+            61: "Lätt regn",
+            63: "Måttligt regn",
+            65: "Kraftigt regn",
+            71: "Lätt snöfall",
+            73: "Måttligt snöfall",
+            75: "Kraftigt snöfall",
+            77: "Snökorn",
+            80: "Lätta regnskurar",
+            81: "Måttliga regnskurar",
+            82: "Kraftiga regnskurar",
+            85: "Lätta snöskurar",
+            86: "Kraftiga snöskurar",
+            95: "Åska",
+            96: "Åska med lätt hagel",
+            99: "Åska med kraftigt hagel"
+        }
+        
+        lines = [f"Väderprognos för {name}, {country} de kommande 7 dagarna:"]
+        times = daily.get('time', [])
+        for i in range(len(times)):
+            date_str = times[i]
+            w_code = daily.get('weather_code', [0])[i]
+            temp_max = daily.get('temperature_2m_max', [0.0])[i]
+            temp_min = daily.get('temperature_2m_min', [0.0])[i]
+            app_max = daily.get('apparent_temperature_max', [0.0])[i]
+            app_min = daily.get('apparent_temperature_min', [0.0])[i]
+            precip = daily.get('precipitation_sum', [0.0])[i]
+            rh_max = daily.get('relative_humidity_2m_max', [0.0])[i]
+            rh_min = daily.get('relative_humidity_2m_min', [0.0])[i]
+            
+            desc = wmo_codes.get(w_code, "Atmosfäriska fluktuationer")
+            lines.append(
+                f"- {date_str}: {desc}, Temp: {temp_min}°C till {temp_max}°C (Känns som: {app_min}°C till {app_max}°C), Nederbörd: {precip}mm, Luftfuktighet: {rh_min}% till {rh_max}%"
+            )
+            
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Misslyckades att hämta väderprognos för {location}: {str(e)}"
 
 def calculate_trends():
     garmin_rows = []
@@ -193,6 +271,9 @@ async def generate_trainer_plan(request: Request):
             
         trends_data_str = "\n".join(trend_summary) if trend_summary else "Inga tillräckliga trenddata (RHR/HRV) tillgängliga."
 
+        # 5.5 Fetch 7-day weather forecast
+        weather_forecast = await fetch_7day_weather_forecast("Stockholm")
+
         # 6. Compile Prompt
         garmin_data_str = "\n".join(garmin_summary) if garmin_summary else "Ingen Garmin-data tillgänglig."
         strava_data_str = "\n".join(strava_summary) if strava_summary else "Ingen Strava-data tillgänglig."
@@ -202,12 +283,15 @@ async def generate_trainer_plan(request: Request):
 
         prompt_content = f"""
 Du är en professionell personlig tränare och hälsocoach (COACH AI) integrerad i F.R.E.J.A.-systemet.
-Analysera följande hälsodata, träningsdata och trender för användaren och skapa ett anpassat träningsprogram eller konkreta träningstips baserat på deras uppgivna mål.
+Analysera följande hälsodata, träningsdata, trender och väderprognos för användaren och skapa ett anpassat träningsprogram eller konkreta träningstips baserat på deras uppgivna mål.
 
 MÅL: "{goal}"{limitations_prompt}
 
 [BERÄKNADE HÄLSOTRENDER (RHR & HRV)]:
 {trends_data_str}
+
+[VÄDERPROGNOS FÖR DE KOMMANDE 7 DAGARNA]:
+{weather_forecast}
 
 [GARMIN HÄLSODATA (Senaste 7 dagarna)]:
 {garmin_data_str}
@@ -222,6 +306,9 @@ Instruktioner för svaret:
 - Svara på svenska.
 - Skriv på ett peppande, professionellt och coachande sätt (F.R.E.J.A.-stil: artig men extremt kunnig).
 - Ge konkreta, handfasta råd om träningsintensitet, återhämtning (titta på sömn och HRV/recovery om det finns), och träningsform baserat på datan.
+- Analysera den kommande veckans väderprognos när du planerar träningspassen:
+  - Om det väntas dåligt väder (t.ex. kraftigt regn, snöfall, åska eller storm) på en planerad träningsdag, rekommendera inomhusträning eller vila för den dagen.
+  - Om användaren har astma-relaterade åkommor (som "astma" eller "ansträngningsastma" i sina begränsningar), ta extra hänsyn till dagar med extra kallt väder (t.ex. upplevd temperatur under 0°C) kombinerat med låg luftfuktighet/torr luft, och rekommendera inomhusträning eller lägre intensitet för att minska risken för astmabesvär.
 - Analysera hälsotrenderna. Om vilopulsen ökat markant (>5%) eller HRV sjunkit markant (<-10%), lägg till en tydlig rekommendation om aktiv vila eller minskad intensitet.
 - Skapa ett enkelt veckoprogram som användaren kan följa direkt.
 """

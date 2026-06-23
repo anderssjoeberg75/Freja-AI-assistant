@@ -760,6 +760,10 @@ async def exec_download_facebook_photos(args, progress_callback=None):
 async def exec_trainer_advice(args):
     goal = args.get("goal", "hälsa och motion")
     limitations = args.get("limitations", "")
+    
+    from backend.routes.trainer import fetch_7day_weather_forecast
+    weather_forecast = await fetch_7day_weather_forecast("Stockholm")
+
     garmin_data = []
     try:
         with get_db_connection() as conn:
@@ -799,6 +803,7 @@ async def exec_trainer_advice(args):
     return {
         "goal": goal,
         "limitations": limitations,
+        "weather_forecast_next_7_days": weather_forecast,
         "garmin_health_last_7_days": garmin_data,
         "strava_activities_last_7_activities": strava_data,
         "withings_measurements_last_7_days": withings_data
