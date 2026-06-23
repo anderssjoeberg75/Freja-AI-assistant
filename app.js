@@ -567,6 +567,21 @@ class FrejaUIController {
             }
         }
 
+        const trainerAllowed = localStorage.getItem("freja_tool_get_personal_trainer_advice_allowed") === "true";
+        const chkTrainer = document.getElementById('chk-tool-get_personal_trainer_advice');
+        if (chkTrainer) {
+            chkTrainer.checked = trainerAllowed;
+        }
+
+        const capTrainer = document.getElementById('cap-trainer');
+        if (capTrainer) {
+            if (trainerAllowed) {
+                capTrainer.classList.add('active');
+            } else {
+                capTrainer.classList.remove('active');
+            }
+        }
+
         this.applyTheme(theme);
     }
 
@@ -1793,6 +1808,19 @@ class FrejaUIController {
                 localStorage.setItem("freja_tool_download_facebook_photos_allowed", chkFacebookDownload.checked);
             }
 
+            const chkTrainer = document.getElementById('chk-tool-get_personal_trainer_advice');
+            if (chkTrainer) {
+                localStorage.setItem("freja_tool_get_personal_trainer_advice_allowed", chkTrainer.checked);
+                const capTrainer = document.getElementById('cap-trainer');
+                if (capTrainer) {
+                    if (chkTrainer.checked) {
+                        capTrainer.classList.add('active');
+                    } else {
+                        capTrainer.classList.remove('active');
+                    }
+                }
+            }
+
             const accessTokenVal = document.getElementById('input-access-token').value.trim();
 
             // Save keys to secure SQLite database
@@ -1900,6 +1928,87 @@ class FrejaUIController {
             btnCloseTelegram.addEventListener('click', () => {
                 soundSynth.playClick();
                 modalTelegram.classList.remove('active');
+            });
+        }
+
+        // Toggle Trainer Dashboard Modal
+        const btnTrainer = document.getElementById('btn-trainer');
+        const modalTrainer = document.getElementById('modal-trainer');
+        const btnCloseTrainer = document.getElementById('btn-close-trainer');
+        
+        if (btnTrainer && modalTrainer && btnCloseTrainer) {
+            btnTrainer.addEventListener('click', () => {
+                soundSynth.playClick();
+                modalTrainer.classList.add('active');
+                self.loadTrainerDashboardUI();
+            });
+            
+            btnCloseTrainer.addEventListener('click', () => {
+                soundSynth.playClick();
+                modalTrainer.classList.remove('active');
+            });
+        }
+
+        // Generate Trainer Plan
+        const btnGenerateTrainerPlan = document.getElementById('btn-generate-trainer-plan');
+        if (btnGenerateTrainerPlan) {
+            btnGenerateTrainerPlan.addEventListener('click', async () => {
+                const goalInput = document.getElementById('trainer-input-goal').value.trim();
+                const limitationsInput = document.getElementById('trainer-input-limitations').value.trim();
+                if (!goalInput) {
+                    self.writeLog("COACH FAILURE: MÅL SAKNAS", "err");
+                    soundSynth.playError();
+                    alert("Ange ett träningsmål eller fokusområde.");
+                    return;
+                }
+                
+                soundSynth.playClick();
+                btnGenerateTrainerPlan.disabled = true;
+                btnGenerateTrainerPlan.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> GENERERAR...';
+                self.writeLog(`GENERATING PERSONAL TRAINER PLAN FOR: "${goalInput}"`, "sys");
+                
+                try {
+                    const res = await fetch('/api/trainer/generate', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ goal: goalInput, limitations: limitationsInput })
+                    });
+                    
+                    if (res.ok) {
+                        const data = await res.json();
+                        self.writeLog("COACH PLAN GENERATED AND SAVED", "sys");
+                        soundSynth.playNotify();
+                        
+                        const outputContainer = document.getElementById('trainer-plan-output-container');
+                        const outputDiv = document.getElementById('trainer-plan-output');
+                        if (outputContainer && outputDiv) {
+                            self.renderTrainerPlanDetails(data.plan_id, data.advice_text);
+                        }
+                        
+                        self.loadTrainerDashboardUI();
+                    } else {
+                        const err = await res.json();
+                        self.writeLog(`COACH ERROR: ${err.detail || 'Kunde inte generera'}`, "err");
+                        soundSynth.playError();
+                        alert(`Fel: ${err.detail || 'Kunde inte generera programmet.'}`);
+                    }
+                } catch (e) {
+                    self.writeLog(`COACH ERROR: ${e.message}`, "err");
+                    soundSynth.playError();
+                    alert(`Fel vid kommunikation med servern: ${e.message}`);
+                } finally {
+                    btnGenerateTrainerPlan.disabled = false;
+                    btnGenerateTrainerPlan.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> GENERERA TRÄNINGSPROGRAM';
+                }
+            });
+        }
+
+        // Refresh Trainer History
+        const btnRefreshTrainer = document.getElementById('btn-refresh-trainer');
+        if (btnRefreshTrainer) {
+            btnRefreshTrainer.addEventListener('click', () => {
+                soundSynth.playClick();
+                self.loadTrainerDashboardUI();
             });
         }
 
@@ -2100,6 +2209,309 @@ class FrejaUIController {
         } catch (e) {
             console.error("[TELEGRAM] UI load error:", e);
             telegramList.innerHTML = '<div style="color: #ff3b30; text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[FEL VID HÄMTNING AV STATUS]</div>';
+        }
+    }
+
+    /**
+     * Fetches and renders trainer plans history inside the Personal Trainer Dashboard.
+     */
+    async loadTrainerDashboardUI() {
+        const trainerList = document.getElementById('trainer-list');
+        if (!trainerList) return;
+        
+        trainerList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Laddar historik...</div>';
+        
+        try {
+            const res = await fetch('/api/trainer/plans?limit=10');
+            if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+            
+            const plans = await res.json();
+            if (plans.length === 0) {
+                trainerList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[INGA TIDIGARE PROGRAM HITTADE]</div>';
+                return;
+            }
+            
+            trainerList.innerHTML = "";
+            plans.forEach(plan => {
+                const item = document.createElement('div');
+                item.className = "trainer-plan-item";
+                item.style.display = "flex";
+                item.style.justifyContent = "space-between";
+                item.style.alignItems = "center";
+                item.style.padding = "8px";
+                item.style.borderBottom = "1px solid rgba(0, 242, 254, 0.08)";
+                item.style.fontSize = "11px";
+                item.style.fontFamily = "var(--font-mono)";
+                
+                const limitInfo = plan.limitations ? ` (${plan.limitations})` : "";
+                item.innerHTML = `
+                    <div style="flex: 1; cursor: pointer; color: var(--color-text-bright);" class="trainer-view-btn">
+                        <span style="color: var(--color-primary);">${plan.date}</span>: ${plan.goal}${limitInfo}
+                    </div>
+                    <div style="display: flex; gap: 8px;">
+                        <button class="trainer-view-icon-btn" title="Visa detaljer" style="background: transparent; border: none; color: var(--color-primary); cursor: pointer; padding: 2px 4px;">
+                            <i class="fa-solid fa-eye"></i>
+                        </button>
+                        <button class="trainer-delete-btn" data-id="${plan.id}" title="Radera logg" style="background: transparent; border: none; color: #ff3b30; cursor: pointer; padding: 2px 4px;">
+                            <i class="fa-solid fa-trash-can"></i>
+                        </button>
+                    </div>
+                `;
+                
+                const showPlan = () => {
+                    soundSynth.playClick();
+                    const outputContainer = document.getElementById('trainer-plan-output-container');
+                    const outputDiv = document.getElementById('trainer-plan-output');
+                    if (outputContainer && outputDiv) {
+                        this.renderTrainerPlanDetails(plan.id, plan.advice_text);
+                    }
+                };
+
+                item.querySelector('.trainer-view-btn').addEventListener('click', showPlan);
+                item.querySelector('.trainer-view-icon-btn').addEventListener('click', showPlan);
+                
+                const delBtn = item.querySelector('.trainer-delete-btn');
+                delBtn.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    if (!confirm("Vill du verkligen radera detta program?")) return;
+                    soundSynth.playClick();
+                    try {
+                        const delRes = await fetch(`/api/trainer/plans?plan_id=${plan.id}`, {
+                            method: 'DELETE'
+                        });
+                        if (delRes.ok) {
+                            this.writeLog(`DELETED TRAINER PLAN ID ${plan.id}`, "sys");
+                            this.loadTrainerDashboardUI();
+                            
+                            // Clear output if we deleted the currently viewed plan
+                            const outputDiv = document.getElementById('trainer-plan-output');
+                            if (outputDiv && outputDiv.textContent === plan.advice_text) {
+                                document.getElementById('trainer-plan-output-container').style.display = 'none';
+                                outputDiv.textContent = '';
+                            }
+                        }
+                    } catch (err) {
+                        console.error("[TRAINER] Failed to delete plan:", err);
+                    }
+                });
+                
+                trainerList.appendChild(item);
+            });
+        } catch (e) {
+            console.error("[TRAINER] UI load error:", e);
+            trainerList.innerHTML = '<div style="color: #ff3b30; text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[FEL VID HÄMTNING AV HISTORIK]</div>';
+        }
+    }
+
+    /**
+     * Renders structured/unstructured trainer advice details with calendar/checkbox interactions.
+     */
+    renderTrainerPlanDetails(planId, adviceText) {
+        const outputContainer = document.getElementById('trainer-plan-output-container');
+        const outputDiv = document.getElementById('trainer-plan-output');
+        if (!outputContainer || !outputDiv) return;
+        
+        outputContainer.style.display = 'flex';
+        
+        outputDiv.style.fontFamily = "var(--font-sans)";
+        outputDiv.style.fontSize = "13px";
+        outputDiv.style.maxHeight = "400px";
+        
+        let planData = null;
+        try {
+            let cleanText = adviceText.trim();
+            if (cleanText.startsWith("```json")) {
+                cleanText = cleanText.substring(7);
+            }
+            if (cleanText.startsWith("```")) {
+                cleanText = cleanText.substring(3);
+            }
+            if (cleanText.endsWith("```")) {
+                cleanText = cleanText.substring(0, cleanText.length - 3);
+            }
+            cleanText = cleanText.trim();
+            planData = JSON.parse(cleanText);
+        } catch (e) {
+            planData = null;
+        }
+        
+        if (!planData) {
+            outputDiv.style.fontFamily = "var(--font-mono)";
+            outputDiv.style.fontSize = "11px";
+            outputDiv.innerHTML = window.FrejaMarkdown.parseMarkdown(adviceText);
+            return;
+        }
+        
+        const rhr_trend = planData.resting_hr_trend || "Stabil / Saknas";
+        const hrv_trend = planData.hrv_trend || "Normal / Saknas";
+        const weekly_focus = planData.weekly_focus || "Allmän träning";
+        const summary = planData.summary || "";
+        const workouts = planData.workouts || [];
+        
+        const getNextMondayStr = () => {
+            const today = new Date();
+            const day = today.getDay();
+            const distanceToMonday = (8 - day) % 7 || 7;
+            const nextMonday = new Date(today);
+            nextMonday.setDate(today.getDate() + distanceToMonday);
+            
+            const yyyy = nextMonday.getFullYear();
+            let mm = nextMonday.getMonth() + 1;
+            let dd = nextMonday.getDate();
+            if (mm < 10) mm = '0' + mm;
+            if (dd < 10) dd = '0' + dd;
+            return `${yyyy}-${mm}-${dd}`;
+        };
+        
+        const workoutsHTML = workouts.map((w, idx) => {
+            const isCompleted = w.completed ? 'checked' : '';
+            const completedStyle = w.completed ? 'text-decoration: line-through; opacity: 0.6;' : '';
+            
+            let icon = "fa-person-running";
+            const type = (w.activity_type || "").toLowerCase();
+            if (type.includes("styrka") || type.includes("gym") || type.includes("body")) {
+                icon = "fa-dumbbell";
+            } else if (type.includes("cykel") || type.includes("cykling") || type.includes("bike")) {
+                icon = "fa-bicycle";
+            } else if (type.includes("yoga") || type.includes("stretch") || type.includes("rörlighet")) {
+                icon = "fa-child-reaching";
+            } else if (type.includes("vila") || type.includes("återhämtning") || type.includes("rest")) {
+                icon = "fa-bed";
+            }
+            
+            return `
+                <div style="display: flex; gap: 10px; background: rgba(0,0,0,0.15); border: 1px solid rgba(0,242,254,0.08); border-radius: 4px; padding: 10px; align-items: flex-start;">
+                    <input type="checkbox" class="workout-checkbox" data-index="${idx}" ${isCompleted} style="margin-top: 3px; cursor: pointer; width: 14px; height: 14px;">
+                    <div style="flex: 1; display: flex; flex-direction: column; gap: 2px; ${completedStyle}">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span style="font-weight: bold; font-size: 12px; color: var(--color-text-bright);">${w.day}: <i class="fa-solid ${icon}"></i> ${w.title}</span>
+                            <span style="font-size: 10px; color: var(--color-primary);">${w.duration_minutes > 0 ? w.duration_minutes + ' min' : 'Vila'}</span>
+                        </div>
+                        <div style="font-size: 11px; color: var(--color-text-muted); line-height: 1.4; margin-top: 2px;">
+                            ${w.description}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+        
+        outputDiv.innerHTML = `
+            <div class="trainer-structured-plan" style="display: flex; flex-direction: column; gap: 15px; font-family: var(--font-sans, inherit); color: var(--color-text); text-align: left;">
+                
+                <!-- Trends Section -->
+                <div class="trainer-trends-row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <div class="trend-card" style="background: rgba(0,0,0,0.3); border: 1px solid rgba(0, 242, 254, 0.15); border-radius: 4px; padding: 10px;">
+                        <div style="font-size: 9px; color: var(--color-text-muted); font-family: var(--font-display); letter-spacing: 0.5px;">VILOPULS TREND (RHR)</div>
+                        <div style="font-size: 11px; font-weight: bold; margin-top: 4px; color: var(--color-primary); font-family: var(--font-mono);">${rhr_trend}</div>
+                    </div>
+                    <div class="trend-card" style="background: rgba(0,0,0,0.3); border: 1px solid rgba(0, 242, 254, 0.15); border-radius: 4px; padding: 10px;">
+                        <div style="font-size: 9px; color: var(--color-text-muted); font-family: var(--font-display); letter-spacing: 0.5px;">HRV TREND</div>
+                        <div style="font-size: 11px; font-weight: bold; margin-top: 4px; color: var(--color-primary); font-family: var(--font-mono);">${hrv_trend}</div>
+                    </div>
+                </div>
+
+                <!-- Weekly Focus -->
+                <div class="focus-banner" style="background: rgba(0, 242, 254, 0.08); border-left: 3px solid var(--color-primary); padding: 10px; border-radius: 0 4px 4px 0;">
+                    <div style="font-size: 9px; color: var(--color-primary); font-family: var(--font-display); letter-spacing: 0.5px;">VECKANS FOKUS</div>
+                    <div style="font-size: 12px; font-weight: bold; margin-top: 3px;">${weekly_focus}</div>
+                </div>
+
+                <!-- Summary -->
+                <div class="summary-section" style="font-size: 12px; line-height: 1.5; color: var(--color-text-muted);">
+                    ${summary}
+                </div>
+
+                <!-- Workouts Checklist -->
+                <div class="workouts-section">
+                    <div style="font-size: 10px; color: var(--color-primary); font-family: var(--font-display); margin-bottom: 8px; letter-spacing: 0.5px;">VECKANS TRÄNINGSPASS</div>
+                    <div style="display: flex; flex-direction: column; gap: 8px;">
+                        ${workoutsHTML}
+                    </div>
+                </div>
+
+                <!-- Calendar Booking Widget -->
+                <div class="booking-widget" style="background: rgba(0, 0, 0, 0.25); border: 1px solid rgba(0, 242, 254, 0.15); border-radius: 4px; padding: 12px; display: flex; flex-direction: column; gap: 8px;">
+                    <div style="font-size: 9px; color: var(--color-text-muted); font-family: var(--font-display); letter-spacing: 0.5px;">BOKA IN PASSEN I DIN GOOGLE KALENDER</div>
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        <input type="date" id="trainer-book-start-date" class="hud-input" style="height: 32px; font-size: 12px; flex: 1;" value="${getNextMondayStr()}">
+                        <button id="btn-trainer-book-calendar" class="hud-btn btn-primary" style="height: 32px; font-family: var(--font-display); font-size: 11px; padding: 0 12px; display: flex; align-items: center; gap: 5px;">
+                            <i class="fa-solid fa-calendar-plus"></i> BOKA PASS
+                        </button>
+                    </div>
+                </div>
+
+            </div>
+        `;
+        
+        outputDiv.querySelectorAll('.workout-checkbox').forEach(cb => {
+            cb.addEventListener('change', async (e) => {
+                const idx = parseInt(e.target.getAttribute('data-index'));
+                planData.workouts[idx].completed = e.target.checked;
+                
+                soundSynth.playClick();
+                
+                try {
+                    const putRes = await fetch('/api/trainer/plans', {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            plan_id: planId,
+                            advice_text: JSON.stringify(planData)
+                        })
+                    });
+                    if (putRes.ok) {
+                        this.writeLog(`WORKOUT STATUS UPDATED`, "sys");
+                        this.renderTrainerPlanDetails(planId, JSON.stringify(planData));
+                    }
+                } catch (err) {
+                    console.error("Error saving completed workout state:", err);
+                }
+            });
+        });
+        
+        const btnBook = document.getElementById('btn-trainer-book-calendar');
+        if (btnBook) {
+            btnBook.addEventListener('click', async () => {
+                const startDateVal = document.getElementById('trainer-book-start-date').value;
+                if (!startDateVal) {
+                    alert("Ange ett startdatum för träningsveckan.");
+                    return;
+                }
+                
+                soundSynth.playClick();
+                btnBook.disabled = true;
+                btnBook.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> BOKAR...';
+                
+                try {
+                    const bookRes = await fetch('/api/trainer/plans/book', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            plan_id: planId,
+                            start_date: startDateVal
+                        })
+                    });
+                    
+                    if (bookRes.ok) {
+                        const bookData = await bookRes.json();
+                        this.writeLog(`CALENDAR: ${bookData.message.toUpperCase()}`, "sys");
+                        soundSynth.playNotify();
+                        alert(bookData.message);
+                    } else {
+                        const bookErr = await bookRes.json();
+                        this.writeLog(`CALENDAR ERROR: ${bookErr.detail}`, "err");
+                        soundSynth.playError();
+                        alert(`Fel vid bokning: ${bookErr.detail}`);
+                    }
+                } catch (err) {
+                    this.writeLog(`CALENDAR EXCEPTION: ${err.message}`, "err");
+                    soundSynth.playError();
+                    alert(`Fel vid kommunikation med servern: ${err.message}`);
+                } finally {
+                    btnBook.disabled = false;
+                    btnBook.innerHTML = '<i class="fa-solid fa-calendar-plus"></i> BOKA PASS';
+                }
+            });
         }
     }
 

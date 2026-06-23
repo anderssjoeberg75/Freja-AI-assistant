@@ -54,6 +54,9 @@
                 <button id="btn-google-calendar" class="hud-btn-icon" title="Google Calendar Dashboard">
                     <i class="fa-solid fa-calendar-days"></i>
                 </button>
+                <button id="btn-trainer" class="hud-btn-icon" title="Personal Trainer Dashboard">
+                    <i class="fa-solid fa-dumbbell"></i>
+                </button>
                 <button id="btn-telegram" class="hud-btn-icon" title="Telegram Integration">
                     <i class="fa-brands fa-telegram"></i>
                 </button>
@@ -193,6 +196,10 @@
                             <div class="cap-item" id="cap-google_calendar">
                                 <i class="fa-solid fa-calendar-days"></i>
                                 <span>GOOGLE CAL</span>
+                            </div>
+                            <div class="cap-item" id="cap-trainer">
+                                <i class="fa-solid fa-dumbbell"></i>
+                                <span>COACH AI</span>
                             </div>
                         </div>
                     </div>
@@ -443,6 +450,14 @@
                     <span style="font-size: 11px; color: var(--color-text-muted);">Tillåt Facebook-bildnedladdning (download_facebook_photos)</span>
                     <label class="hud-switch">
                         <input type="checkbox" id="chk-tool-download_facebook_photos">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+
+                <div class="settings-group-toggle" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <span style="font-size: 11px; color: var(--color-text-muted);">Tillåt Personlig Tränare (get_personal_trainer_advice)</span>
+                    <label class="hud-switch">
+                        <input type="checkbox" id="chk-tool-get_personal_trainer_advice">
                         <span class="slider"></span>
                     </label>
                 </div>
@@ -974,6 +989,48 @@
             </div>
             <div class="modal-footer" style="display: flex; gap: 10px;">
                 <button id="btn-refresh-telegram" class="hud-btn btn-primary" style="flex: 1; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-arrows-rotate"></i> UPPDATERA LOGGAR</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- PERSONAL TRAINER DASHBOARD MODAL -->
+    <div class="hud-modal" id="modal-trainer">
+        <div class="modal-content glass-morphic">
+            <div class="modal-header">
+                <h2><i class="fa-solid fa-dumbbell"></i> COGNITIVE PERSONAL TRAINER</h2>
+                <button class="modal-close" id="btn-close-trainer">&times;</button>
+            </div>
+            <div class="modal-body" style="display: flex; flex-direction: column; gap: 15px;">
+                <!-- Configuration Form -->
+                <div class="trainer-form" style="display: flex; flex-direction: column; gap: 10px; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--color-border); border-radius: 4px; padding: 12px;">
+                    <div style="display: flex; flex-direction: column; gap: 4px;">
+                        <label for="trainer-input-goal" style="font-size: 11px; color: var(--color-text-muted);">Ditt träningsmål / Fokus</label>
+                        <input type="text" id="trainer-input-goal" placeholder="t.ex. Gå ner i vikt, springa 10 km, bygga muskler..." class="hud-input" style="height: 32px; font-size: 12px;">
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 4px;">
+                        <label for="trainer-input-limitations" style="font-size: 11px; color: var(--color-text-muted);">Skador / Sjukdomar / Begränsningar</label>
+                        <input type="text" id="trainer-input-limitations" placeholder="t.ex. Ansträngningsastma, känsligt högerknä..." class="hud-input" style="height: 32px; font-size: 12px;">
+                    </div>
+                    <button id="btn-generate-trainer-plan" class="hud-btn btn-primary" style="height: 34px; font-family: var(--font-display); font-size: 11px; margin-top: 8px;"><i class="fa-solid fa-wand-magic-sparkles"></i> GENERERA TRÄNINGSPROGRAM</button>
+                </div>
+                
+                <!-- Output section for generated program -->
+                <div id="trainer-plan-output-container" style="display: none; flex-direction: column; gap: 5px;">
+                    <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); letter-spacing: 1px;">SENAST GENERERADE PROGRAM</h3>
+                    <div id="trainer-plan-output" style="background: rgba(0, 0, 0, 0.4); border: 1px solid var(--color-border); border-radius: 4px; padding: 12px; max-height: 400px; overflow-y: auto; font-family: var(--font-mono); font-size: 11px; white-space: pre-wrap; line-height: 1.4; color: var(--color-text-muted);">
+                    </div>
+                </div>
+
+                <!-- History list of recent plans -->
+                <div class="trainer-list-container" style="display: flex; flex-direction: column; flex: 1; min-height: 180px; max-height: 250px;">
+                    <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); margin-bottom: 8px; letter-spacing: 1px;">TIDIGARE REKOMMENDATIONER</h3>
+                    <div class="trainer-list" id="trainer-list" style="flex: 1; overflow-y: auto; background: rgba(0,0,0,0.3); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px;">
+                        <div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Ingen historik laddad...</div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer" style="display: flex; gap: 10px;">
+                <button id="btn-refresh-trainer" class="hud-btn btn-primary" style="flex: 1; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-arrows-rotate"></i> UPPDATERA HISTORIK</button>
             </div>
         </div>
     </div>

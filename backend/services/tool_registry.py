@@ -279,6 +279,24 @@ TOOL_DECLARATIONS = [
             },
             "required": ["profile_url"]
         }
+    },
+    {
+        "name": "get_personal_trainer_advice",
+        "description": "Hämtar användarens hälsodata och träningsdata (från Garmin, Strava och Withings) och sammanställer personliga träningsråd, tips och träningsprogram baserat på användarens angivna mål.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "goal": {
+                    "type": "STRING",
+                    "description": "Användarens träningsmål eller fokusområde (t.ex. 'gå ner i vikt', 'förbättra löpning', 'styrketräning')."
+                },
+                "limitations": {
+                    "type": "STRING",
+                    "description": "Eventuella skador, sjukdomar eller fysiska begränsningar (t.ex. 'ansträngningsastma', 'känsliga knän')."
+                }
+            },
+            "required": ["goal"]
+        }
     }
 ]
 
@@ -299,6 +317,7 @@ TOOL_PERMISSION_KEYS = {
     "tool_analyze_code": "freja_tool_tool_analyze_code_allowed",
     "codex_run_and_fix": "freja_tool_codex_run_and_fix_allowed",
     "download_facebook_photos": "freja_tool_download_facebook_photos_allowed",
+    "get_personal_trainer_advice": "freja_tool_get_personal_trainer_advice_allowed",
 }
 
 # 2. TOOL EXECUTORS IMPLEMENTATION
@@ -738,6 +757,53 @@ async def exec_download_facebook_photos(args, progress_callback=None):
         return {"error": "Facebook-profilens URL saknas."}
     return await download_facebook_photos_impl(profile_url, limit, progress_callback)
 
+async def exec_trainer_advice(args):
+    goal = args.get("goal", "hälsa och motion")
+    limitations = args.get("limitations", "")
+    garmin_data = []
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT date, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status
+                FROM garmin_health ORDER BY date DESC LIMIT 7
+            ''')
+            garmin_data = [dict(zip([d[0] for d in cursor.description], row)) for row in cursor.fetchall()]
+    except Exception as e:
+        print(f"Error fetching Garmin data for trainer: {e}")
+
+    strava_data = []
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT name, type, date, distance, moving_time, total_elevation_gain, average_heartrate, max_heartrate, calories
+                FROM strava_activities ORDER BY date DESC LIMIT 7
+            ''')
+            strava_data = [dict(zip([d[0] for d in cursor.description], row)) for row in cursor.fetchall()]
+    except Exception as e:
+        print(f"Error fetching Strava data for trainer: {e}")
+
+    withings_data = []
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT date, weight, fat_ratio, bone_mass, heart_pulse, sleep_duration, steps, calories, sleep_score
+                FROM withings_measurements ORDER BY date DESC LIMIT 7
+            ''')
+            withings_data = [dict(zip([d[0] for d in cursor.description], row)) for row in cursor.fetchall()]
+    except Exception as e:
+        print(f"Error fetching Withings data for trainer: {e}")
+
+    return {
+        "goal": goal,
+        "limitations": limitations,
+        "garmin_health_last_7_days": garmin_data,
+        "strava_activities_last_7_activities": strava_data,
+        "withings_measurements_last_7_days": withings_data
+    }
+
 # 3. DISPATCH EXECUTOR MAP
 EXECUTOR_MAP = {
     "get_weather": exec_weather,
@@ -755,6 +821,7 @@ EXECUTOR_MAP = {
     "tool_analyze_code": codex_audit_codebase_impl,
     "codex_run_and_fix": codex_run_and_fix_impl,
     "download_facebook_photos": exec_download_facebook_photos,
+    "get_personal_trainer_advice": exec_trainer_advice,
 }
 
 async def execute_tool(name: str, args: dict, progress_callback=None) -> dict:

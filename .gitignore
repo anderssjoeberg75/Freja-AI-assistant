@@ -1,6 +1,9 @@
 # SQLite databases (contains secret tokens/keys)
 keys.db
 freja.db
+database.db
+*.db-shm
+*.db-wal
 
 # Python
 __pycache__/

@@ -37,6 +37,11 @@ def init_db():
     cursor.execute('\n        CREATE TABLE IF NOT EXISTS strava_activities (\n            id INTEGER PRIMARY KEY AUTOINCREMENT,\n            name TEXT,\n            type TEXT,\n            date TEXT,\n            distance REAL,\n            moving_time INTEGER,\n            elapsed_time INTEGER,\n            total_elevation_gain REAL,\n            average_speed REAL,\n            max_speed REAL,\n            average_heartrate REAL,\n            max_heartrate REAL,\n            calories REAL\n        )\n    ')
     cursor.execute('\n        CREATE TABLE IF NOT EXISTS withings_measurements (\n            date TEXT PRIMARY KEY,\n            weight REAL,\n            fat_ratio REAL,\n            bone_mass REAL,\n            heart_pulse REAL,\n            sleep_duration INTEGER,\n            sleep_deep INTEGER,\n            sleep_rem INTEGER,\n            steps INTEGER,\n            distance REAL,\n            calories REAL,\n            elevation REAL,\n            sleep_score INTEGER\n        )\n    ')
     cursor.execute('\n        CREATE TABLE IF NOT EXISTS google_calendar_events (\n            id INTEGER PRIMARY KEY AUTOINCREMENT,\n            google_event_id TEXT UNIQUE,\n            summary TEXT,\n            description TEXT,\n            start_time TEXT,\n            end_time TEXT,\n            location TEXT\n        )\n    ')
+    cursor.execute('\n        CREATE TABLE IF NOT EXISTS trainer_plans (\n            id INTEGER PRIMARY KEY AUTOINCREMENT,\n            date TEXT,\n            goal TEXT,\n            advice_text TEXT,\n            limitations TEXT\n        )\n    ')
+    try:
+        cursor.execute('ALTER TABLE trainer_plans ADD COLUMN limitations TEXT')
+    except sqlite3.OperationalError:
+        pass
     try:
         cursor.execute('ALTER TABLE garmin_health ADD COLUMN body_battery INTEGER')
     except sqlite3.OperationalError:
