@@ -155,9 +155,14 @@ class FrejaUIController {
         
         const self = this;
         const btn = document.getElementById(`btn-sync-${provider}-dashboard`);
+        const btnAll = document.getElementById(`btn-sync-${provider}-all`);
         if (btn) {
             btn.disabled = true;
             btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> SYNKAR...`;
+        }
+        if (btnAll) {
+            btnAll.disabled = true;
+            btnAll.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> SYNKAR...`;
         }
         
         const capItem = document.getElementById(`cap-${provider}`);
@@ -185,6 +190,10 @@ class FrejaUIController {
                                 ? `<i class="fa-solid fa-arrows-rotate"></i> SYNKRONISERA KALENDER`
                                 : `<i class="fa-solid fa-arrows-rotate"></i> SYNKRONISERA ENHET`;
                         }
+                        if (btnAll) {
+                            btnAll.disabled = false;
+                            btnAll.innerHTML = `<i class="fa-solid fa-clock-rotate-left"></i> HÄMTA ALL HISTORIK`;
+                        }
                         if (capItem) {
                             capItem.classList.remove('syncing-blink');
                         }
@@ -206,6 +215,10 @@ class FrejaUIController {
                             btn.innerHTML = provider === 'google_calendar'
                                 ? `<i class="fa-solid fa-arrows-rotate"></i> SYNKRONISERA KALENDER`
                                 : `<i class="fa-solid fa-arrows-rotate"></i> SYNKRONISERA ENHET`;
+                        }
+                        if (btnAll) {
+                            btnAll.disabled = false;
+                            btnAll.innerHTML = `<i class="fa-solid fa-clock-rotate-left"></i> HÄMTA ALL HISTORIK`;
                         }
                         if (capItem) {
                             capItem.classList.remove('syncing-blink');
@@ -1046,6 +1059,26 @@ class FrejaUIController {
             });
         }
 
+        const btnSyncGarminAll = document.getElementById('btn-sync-garmin-all');
+        if (btnSyncGarminAll) {
+            btnSyncGarminAll.addEventListener('click', async () => {
+                soundSynth.playClick();
+                self.writeLog("INITIATING GARMIN HISTORICAL SYNCHRONIZATION (180 DAYS)", "sys");
+                try {
+                    const res = await fetch('/api/garmin/sync?days=180');
+                    const resData = await res.json();
+                    if (res.ok && resData.status === 'syncing') {
+                        self.pollSyncStatus('garmin');
+                    } else {
+                        throw new Error(resData.detail || resData.message || "Sync error");
+                    }
+                } catch (err) {
+                    self.writeLog(`GARMIN HISTORICAL SYNC ERROR: ${err.message}`, "err");
+                    soundSynth.playError();
+                }
+            });
+        }
+
         // Save Garmin account/permission settings from Garmin modal
         const btnSaveGarminApi = document.getElementById('btn-save-garmin-api');
         if (btnSaveGarminApi) {
@@ -1212,6 +1245,26 @@ class FrejaUIController {
                     }
                 } catch (err) {
                     self.writeLog(`STRAVA SYNC ERROR: ${err.message}`, "err");
+                    soundSynth.playError();
+                }
+            });
+        }
+
+        const btnSyncStravaAll = document.getElementById('btn-sync-strava-all');
+        if (btnSyncStravaAll) {
+            btnSyncStravaAll.addEventListener('click', async () => {
+                soundSynth.playClick();
+                self.writeLog("INITIATING STRAVA HISTORICAL SYNCHRONIZATION (365 DAYS)", "sys");
+                try {
+                    const res = await fetch('/api/strava/sync?days=365');
+                    const resData = await res.json();
+                    if (res.ok && resData.status === 'syncing') {
+                        self.pollSyncStatus('strava');
+                    } else {
+                        throw new Error(resData.detail || resData.message || "Sync error");
+                    }
+                } catch (err) {
+                    self.writeLog(`STRAVA HISTORICAL SYNC ERROR: ${err.message}`, "err");
                     soundSynth.playError();
                 }
             });
@@ -1395,6 +1448,26 @@ class FrejaUIController {
                     }
                 } catch (err) {
                     self.writeLog(`WITHINGS SYNC ERROR: ${err.message}`, "err");
+                    soundSynth.playError();
+                }
+            });
+        }
+
+        const btnSyncWithingsAll = document.getElementById('btn-sync-withings-all');
+        if (btnSyncWithingsAll) {
+            btnSyncWithingsAll.addEventListener('click', async () => {
+                soundSynth.playClick();
+                self.writeLog("INITIATING WITHINGS HISTORICAL SYNCHRONIZATION (365 DAYS)", "sys");
+                try {
+                    const res = await fetch('/api/withings/sync?days=365');
+                    const resData = await res.json();
+                    if (res.ok && resData.status === 'syncing') {
+                        self.pollSyncStatus('withings');
+                    } else {
+                        throw new Error(resData.detail || resData.message || "Sync error");
+                    }
+                } catch (err) {
+                    self.writeLog(`WITHINGS HISTORICAL SYNC ERROR: ${err.message}`, "err");
                     soundSynth.playError();
                 }
             });
@@ -2902,7 +2975,29 @@ class FrejaUIController {
      */
     async processUserQuery(text) {
         const cleanText = text.trim().toLowerCase();
-        if (cleanText === "sluta nedladdning" || cleanText === "avbryt nedladdning" || cleanText === "stoppa nedladdning") {
+        const cleanTextNoPunct = cleanText.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g, "");
+        const containsCancelWord = 
+            cleanTextNoPunct.includes("avbryt") || 
+            cleanTextNoPunct.includes("av bryt") || 
+            cleanTextNoPunct.includes("stoppa") || 
+            cleanTextNoPunct.includes("sluta");
+
+        const isCancelCommand = 
+            /^(avbryt|av\s+bryt|stoppa|sluta)(\s+(nedladdning(en)?|ladd(a|ning)?(\s+ner)?|hämtning(en)?|bild(er|erna)?|facebook))?$/i.test(cleanTextNoPunct) ||
+            cleanTextNoPunct.includes("avbryt nedladdning") ||
+            cleanTextNoPunct.includes("av bryt nedladdning") ||
+            cleanTextNoPunct.includes("avbryt nedladdningen") ||
+            cleanTextNoPunct.includes("av bryt nedladdningen") ||
+            cleanTextNoPunct.includes("avbryt bildnedladdning") ||
+            cleanTextNoPunct.includes("av bryt bildnedladdning") ||
+            cleanTextNoPunct.includes("avbryt bildnedladdningen") ||
+            cleanTextNoPunct.includes("av bryt bildnedladdningen") ||
+            cleanTextNoPunct.includes("sluta ladda ner") ||
+            cleanTextNoPunct.includes("stoppa nedladdning") ||
+            cleanTextNoPunct.includes("stoppa nedladdningen") ||
+            (this.facebookDownloadInterval && containsCancelWord);
+
+        if (isCancelCommand) {
             this.writeLog("USER COMMAND DETECTED: CANCEL DOWNLOAD", "sys");
             try {
                 const res = await fetch("/api/tools/cancel_download", { method: "POST" });

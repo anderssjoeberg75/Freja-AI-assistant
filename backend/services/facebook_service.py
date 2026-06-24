@@ -4,23 +4,31 @@ import os
 import re
 import httpx
 import hashlib
+import asyncio
 from pathlib import Path
 from playwright.async_api import async_playwright
 from backend.config import PROJECT_ROOT
 
 ABORT_DOWNLOAD = False
+ACTIVE_PAGE = None
 
 def cancel_facebook_download():
-    global ABORT_DOWNLOAD
+    global ABORT_DOWNLOAD, ACTIVE_PAGE
     ABORT_DOWNLOAD = True
     print("[Facebook Scraper] Abort signal sent.")
+    if ACTIVE_PAGE:
+        print("[Facebook Scraper] Closing active page to interrupt pending operations.")
+        try:
+            asyncio.create_task(ACTIVE_PAGE.close())
+        except Exception as e:
+            print(f"[Facebook Scraper] Error closing active page: {e}")
 
 async def download_facebook_photos_impl(profile_url: str, limit: int = 1000, progress_callback=None) -> dict:
     """
     Scrapes public photos from a Facebook profile or photo gallery URL using Playwright.
     Saves them under PROJECT_ROOT/downloads/facebook_photos/<profile_id>/ and returns list of relative paths.
     """
-    global ABORT_DOWNLOAD
+    global ABORT_DOWNLOAD, ACTIVE_PAGE
     ABORT_DOWNLOAD = False
 
     downloads_dir = PROJECT_ROOT / "downloads" / "facebook_photos"
@@ -88,6 +96,7 @@ async def download_facebook_photos_impl(profile_url: str, limit: int = 1000, pro
             )
             
         page = await context.new_page()
+        ACTIVE_PAGE = page
         
         if not is_logged_in:
             print("[Facebook Scraper] Not logged in. Loading Facebook home...")
@@ -155,6 +164,12 @@ async def download_facebook_photos_impl(profile_url: str, limit: int = 1000, pro
                     pass
             if not is_logged_in:
                 await browser.close()
+                if ABORT_DOWNLOAD:
+                    return {
+                        "status": "cancelled",
+                        "downloaded_count": 0,
+                        "images": []
+                    }
                 raise Exception("Facebook-inloggning misslyckades eller avbröts av användaren.")
         else:
             print("[Facebook Scraper] Session verified (c_user exists). Direct load.")
@@ -448,8 +463,15 @@ async def download_facebook_photos_impl(profile_url: str, limit: int = 1000, pro
                     
         except Exception as main_err:
             print(f"[Facebook Scraper] Critical error in scraper loop: {main_err}")
+            if ABORT_DOWNLOAD:
+                return {
+                    "status": "cancelled",
+                    "downloaded_count": len(downloaded_files),
+                    "images": downloaded_files
+                }
             return {"error": str(main_err), "downloaded_count": len(downloaded_files), "images": downloaded_files}
         finally:
+            ACTIVE_PAGE = None
             try:
                 # Always save storage state at the end of the scraper execution to keep session active
                 print("[Facebook Scraper] Saving updated session state at termination...")

@@ -23,12 +23,20 @@ async def run_tool_background(task_id: str, name: str, args: dict):
                 })
 
         result = await execute_tool(name, args, progress_callback=progress_callback)
+        
+        status = "success"
+        if isinstance(result, dict) and result.get("status") == "cancelled":
+            status = "cancelled"
+            
         TOOL_TASKS[task_id] = {
-            "status": "success",
+            "status": status,
             "progress": 100,
             "result": result
         }
-        print(f"[Tool Background] Task {task_id} ('{name}') completed successfully.")
+        if status == "cancelled":
+            print(f"[Tool Background] Task {task_id} ('{name}') was cancelled.")
+        else:
+            print(f"[Tool Background] Task {task_id} ('{name}') completed successfully.")
     except Exception as e:
         TOOL_TASKS[task_id] = {
             "status": "failed",

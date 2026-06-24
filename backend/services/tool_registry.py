@@ -397,6 +397,21 @@ async def exec_google_search(args):
     results = await perform_search(query)
     return {"results": results}
 
+def is_sync_recent(provider: str, max_age_hours: int = 12) -> bool:
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT key_value FROM api_keys WHERE key_name = ?", (f"last_sync_{provider}",))
+            row = cursor.fetchone()
+            if row and row[0]:
+                last_sync = datetime.datetime.strptime(row[0], "%Y-%m-%d %H:%M:%S")
+                age = datetime.datetime.now() - last_sync
+                if age.total_seconds() < max_age_hours * 3600:
+                    return True
+    except Exception as e:
+        print(f"[tool_registry] Error checking recent sync for {provider}: {e}")
+    return False
+
 async def exec_garmin_health(args):
     days = int(args.get("days", 1) or 1)
     sync_status = "inte genomförd"
@@ -414,14 +429,19 @@ async def exec_garmin_health(args):
     password = row_password[0] if row_password else ""
     
     if email and password:
-        try:
-            # Garmin Connect sync is CPU/network intensive sync, run in ThreadPool
-            await run_in_threadpool(run_garmin_sync_task, email, password, days)
+        if is_sync_recent("garmin"):
             sync_status = "success"
-            sync_message = "Garmin-synkronisering slutförd."
-        except Exception as sync_err:
-            sync_status = "failed"
-            sync_message = str(sync_err)
+            sync_message = "Garmin-synkronisering hoppades över (nyligen uppdaterad)."
+            print("[Garmin Tool] Recent sync found. Skipping API sync, using cached DB data.")
+        else:
+            try:
+                # Garmin Connect sync is CPU/network intensive sync, run in ThreadPool
+                await run_in_threadpool(run_garmin_sync_task, email, password, days)
+                sync_status = "success"
+                sync_message = "Garmin-synkronisering slutförd."
+            except Exception as sync_err:
+                sync_status = "failed"
+                sync_message = str(sync_err)
             
     # 2. Query database for health logs
     try:
@@ -518,13 +538,18 @@ async def exec_withings_health(args):
     refresh_token = row_refresh[0].strip() if row_refresh else ""
     
     if client_id and client_secret and refresh_token:
-        try:
-            await run_withings_sync_task(client_id, client_secret, refresh_token)
+        if is_sync_recent("withings"):
             sync_status = "success"
-            sync_message = "Withings-synkronisering slutförd."
-        except Exception as sync_err:
-            sync_status = "failed"
-            sync_message = str(sync_err)
+            sync_message = "Withings-synkronisering hoppades över (nyligen uppdaterad)."
+            print("[Withings Tool] Recent sync found. Skipping API sync, using cached DB data.")
+        else:
+            try:
+                await run_withings_sync_task(client_id, client_secret, refresh_token, days)
+                sync_status = "success"
+                sync_message = "Withings-synkronisering slutförd."
+            except Exception as sync_err:
+                sync_status = "failed"
+                sync_message = str(sync_err)
             
     # 2. Query database for metrics
     try:
@@ -636,13 +661,18 @@ async def exec_strava_data(args):
     refresh_token = row_refresh[0].strip() if row_refresh else ""
     
     if client_id and client_secret and refresh_token:
-        try:
-            await run_strava_sync_task(client_id, client_secret, refresh_token)
+        if is_sync_recent("strava"):
             sync_status = "success"
-            sync_message = "Strava-synkronisering slutförd."
-        except Exception as sync_err:
-            sync_status = "failed"
-            sync_message = str(sync_err)
+            sync_message = "Strava-synkronisering hoppades över (nyligen uppdaterad)."
+            print("[Strava Tool] Recent sync found. Skipping API sync, using cached DB data.")
+        else:
+            try:
+                await run_strava_sync_task(client_id, client_secret, refresh_token, days)
+                sync_status = "success"
+                sync_message = "Strava-synkronisering slutförd."
+            except Exception as sync_err:
+                sync_status = "failed"
+                sync_message = str(sync_err)
             
     # 2. Retrieve database records
     try:

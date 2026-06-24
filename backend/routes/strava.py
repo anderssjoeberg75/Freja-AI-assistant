@@ -108,7 +108,7 @@ async def get_strava_callback(code: str = Query("", description="Authorization c
     except Exception as e:
         return HTMLResponse(f'<h3>Fel vid auktorisering: {str(e)}</h3>', status_code=500)
 
-async def run_strava_sync_task(client_id, client_secret, refresh_token):
+async def run_strava_sync_task(client_id, client_secret, refresh_token, days: int = 14):
     try:
         if client_id == '123456' or refresh_token in ('refreshtokentoken', 'MOCK_REFRESH_TOKEN'):
             # Load mock data
@@ -172,8 +172,8 @@ async def run_strava_sync_task(client_id, client_secret, refresh_token):
                 ''', ('freja_strava_refresh_token', new_refresh_token))
                 conn.commit()
             
-        after_time = int(time.time()) - 14 * 24 * 3600
-        activities_url = f"https://www.strava.com/api/v3/athlete/activities?after={after_time}&per_page=30"
+        after_time = int(time.time()) - days * 24 * 3600
+        activities_url = f"https://www.strava.com/api/v3/athlete/activities?after={after_time}&per_page=200"
         
         async with httpx.AsyncClient() as client:
             res = await client.get(activities_url, headers={'Authorization': f"Bearer {access_token}"}, timeout=10.0)
@@ -268,7 +268,10 @@ async def run_strava_sync_task(client_id, client_secret, refresh_token):
             set_sync_state("strava", "error", str(e))
 
 @router.get("/api/strava/sync")
-async def get_strava_sync(background_tasks: BackgroundTasks):
+async def get_strava_sync(
+    background_tasks: BackgroundTasks,
+    days: int = Query(14, description="Number of days to sync")
+):
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_strava_client_id'")
@@ -289,7 +292,7 @@ async def get_strava_sync(background_tasks: BackgroundTasks):
         )
         
     set_sync_state("strava", "syncing")
-    background_tasks.add_task(run_strava_sync_task, client_id, client_secret, refresh_token)
+    background_tasks.add_task(run_strava_sync_task, client_id, client_secret, refresh_token, days)
     return {'status': 'syncing', 'message': "Strava-synkronisering påbörjad i bakgrunden."}
 
 @router.get("/api/strava/data")

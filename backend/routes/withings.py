@@ -46,13 +46,13 @@ async def get_withings_data(days: int = Query(7, description="Number of days to 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-async def run_withings_sync_task(client_id, client_secret, refresh_token):
+async def run_withings_sync_task(client_id, client_secret, refresh_token, days: int = 30):
     try:
         if client_id == 'withings123' or refresh_token in ('refreshtokentoken', 'MOCK_REFRESH_TOKEN'):
             with get_db_connection() as conn:
                 cursor = conn.cursor()
                 today = datetime.date.today()
-                for i in range(30):
+                for i in range(days):
                     day_date = today - datetime.timedelta(days=i)
                     date_str = day_date.strftime('%Y-%m-%d')
                     weight = round(78.5 + random.uniform(-0.5, 0.5), 2)
@@ -126,9 +126,9 @@ async def run_withings_sync_task(client_id, client_secret, refresh_token):
                 conn.commit()
             
         today_date = datetime.date.today()
-        start_date_str = (today_date - datetime.timedelta(days=30)).strftime('%Y-%m-%d')
+        start_date_str = (today_date - datetime.timedelta(days=days)).strftime('%Y-%m-%d')
         end_date_str = today_date.strftime('%Y-%m-%d')
-        lastupdate = int(time.time()) - 30 * 24 * 3600
+        lastupdate = int(time.time()) - days * 24 * 3600
         
         meas_url = f"https://wbsapi.withings.net/measure?action=getmeas&meastypes=1,6,11,16&category=1&lastupdate={lastupdate}"
         async with httpx.AsyncClient() as client:
@@ -243,7 +243,10 @@ async def run_withings_sync_task(client_id, client_secret, refresh_token):
         set_sync_state("withings", "error", str(e))
 
 @router.get("/api/withings/sync")
-async def get_withings_sync(background_tasks: BackgroundTasks):
+async def get_withings_sync(
+    background_tasks: BackgroundTasks,
+    days: int = Query(30, description="Number of days to sync")
+):
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_withings_client_id'")
@@ -264,7 +267,7 @@ async def get_withings_sync(background_tasks: BackgroundTasks):
         )
         
     set_sync_state("withings", "syncing")
-    background_tasks.add_task(run_withings_sync_task, client_id, client_secret, refresh_token)
+    background_tasks.add_task(run_withings_sync_task, client_id, client_secret, refresh_token, days)
     return {'status': 'syncing', 'message': "Withings-synkronisering påbörjad i bakgrunden."}
 
 @router.get("/api/withings/delete")
