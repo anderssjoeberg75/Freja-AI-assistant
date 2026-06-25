@@ -33,6 +33,16 @@ def init_db():
             channel TEXT
         )
     ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS learned_knowledge (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            topic TEXT UNIQUE,
+            summary TEXT,
+            detailed_notes TEXT,
+            sources TEXT,
+            timestamp TEXT
+        )
+    ''')
     cursor.execute('\n        CREATE TABLE IF NOT EXISTS garmin_health (\n            date TEXT PRIMARY KEY,\n            steps INTEGER,\n            sleep_hours REAL,\n            resting_hr INTEGER,\n            active_calories INTEGER,\n            workout_type TEXT,\n            workout_duration INTEGER,\n            body_battery INTEGER,\n            hrv INTEGER,\n            recovery_time INTEGER,\n            training_status TEXT\n        )\n    ')
     cursor.execute('\n        CREATE TABLE IF NOT EXISTS strava_activities (\n            id INTEGER PRIMARY KEY AUTOINCREMENT,\n            name TEXT,\n            type TEXT,\n            date TEXT,\n            distance REAL,\n            moving_time INTEGER,\n            elapsed_time INTEGER,\n            total_elevation_gain REAL,\n            average_speed REAL,\n            max_speed REAL,\n            average_heartrate REAL,\n            max_heartrate REAL,\n            calories REAL\n        )\n    ')
     cursor.execute('\n        CREATE TABLE IF NOT EXISTS withings_measurements (\n            date TEXT PRIMARY KEY,\n            weight REAL,\n            fat_ratio REAL,\n            bone_mass REAL,\n            heart_pulse REAL,\n            sleep_duration INTEGER,\n            sleep_deep INTEGER,\n            sleep_rem INTEGER,\n            steps INTEGER,\n            distance REAL,\n            calories REAL,\n            elevation REAL,\n            sleep_score INTEGER\n        )\n    ')

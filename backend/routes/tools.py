@@ -85,6 +85,11 @@ async def get_tool_status(task_id: str):
 
 @router.post("/api/tools/cancel_download")
 async def post_cancel_download():
-    """Aborts/cancels any active Facebook photo downloading task."""
+    """Aborts/cancels any active Facebook photo downloading task or learning task."""
     cancel_facebook_download()
+    try:
+        from backend.services.learning_service import cancel_learning
+        cancel_learning()
+    except Exception as e:
+        print(f"[Tools Route] Failed to call cancel_learning: {e}")
     return {"status": "cancelled"}

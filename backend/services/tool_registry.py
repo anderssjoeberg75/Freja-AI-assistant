@@ -297,6 +297,33 @@ TOOL_DECLARATIONS = [
             },
             "required": ["goal"]
         }
+    },
+    {
+        "name": "learn_topic",
+        "description": "Söker på nätet och lär sig allt om ett visst ämne (t.ex. odling av lök). Sparar den inhämtade kunskapen i databasen för framtida bruk.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "topic": {
+                    "type": "STRING",
+                    "description": "Ämnet eller sökfrågan som Freja ska lära sig om (t.ex. 'odling av lök')."
+                }
+            },
+            "required": ["topic"]
+        }
+    },
+    {
+        "name": "get_learned_knowledge",
+        "description": "Hämtar tidigare inlärd kunskap från databasen baserat på sökord eller ämne för att svara på användarens frågor.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "query": {
+                    "type": "STRING",
+                    "description": "Valfri sökfråga eller ämnesord för att filtrera sparad kunskap (t.ex. 'lök')."
+                }
+            }
+        }
     }
 ]
 
@@ -318,6 +345,8 @@ TOOL_PERMISSION_KEYS = {
     "codex_run_and_fix": "freja_tool_codex_run_and_fix_allowed",
     "download_facebook_photos": "freja_tool_download_facebook_photos_allowed",
     "get_personal_trainer_advice": "freja_tool_get_personal_trainer_advice_allowed",
+    "learn_topic": "freja_tool_learn_topic_allowed",
+    "get_learned_knowledge": "freja_tool_get_learned_knowledge_allowed",
 }
 
 # 2. TOOL EXECUTORS IMPLEMENTATION
@@ -839,6 +868,52 @@ async def exec_trainer_advice(args):
         "withings_measurements_last_7_days": withings_data
     }
 
+async def exec_learn_topic(args, progress_callback=None):
+    topic = args.get("topic", "")
+    if not topic:
+        return {"error": "Ämne saknas."}
+    from backend.services.learning_service import learn_topic_impl
+    return await learn_topic_impl(topic, progress_callback=progress_callback)
+
+async def exec_get_learned_knowledge(args):
+    query = args.get("query", "")
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            if query:
+                cursor.execute('''
+                    SELECT topic, summary, detailed_notes, sources, timestamp 
+                    FROM learned_knowledge 
+                    WHERE topic LIKE ? OR summary LIKE ? OR detailed_notes LIKE ?
+                    ORDER BY timestamp DESC
+                ''', (f"%{query}%", f"%{query}%", f"%{query}%"))
+            else:
+                cursor.execute('''
+                    SELECT topic, summary, detailed_notes, sources, timestamp 
+                    FROM learned_knowledge 
+                    ORDER BY timestamp DESC
+                ''')
+            rows = cursor.fetchall()
+            
+        results = []
+        for row in rows:
+            sources_list = []
+            try:
+                if row[3]:
+                    sources_list = json.loads(row[3])
+            except Exception:
+                pass
+            results.append({
+                "topic": row[0],
+                "summary": row[1],
+                "detailed_notes": row[2],
+                "sources": sources_list,
+                "timestamp": row[4]
+            })
+        return {"learned_knowledge": results}
+    except Exception as e:
+        return {"error": f"Misslyckades att hämta inlärd kunskap: {str(e)}"}
+
 # 3. DISPATCH EXECUTOR MAP
 EXECUTOR_MAP = {
     "get_weather": exec_weather,
@@ -857,6 +932,8 @@ EXECUTOR_MAP = {
     "codex_run_and_fix": codex_run_and_fix_impl,
     "download_facebook_photos": exec_download_facebook_photos,
     "get_personal_trainer_advice": exec_trainer_advice,
+    "learn_topic": exec_learn_topic,
+    "get_learned_knowledge": exec_get_learned_knowledge,
 }
 
 async def execute_tool(name: str, args: dict, progress_callback=None) -> dict:

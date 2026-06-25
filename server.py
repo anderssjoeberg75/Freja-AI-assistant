@@ -26,6 +26,7 @@ from backend.routes.sync import router as sync_router
 from backend.routes.google_calendar import router as google_calendar_router
 from backend.routes.tools import router as tools_router
 from backend.routes.trainer import router as trainer_router
+from backend.routes.learning import router as learning_router
 
 # Initialize the SQLite database schemas
 init_db()
@@ -72,6 +73,7 @@ app.include_router(sync_router)
 app.include_router(google_calendar_router)
 app.include_router(tools_router)
 app.include_router(trainer_router)
+app.include_router(learning_router)
 
 # Serve index.html specifically at "/"
 @app.get("/")

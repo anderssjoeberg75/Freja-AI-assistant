@@ -57,6 +57,9 @@
                 <button id="btn-trainer" class="hud-btn-icon" title="Personal Trainer Dashboard">
                     <i class="fa-solid fa-dumbbell"></i>
                 </button>
+                <button id="btn-learning" class="hud-btn-icon" title="Neural Learning Engine">
+                    <i class="fa-solid fa-graduation-cap"></i>
+                </button>
                 <button id="btn-telegram" class="hud-btn-icon" title="Telegram Integration">
                     <i class="fa-brands fa-telegram"></i>
                 </button>
@@ -200,6 +203,10 @@
                             <div class="cap-item" id="cap-trainer">
                                 <i class="fa-solid fa-dumbbell"></i>
                                 <span>COACH AI</span>
+                            </div>
+                            <div class="cap-item" id="cap-learning">
+                                <i class="fa-solid fa-graduation-cap"></i>
+                                <span>NEURAL LEARN</span>
                             </div>
                         </div>
                     </div>
@@ -460,9 +467,21 @@
                         <input type="checkbox" id="chk-tool-get_personal_trainer_advice">
                         <span class="slider"></span>
                     </label>
+                <div class="settings-group-toggle" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <span style="font-size: 11px; color: var(--color-text-muted);">Tillåt Freja Inlärning (learn_topic)</span>
+                    <label class="hud-switch">
+                        <input type="checkbox" id="chk-tool-learn_topic">
+                        <span class="slider"></span>
+                    </label>
                 </div>
 
-
+                <div class="settings-group-toggle" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <span style="font-size: 11px; color: var(--color-text-muted);">Tillåt Sök i Kunskapsbank (get_learned_knowledge)</span>
+                    <label class="hud-switch">
+                        <input type="checkbox" id="chk-tool-get_learned_knowledge">
+                        <span class="slider"></span>
+                    </label>
+                </div>
             </div>
             <div class="modal-footer">
                 <button id="btn-reset-settings" class="hud-btn btn-secondary">ÅTERSTÄLL ALLT</button>
@@ -1034,6 +1053,66 @@
             </div>
             <div class="modal-footer" style="display: flex; gap: 10px;">
                 <button id="btn-refresh-trainer" class="hud-btn btn-primary" style="flex: 1; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-arrows-rotate"></i> UPPDATERA HISTORIK</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- NEURAL LEARNING ENGINE MODAL -->
+    <div class="hud-modal" id="modal-learning">
+        <div class="modal-content glass-morphic">
+            <div class="modal-header">
+                <h2><i class="fa-solid fa-graduation-cap"></i> NEURAL LEARNING ENGINE</h2>
+                <button class="modal-close" id="btn-close-learning">&times;</button>
+            </div>
+            <div class="modal-body" style="display: flex; flex-direction: column; gap: 15px; overflow-y: auto;">
+                <!-- Manual Learning Trigger -->
+                <div class="learning-trigger-panel" style="background: rgba(0, 0, 0, 0.2); border: 1px solid var(--color-border); border-radius: 4px; padding: 12px; display: flex; flex-direction: column; gap: 10px;">
+                    <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); letter-spacing: 1px; margin: 0;">LÄR IN ETT NYTT ÄMNE</h3>
+                    <div style="display: flex; gap: 8px;">
+                        <input type="text" id="learning-input-topic" placeholder="t.ex. odling av lök, hjärt-kärlhälsa, kvantdatorer..." class="hud-input" style="flex: 1; height: 32px; font-size: 12px;">
+                        <button id="btn-start-learning" class="hud-btn btn-primary" style="height: 32px; font-family: var(--font-display); font-size: 11px; white-space: nowrap;"><i class="fa-solid fa-play"></i> STARTA</button>
+                    </div>
+                    
+                    <!-- Active background progress status -->
+                    <div id="learning-active-status" style="display: none; background: rgba(0, 0, 0, 0.4); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px; margin-top: 5px;">
+                        <div style="display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 10px; color: var(--color-text-muted); margin-bottom: 5px;">
+                            <span id="learning-status-stage">Initierar...</span>
+                            <span id="learning-status-percent">0%</span>
+                        </div>
+                        <div class="progress-bar-container" style="height: 6px; background: rgba(255,255,255,0.05); border-radius: 3px; overflow: hidden; margin-bottom: 8px;">
+                            <div class="progress-bar" id="learning-status-bar" style="width: 0%; height: 100%; background: var(--color-primary); transition: width 0.3s ease;"></div>
+                        </div>
+                        <button id="btn-cancel-learning" class="hud-btn btn-secondary" style="height: 24px; font-family: var(--font-display); font-size: 10px; padding: 0 10px; width: 100%;"><i class="fa-solid fa-ban"></i> AVBRYT INLÄRNINGSPROCESS</button>
+                    </div>
+                </div>
+
+                <!-- Stored Domain Credentials -->
+                <div class="credentials-panel" style="background: rgba(0, 0, 0, 0.2); border: 1px solid var(--color-border); border-radius: 4px; padding: 12px; display: flex; flex-direction: column; gap: 10px;">
+                    <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); letter-spacing: 1px; margin: 0;">DOMÄN-AUTENTISERING (FÖR SKYDDADE KÄLLOR)</h3>
+                    
+                    <div style="display: grid; grid-template-columns: 1.2fr 1fr 1.2fr auto; gap: 8px;">
+                        <input type="text" id="cred-input-domain" placeholder="t.ex. sub.domain.com" class="hud-input" style="height: 28px; font-size: 11px;">
+                        <input type="text" id="cred-input-user" placeholder="E-post / Användare" class="hud-input" style="height: 28px; font-size: 11px;">
+                        <input type="password" id="cred-input-pass" placeholder="Lösenord" class="hud-input" style="height: 28px; font-size: 11px;">
+                        <button id="btn-save-credentials" class="hud-btn btn-primary" style="height: 28px; font-family: var(--font-display); font-size: 10px; padding: 0 10px;"><i class="fa-solid fa-save"></i> SPARA</button>
+                    </div>
+                    
+                    <!-- Credentials List -->
+                    <div id="credentials-list" style="max-height: 90px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; background: rgba(0,0,0,0.3); padding: 5px; border-radius: 3px; font-family: var(--font-mono); font-size: 10px; border: 1px solid rgba(255,255,255,0.05);">
+                        <div style="color: var(--color-text-muted); text-align: center; padding: 5px;">Inga sparade inloggningar...</div>
+                    </div>
+                </div>
+
+                <!-- Stored Knowledge Vault -->
+                <div class="knowledge-vault-panel" style="display: flex; flex-direction: column; flex: 1; min-height: 220px;">
+                    <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); margin-bottom: 8px; letter-spacing: 1px; margin-top: 0;">INLÄRD KUNSKAPSBANK</h3>
+                    <div class="knowledge-list" id="knowledge-list" style="flex: 1; overflow-y: auto; background: rgba(0,0,0,0.3); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px; display: flex; flex-direction: column; gap: 8px;">
+                        <div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Laddar kunskapsbank...</div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer" style="display: flex; gap: 10px;">
+                <button id="btn-refresh-learning" class="hud-btn btn-primary" style="flex: 1; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-arrows-rotate"></i> UPPDATERA KUNSKAPSBANK</button>
             </div>
         </div>
     </div>

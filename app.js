@@ -595,6 +595,27 @@ class FrejaUIController {
             }
         }
 
+        const learnTopicAllowed = localStorage.getItem("freja_tool_learn_topic_allowed") === "true";
+        const chkLearnTopic = document.getElementById('chk-tool-learn_topic');
+        if (chkLearnTopic) {
+            chkLearnTopic.checked = learnTopicAllowed;
+        }
+
+        const getLearnedKnowledgeAllowed = localStorage.getItem("freja_tool_get_learned_knowledge_allowed") === "true";
+        const chkGetLearnedKnowledge = document.getElementById('chk-tool-get_learned_knowledge');
+        if (chkGetLearnedKnowledge) {
+            chkGetLearnedKnowledge.checked = getLearnedKnowledgeAllowed;
+        }
+
+        const capLearning = document.getElementById('cap-learning');
+        if (capLearning) {
+            if (learnTopicAllowed || getLearnedKnowledgeAllowed) {
+                capLearning.classList.add('active');
+            } else {
+                capLearning.classList.remove('active');
+            }
+        }
+
         this.applyTheme(theme);
     }
 
@@ -1894,6 +1915,25 @@ class FrejaUIController {
                 }
             }
 
+            const chkLearnTopic = document.getElementById('chk-tool-learn_topic');
+            if (chkLearnTopic) {
+                localStorage.setItem("freja_tool_learn_topic_allowed", chkLearnTopic.checked);
+            }
+
+            const chkGetLearnedKnowledge = document.getElementById('chk-tool-get_learned_knowledge');
+            if (chkGetLearnedKnowledge) {
+                localStorage.setItem("freja_tool_get_learned_knowledge_allowed", chkGetLearnedKnowledge.checked);
+            }
+
+            const capLearning = document.getElementById('cap-learning');
+            if (capLearning) {
+                if ((chkLearnTopic && chkLearnTopic.checked) || (chkGetLearnedKnowledge && chkGetLearnedKnowledge.checked)) {
+                    capLearning.classList.add('active');
+                } else {
+                    capLearning.classList.remove('active');
+                }
+            }
+
             const accessTokenVal = document.getElementById('input-access-token').value.trim();
 
             // Save keys to secure SQLite database
@@ -2019,6 +2059,138 @@ class FrejaUIController {
             btnCloseTrainer.addEventListener('click', () => {
                 soundSynth.playClick();
                 modalTrainer.classList.remove('active');
+            });
+        }
+
+        // Toggle Neural Learning Modal
+        const btnLearning = document.getElementById('btn-learning');
+        const modalLearning = document.getElementById('modal-learning');
+        const btnCloseLearning = document.getElementById('btn-close-learning');
+        
+        if (btnLearning && modalLearning && btnCloseLearning) {
+            btnLearning.addEventListener('click', () => {
+                soundSynth.playClick();
+                modalLearning.classList.add('active');
+                self.loadLearningVaultUI();
+                self.loadCredentialsUI();
+            });
+            
+            btnCloseLearning.addEventListener('click', () => {
+                soundSynth.playClick();
+                modalLearning.classList.remove('active');
+            });
+        }
+
+        // Trigger manual learning process
+        const btnStartLearning = document.getElementById('btn-start-learning');
+        if (btnStartLearning) {
+            btnStartLearning.addEventListener('click', async () => {
+                const topicInput = document.getElementById('learning-input-topic');
+                const topic = topicInput.value.trim();
+                if (!topic) {
+                    alert("Ange ett ämne att lära sig.");
+                    return;
+                }
+                
+                soundSynth.playClick();
+                btnStartLearning.disabled = true;
+                topicInput.disabled = true;
+                
+                self.writeLog(`STARTING MANUAL LEARNING TASK FOR: "${topic}"`, "sys");
+                
+                try {
+                    const res = await fetch("/api/tools/execute", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ name: "learn_topic", args: { topic } })
+                    });
+                    if (res.ok) {
+                        const data = await res.json();
+                        if (data.task_id) {
+                            self.pollLearningProgress(data.task_id);
+                        }
+                    } else {
+                        const err = await res.json();
+                        self.writeLog(`LEARNING FAILURE: ${err.detail || "HTTP error"}`, "err");
+                        soundSynth.playError();
+                        btnStartLearning.disabled = false;
+                        topicInput.disabled = false;
+                    }
+                } catch (err) {
+                    console.error("Failed to start learning task:", err);
+                    btnStartLearning.disabled = false;
+                    topicInput.disabled = false;
+                }
+            });
+        }
+
+        // Cancel learning process
+        const btnCancelLearning = document.getElementById('btn-cancel-learning');
+        if (btnCancelLearning) {
+            btnCancelLearning.addEventListener('click', async () => {
+                soundSynth.playClick();
+                try {
+                    const res = await fetch("/api/tools/cancel_download", { method: "POST" });
+                    if (res.ok) {
+                        self.writeLog("LEARNING TASK CANCELLED BY USER", "warn");
+                    }
+                } catch (err) {
+                    console.error("Failed to cancel learning:", err);
+                }
+            });
+        }
+
+        // Save domain credentials
+        const btnSaveCredentials = document.getElementById('btn-save-credentials');
+        if (btnSaveCredentials) {
+            btnSaveCredentials.addEventListener('click', async () => {
+                const domainInput = document.getElementById('cred-input-domain');
+                const userInput = document.getElementById('cred-input-user');
+                const passInput = document.getElementById('cred-input-pass');
+                
+                const domain = domainInput.value.trim();
+                const username = userInput.value.trim();
+                const password = passInput.value.trim();
+                
+                if (!domain || !username || !password) {
+                    alert("Fyll i domän, användarnamn och lösenord.");
+                    return;
+                }
+                
+                soundSynth.playClick();
+                btnSaveCredentials.disabled = true;
+                
+                try {
+                    const res = await fetch("/api/learning/credentials", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ domain, username, password })
+                    });
+                    if (res.ok) {
+                        self.writeLog(`CREDENTIALS SAVED FOR: ${domain}`, "sys");
+                        domainInput.value = "";
+                        userInput.value = "";
+                        passInput.value = "";
+                        self.loadCredentialsUI();
+                    } else {
+                        const err = await res.json();
+                        alert("Kunde inte spara credentials: " + (err.detail || "Fel"));
+                    }
+                } catch (err) {
+                    console.error(err);
+                } finally {
+                    btnSaveCredentials.disabled = false;
+                }
+            });
+        }
+
+        // Refresh learning vault & credentials
+        const btnRefreshLearning = document.getElementById('btn-refresh-learning');
+        if (btnRefreshLearning) {
+            btnRefreshLearning.addEventListener('click', () => {
+                soundSynth.playClick();
+                self.loadLearningVaultUI();
+                self.loadCredentialsUI();
             });
         }
 
@@ -3229,6 +3401,16 @@ class FrejaUIController {
                 name: "download_facebook_photos",
                 displayName: "Facebook Bildnedladdning",
                 permissionKey: "freja_tool_download_facebook_photos_allowed"
+            },
+            "learn_topic": {
+                name: "learn_topic",
+                displayName: "Freja Inlärning",
+                permissionKey: "freja_tool_learn_topic_allowed"
+            },
+            "get_learned_knowledge": {
+                name: "get_learned_knowledge",
+                displayName: "Sök i Kunskapsbank",
+                permissionKey: "freja_tool_get_learned_knowledge_allowed"
             }
         };
         
@@ -3262,6 +3444,15 @@ class FrejaUIController {
                         status: "initiated",
                         task_id: taskId,
                         message: "Nedladdningen av Facebook-bilder har påbörjats i bakgrunden. Du kan följa förloppet i terminalen."
+                    };
+                }
+                
+                if (name === "learn_topic") {
+                    this.pollLearningProgress(taskId);
+                    return {
+                        status: "initiated",
+                        task_id: taskId,
+                        message: `Inlärningsprocessen för "${args.topic}" har påbörjats i bakgrunden. Du kan följa förloppet i terminalen eller i Neural Learning Engine.`
                     };
                 }
                 
@@ -3467,6 +3658,240 @@ class FrejaUIController {
      */
     async startCameraStream(deviceId) {
         await window.FrejaCamera.startCameraStream(deviceId);
+    }
+
+    /**
+     * Polls the background learning progress for a task.
+     */
+    pollLearningProgress(taskId) {
+        const self = this;
+        const progressContainer = document.getElementById('learning-active-status');
+        const stageLabel = document.getElementById('learning-status-stage');
+        const percentLabel = document.getElementById('learning-status-percent');
+        const progressBar = document.getElementById('learning-status-bar');
+        const topicInput = document.getElementById('learning-input-topic');
+        const btnStartLearning = document.getElementById('btn-start-learning');
+        
+        if (progressContainer) progressContainer.style.display = 'block';
+        
+        const pollInterval = setInterval(async () => {
+            try {
+                const res = await fetch(`/api/tools/status/${taskId}`);
+                if (!res.ok) {
+                    clearInterval(pollInterval);
+                    return;
+                }
+                const data = await res.json();
+                
+                if (data.status === "processing") {
+                    const pct = data.progress || 0;
+                    const stage = data.stage || "Scrapar webbsidor...";
+                    if (stageLabel) stageLabel.textContent = stage;
+                    if (percentLabel) percentLabel.textContent = `${pct}%`;
+                    if (progressBar) progressBar.style.width = `${pct}%`;
+                } else if (data.status === "success") {
+                    clearInterval(pollInterval);
+                    self.writeLog("NEURAL LEARNING COMPLETED SUCCESSFULLY", "sys");
+                    soundSynth.playNotify();
+                    
+                    if (stageLabel) stageLabel.textContent = "Klar!";
+                    if (percentLabel) percentLabel.textContent = "100%";
+                    if (progressBar) progressBar.style.width = "100%";
+                    
+                    setTimeout(() => {
+                        if (progressContainer) progressContainer.style.display = 'none';
+                        if (btnStartLearning) btnStartLearning.disabled = false;
+                        if (topicInput) {
+                            topicInput.disabled = false;
+                            topicInput.value = "";
+                        }
+                        self.loadLearningVaultUI();
+                    }, 2000);
+                } else if (data.status === "cancelled") {
+                    clearInterval(pollInterval);
+                    self.writeLog("NEURAL LEARNING CANCELLED BY USER", "warn");
+                    soundSynth.playError();
+                    
+                    if (stageLabel) stageLabel.textContent = "Avbruten.";
+                    if (percentLabel) percentLabel.textContent = "0%";
+                    if (progressBar) progressBar.style.width = "0%";
+                    
+                    setTimeout(() => {
+                        if (progressContainer) progressContainer.style.display = 'none';
+                        if (btnStartLearning) btnStartLearning.disabled = false;
+                        if (topicInput) topicInput.disabled = false;
+                    }, 2000);
+                } else if (data.status === "failed") {
+                    clearInterval(pollInterval);
+                    self.writeLog(`NEURAL LEARNING FAILED: ${data.error}`, "err");
+                    soundSynth.playError();
+                    
+                    if (stageLabel) stageLabel.textContent = `Fel: ${data.error}`;
+                    
+                    setTimeout(() => {
+                        if (progressContainer) progressContainer.style.display = 'none';
+                        if (btnStartLearning) btnStartLearning.disabled = false;
+                        if (topicInput) topicInput.disabled = false;
+                    }, 4000);
+                }
+            } catch (err) {
+                console.error("Error polling learning status:", err);
+            }
+        }, 1500);
+    }
+
+    /**
+     * Loads and renders stored credentials.
+     */
+    async loadCredentialsUI() {
+        const credsList = document.getElementById('credentials-list');
+        if (!credsList) return;
+        
+        try {
+            const res = await fetch("/api/learning/credentials");
+            if (!res.ok) throw new Error("Failed to load credentials");
+            const data = await res.json();
+            
+            if (data.length === 0) {
+                credsList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; padding: 5px;">Inga sparade inloggningar...</div>';
+                return;
+            }
+            
+            credsList.innerHTML = "";
+            const self = this;
+            data.forEach(cred => {
+                const item = document.createElement('div');
+                item.style.display = 'flex';
+                item.style.justifyContent = 'space-between';
+                item.style.alignItems = 'center';
+                item.style.background = 'rgba(255,255,255,0.03)';
+                item.style.padding = '4px 6px';
+                item.style.borderRadius = '3px';
+                item.style.border = '1px solid rgba(255,255,255,0.05)';
+                item.style.marginBottom = '2px';
+                
+                item.innerHTML = `
+                    <span style="color: var(--color-primary); flex: 1;">${cred.domain}</span>
+                    <span style="color: var(--color-text-muted); margin-right: 10px;">${cred.username}</span>
+                    <button class="btn-delete-cred hud-btn-icon" data-clean="${cred.clean_domain}" style="height: 18px; width: 18px; font-size: 9px; line-height: 18px; display: inline-flex; justify-content: center; align-items: center; border-color: rgba(255, 59, 48, 0.3); color: #ff3b30;" title="Radera inloggning">
+                        <i class="fa-solid fa-trash-can"></i>
+                    </button>
+                `;
+                
+                item.querySelector('.btn-delete-cred').addEventListener('click', async (e) => {
+                    const btn = e.currentTarget;
+                    const cleanDomain = btn.getAttribute('data-clean');
+                    if (confirm(`Vill du radera inloggningsuppgifter för domänen?`)) {
+                        soundSynth.playClick();
+                        try {
+                            const delRes = await fetch(`/api/learning/credentials/${cleanDomain}`, { method: "DELETE" });
+                            if (delRes.ok) {
+                                self.writeLog(`CREDENTIALS DELETED`, "sys");
+                                self.loadCredentialsUI();
+                            }
+                        } catch (err) {
+                            console.error(err);
+                        }
+                    }
+                });
+                credsList.appendChild(item);
+            });
+        } catch (err) {
+            console.error("Failed to load credentials UI:", err);
+        }
+    }
+
+    /**
+     * Loads and renders learned knowledge base.
+     */
+    async loadLearningVaultUI() {
+        const vaultList = document.getElementById('knowledge-list');
+        if (!vaultList) return;
+        
+        try {
+            const res = await fetch("/api/learning/list");
+            if (!res.ok) throw new Error("Failed to load learning list");
+            const data = await res.json();
+            
+            if (data.length === 0) {
+                vaultList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Ingen sparad kunskap hittades...</div>';
+                return;
+            }
+            
+            vaultList.innerHTML = "";
+            const self = this;
+            data.forEach(entry => {
+                const card = document.createElement('div');
+                card.style.background = 'rgba(0, 0, 0, 0.25)';
+                card.style.border = '1px solid var(--color-border)';
+                card.style.borderRadius = '4px';
+                card.style.padding = '10px';
+                card.style.display = 'flex';
+                card.style.flexDirection = 'column';
+                card.style.gap = '8px';
+                card.style.marginBottom = '8px';
+                
+                const sourcesMarkup = entry.sources.map(src => `<a href="${src.url}" target="_blank" style="color: var(--color-primary); text-decoration: underline; margin-right: 10px;">${src.title || src.url}</a>`).join(' ');
+                
+                card.innerHTML = `
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <h4 style="font-family: var(--font-display); font-size: 12px; color: var(--color-primary); margin: 0; text-transform: uppercase; letter-spacing: 0.5px;">${entry.topic}</h4>
+                        <div style="display: flex; gap: 8px; align-items: center;">
+                            <span style="font-family: var(--font-mono); font-size: 9px; color: var(--color-text-muted);">${entry.timestamp}</span>
+                            <button class="btn-delete-knowledge hud-btn-icon" data-id="${entry.id}" style="height: 20px; width: 20px; font-size: 10px; border-color: rgba(255,59,48,0.3); color: #ff3b30;" title="Radera kunskap">
+                                <i class="fa-solid fa-trash-can"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <p style="font-family: var(--font-mono); font-size: 11px; margin: 0; line-height: 1.3; color: var(--color-text-muted);">${self.escapeHTML(entry.summary)}</p>
+                    
+                    <button class="btn-toggle-notes hud-btn btn-secondary" style="height: 22px; font-family: var(--font-display); font-size: 9px; padding: 0 8px; align-self: flex-start;">VISA DETALJERADE ANTECKNINGAR</button>
+                    
+                    <div class="detailed-notes-container" style="display: none; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.05); padding: 10px; border-radius: 3px; font-family: var(--font-mono); font-size: 11px; line-height: 1.4; color: #eceff1; max-height: 250px; overflow-y: auto; margin-top: 5px;">
+                        ${window.FrejaMarkdown ? window.FrejaMarkdown.parseMarkdown(entry.detailed_notes) : entry.detailed_notes}
+                        
+                        <div style="margin-top: 10px; border-top: 1px dashed rgba(255,255,255,0.1); padding-top: 8px; font-size: 10px; color: var(--color-text-muted);">
+                            <strong>Källor:</strong> ${sourcesMarkup || 'Inga källor angivna'}
+                        </div>
+                    </div>
+                `;
+                
+                // Toggle details handler
+                const btnToggle = card.querySelector('.btn-toggle-notes');
+                const detailsContainer = card.querySelector('.detailed-notes-container');
+                btnToggle.addEventListener('click', () => {
+                    soundSynth.playClick();
+                    if (detailsContainer.style.display === 'none') {
+                        detailsContainer.style.display = 'block';
+                        btnToggle.textContent = 'DÖLJ DETALJERADE ANTECKNINGAR';
+                    } else {
+                        detailsContainer.style.display = 'none';
+                        btnToggle.textContent = 'VISA DETALJERADE ANTECKNINGAR';
+                    }
+                });
+                
+                // Delete handler
+                card.querySelector('.btn-delete-knowledge').addEventListener('click', async (e) => {
+                    const knowledgeId = e.currentTarget.getAttribute('data-id');
+                    if (confirm(`Är du säker på att du vill radera all sparad kunskap om "${entry.topic}"?`)) {
+                        soundSynth.playClick();
+                        try {
+                            const delRes = await fetch(`/api/learning/delete/${knowledgeId}`, { method: "DELETE" });
+                            if (delRes.ok) {
+                                self.writeLog(`KNOWLEDGE ENTRY DELETED: ${entry.topic}`, "sys");
+                                self.loadLearningVaultUI();
+                            }
+                        } catch (err) {
+                            console.error(err);
+                        }
+                    }
+                });
+                
+                vaultList.appendChild(card);
+            });
+        } catch (err) {
+            console.error("Failed to load learning vault UI:", err);
+        }
     }
 
     /**
