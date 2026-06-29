@@ -29,8 +29,14 @@ import ast
 
 def verify_safe_python_code(code: str):
     """Parses the Python code into an AST and throws ValueError if suspicious operations are detected."""
-    blocked_calls = {'eval', 'exec', 'open', 'compile', 'input'}
-    blocked_modules = {'os', 'sys', 'subprocess', 'shutil', 'pty', 'platform', 'socket', 'urllib', 'http', 'httpx', 'requests', 'sqlite3', 'ctypes'}
+    blocked_calls = {
+        'eval', 'exec', 'open', 'compile', 'input', '__import__', 'getattr', 'setattr', 
+        'globals', 'locals', 'vars', 'classmethod', 'staticmethod', 'breakpoint'
+    }
+    blocked_modules = {
+        'os', 'sys', 'subprocess', 'shutil', 'pty', 'platform', 'socket', 'urllib', 
+        'http', 'httpx', 'requests', 'sqlite3', 'ctypes', 'importlib', 'builtins'
+    }
     
     try:
         root = ast.parse(code)
@@ -40,31 +46,55 @@ def verify_safe_python_code(code: str):
     for node in ast.walk(root):
         if isinstance(node, ast.Import):
             for name in node.names:
-                if name.name.split('.')[0] in blocked_modules:
-                    raise ValueError(f"Säkerhetsfel: Import av modulen '{name.name}' är blockerad i sandbox-läge.")
+                mod = name.name.split('.')[0]
+                if mod in blocked_modules:
+                    raise ValueError(f"Säkerhetsfel: Import av modulen '{name.name}' är blockerad.")
         elif isinstance(node, ast.ImportFrom):
-            if node.module and node.module.split('.')[0] in blocked_modules:
-                raise ValueError(f"Säkerhetsfel: Import från modulen '{node.module}' är blockerad i sandbox-läge.")
+            if node.module:
+                mod = node.module.split('.')[0]
+                if mod in blocked_modules:
+                    raise ValueError(f"Säkerhetsfel: Import från modulen '{node.module}' är blockerad.")
         elif isinstance(node, ast.Call):
             if isinstance(node.func, ast.Name):
                 if node.func.id in blocked_calls:
-                    raise ValueError(f"Säkerhetsfel: Anrop av funktionen '{node.func.id}' är blockerad i sandbox-läge.")
+                    raise ValueError(f"Säkerhetsfel: Anrop av funktionen '{node.func.id}' är blockerad.")
             elif isinstance(node.func, ast.Attribute):
-                if node.func.attr in blocked_calls:
-                    raise ValueError(f"Säkerhetsfel: Anrop av attributet '{node.func.attr}' är blockerad i sandbox-läge.")
+                if node.func.attr in blocked_calls or node.func.attr.startswith('__'):
+                    raise ValueError(f"Säkerhetsfel: Anrop av attributet/metoden '{node.func.attr}' är blockerad.")
+        elif isinstance(node, ast.Attribute):
+            if node.attr.startswith('__') or node.attr in blocked_calls:
+                raise ValueError(f"Säkerhetsfel: Åtkomst till dunder-attributet '{node.attr}' är blockerad.")
+        elif isinstance(node, ast.Name):
+            if node.id.startswith('__') or node.id in blocked_calls:
+                raise ValueError(f"Säkerhetsfel: Variabeln/namnet '{node.id}' är blockerad.")
+        elif isinstance(node, ast.Constant):
+            if isinstance(node.value, str):
+                val = node.value.strip()
+                if '__' in val:
+                    raise ValueError(f"Säkerhetsfel: Textsträng innehåller dunder-mönster ('__') vilket är blockerat.")
+                if val in blocked_modules or val in blocked_calls:
+                    raise ValueError(f"Säkerhetsfel: Textsträng innehåller blockerat ord '{val}' vilket är blockerat.")
 
 def verify_safe_shell_command(cmd_str: str):
     """Checks the shell command string for suspicious or dangerous operations."""
-    blocked_commands = {'rm', 'mv', 'wget', 'curl', 'sudo', 'chmod', 'chown', 'dd', 'mkfs', 'nc', 'netcat', 'bash', 'sh', 'zsh', 'ssh'}
+    blocked_commands = {
+        'rm', 'mv', 'wget', 'curl', 'sudo', 'chmod', 'chown', 'dd', 'mkfs', 
+        'nc', 'netcat', 'bash', 'sh', 'zsh', 'ssh', 'python', 'python3', 'pip'
+    }
     
-    tokens = re.split(r'\s+|[;|&&|\|]', cmd_str)
+    if '$(' in cmd_str or '`' in cmd_str:
+        raise ValueError("Säkerhetsfel: Kommandosubstitution ($() eller `) är blockerad.")
+        
+    if '>' in cmd_str or '<' in cmd_str:
+        raise ValueError("Säkerhetsfel: Omdirigering (> eller <) är blockerad.")
+        
+    clean_cmd = cmd_str.replace("'", "").replace('"', "").replace('\\', "")
+    tokens = re.split(r'[\s/;|&:]+', clean_cmd)
+    
     for token in tokens:
         token_clean = token.strip().lower()
         if token_clean in blocked_commands:
-            raise ValueError(f"Säkerhetsfel: Kommandot eller operatorn '{token}' är blockerad i sandbox-läge.")
-            
-    if '>' in cmd_str:
-        raise ValueError("Säkerhetsfel: Omdirigering (>) är blockerad i sandbox-läge.")
+            raise ValueError(f"Säkerhetsfel: Kommandot eller operatorn '{token}' är blockerad.")
 
 
 async def run_subprocess_command(cmd_str: str, cwd: str = PROJECT_ROOT) -> dict:

