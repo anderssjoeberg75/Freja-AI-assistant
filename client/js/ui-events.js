@@ -1217,6 +1217,9 @@ FrejaUIController.prototype.bindEvents = function() {
     btnSaveSettings.addEventListener('click', async () => {
         soundSynth.playClick();
         
+        const backendUrlVal = document.getElementById('input-backend-url')?.value.trim() || "";
+        localStorage.setItem("freja_backend_url", backendUrlVal);
+        
         // Save API Keys
         const apiKey = inputApiKey.value.trim();
         self.gemini.setApiKey(apiKey);

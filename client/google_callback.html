@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Google Kalender Auktorisering</title>
+    <style>
+        body {
+            background-color: #0b0f19;
+            color: #00f0ff;
+            font-family: 'Share Tech Mono', monospace, sans-serif;
+            text-align: center;
+            padding-top: 100px;
+        }
+        .container {
+            border: 1px solid #00f0ff;
+            padding: 40px;
+            display: inline-block;
+            background-color: rgba(0, 240, 255, 0.05);
+            box-shadow: 0 0 20px rgba(0, 240, 255, 0.2);
+            border-radius: 8px;
+        }
+        h1 { font-size: 24px; margin-bottom: 20px; text-shadow: 0 0 10px #00f0ff; }
+        p { color: #8892b0; font-size: 16px; }
+        .status { font-size: 18px; font-weight: bold; margin-top: 20px; }
+        button {
+            background: transparent;
+            border: 1px solid #00f0ff;
+            color: #00f0ff;
+            padding: 10px 20px;
+            margin-top: 20px;
+            cursor: pointer;
+            font-family: inherit;
+        }
+        button:hover {
+            background: #00f0ff;
+            color: #0b0f19;
+        }
+    </style>
+    <!-- Include app.js to have the fetch interceptor rewrite API calls and add token -->
+    <script src="app.js"></script>
+</head>
+<body>
+    <div class="container">
+        <h1>[GOOGLE KALENDER AUKTORISERING]</h1>
+        <p id="info">Utbyter auktoriseringskod mot tokens...</p>
+        <div id="status" class="status">Vänta...</div>
+        <button id="close-btn" style="display:none;" onclick="window.close()">STÄNG FÖNSTER</button>
+    </div>
+    <script>
+        async function exchangeToken() {
+            const code = new URLSearchParams(window.location.search).get('code');
+            const verifier = localStorage.getItem('google_code_verifier');
+            const clientId = localStorage.getItem('freja_google_calendar_client_id');
+            const statusDiv = document.getElementById('status');
+            const infoP = document.getElementById('info');
+            const closeBtn = document.getElementById('close-btn');
+
+            if (!code || !verifier || !clientId) {
+                statusDiv.innerHTML = '<span style="color: #ff3366;">Fel: Det saknas verifierare, client ID eller kod. Kontrollera att du startade anslutningen i samma webbläsare.</span>';
+                infoP.innerText = 'Misslyckades.';
+                return;
+            }
+
+            try {
+                const backendUrl = localStorage.getItem('freja_backend_url')?.replace(/\/$/, '') || window.location.origin;
+                const redirectUri = backendUrl + '/api/google_calendar/callback';
+                const token = localStorage.getItem('freja_access_token') || 'freja1234';
+                
+                const response = await fetch('/api/google_calendar/exchange', {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'X-Freja-Token': token
+                    },
+                    body: JSON.stringify({
+                        code: code,
+                        code_verifier: verifier,
+                        client_id: clientId,
+                        redirect_uri: redirectUri
+                    })
+                });
+                const resData = await response.json();
+                if (response.ok && resData.status === 'success') {
+                    statusDiv.innerHTML = '<span style="color: #00ff66;">AUKTORISERING LYCKADES!</span>';
+                    infoP.innerText = 'Ditt Google-konto har kopplats. Vi har sparat ditt refresh-token i databasen.';
+                    closeBtn.style.display = 'inline-block';
+                } else {
+                    statusDiv.innerHTML = '<span style="color: #ff3366;">MISSLYCKADES</span>';
+                    infoP.innerText = resData.detail || 'Fel vid utbyte.';
+                }
+            } catch (err) {
+                console.error(err);
+                statusDiv.innerHTML = '<span style="color: #ff3366;">NÄTVERKSFEL</span>';
+                infoP.innerText = err.message || 'Kunde inte ansluta till API-servern.';
+            }
+        }
+        exchangeToken();
+    </script>
+</body>
+</html>

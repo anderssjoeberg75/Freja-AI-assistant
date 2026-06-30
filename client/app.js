@@ -3,8 +3,23 @@ window.originalFetch = window.fetch;
 window.fetch = async function(url, options = {}) {
     let urlStr = typeof url === 'string' ? url : (url instanceof Request ? url.url : '');
     
+    // Get backend base URL from localStorage (strip trailing slash if present)
+    const backendUrl = (localStorage.getItem('freja_backend_url') || '').replace(/\/$/, '');
+    
+    // Rewrite relative /api/ URLs to point to the remote backend if backendUrl is configured
+    if (backendUrl && typeof url === 'string' && url.startsWith('/api/')) {
+        url = backendUrl + url;
+        urlStr = url;
+    }
+    
     // Append header only for F.R.E.J.A. backend api endpoints, excluding external URLs
-    if (urlStr.includes('/api/') && (!urlStr.startsWith('http') || urlStr.startsWith(window.location.origin + '/api/'))) {
+    const isBackendApi = urlStr.includes('/api/') && (
+        (backendUrl && urlStr.startsWith(backendUrl + '/api/')) ||
+        urlStr.startsWith('/api/') ||
+        (!urlStr.startsWith('http') || urlStr.startsWith(window.location.origin + '/api/'))
+    );
+    
+    if (isBackendApi) {
         const token = localStorage.getItem('freja_access_token') || 'freja1234';
         options.headers = options.headers || {};
         

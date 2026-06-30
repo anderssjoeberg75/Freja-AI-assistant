@@ -84,29 +84,52 @@ F.R.E.J.A. requires **Python 3.10+** and **Git** installed on your system. Follo
 
 ---
 
+## 🌐 Client-Backend Architecture
+
+F.R.E.J.A. is split into a **Frontend Client** and a **FastAPI Backend Server**. This architecture allows you to run the backend on a remote server/VPS while running the client locally or on a separate static web hosting provider.
+
+### CORS Enabled
+The backend includes Cross-Origin Resource Sharing (CORS) middleware to allow client connections from different hosts, ports, or domains.
+
+---
+
 ## 🚀 Running the Project
 
-Because F.R.E.J.A. accesses your webcam, microphone, and external AI APIs, you must run the application via a local web server (rather than double-clicking `index.html` directly). This guarantees that browser security protocols allow media capturing streams to initialize correctly.
+Because F.R.E.J.A. accesses your webcam, microphone, and external APIs, you must run the client via a web server (rather than opening the `index.html` file directly). This guarantees that browser security protocols allow media capturing streams to initialize.
 
-### Step 1: Start the Backend Server
-Ensure your virtual environment is active, then run:
-```bash
-# On Windows (PowerShell or CMD) or Linux:
-python server.py
-```
-*Note: Depending on your system configuration, you may need to use `python3 server.py` on Linux.*
+### Option A: Integrated Local Setup (Simultaneous)
 
-This starts the web server on port `8000` and initializes the secure SQLite database (`keys.db`) for API keys persistence.
+If you run everything on the same machine, the backend server can automatically serve the client files from the `client/` subdirectory.
 
-### Step 2: Access the HUD Interface
-Open your web browser (Chrome, Edge, or Safari are recommended for optimal Speech Recognition support) and navigate to:
-```
-http://localhost:8000/
-```
+1. **Start the Backend Server:**
+   Ensure your virtual environment is active, then run:
+   ```bash
+   python server.py
+   ```
+2. **Access the HUD Interface:**
+   Navigate your browser to `http://localhost:8000/`.
 
-### Step 3: Initialize the Assistant
-1. Click the large, pulsing **STARTA GRÄNSSNITTET** (START INTERFACE) overlay button to unlock the browser's audio permissions and ignite the reactor.
-2. Click the **gear icon** (Settings) in the top-right header to configure your API keys.
+### Option B: Separated Setup (Remote Backend + Static Client)
+
+If you run the backend on a server and the client elsewhere:
+
+1. **Deploy & Start the Backend Server:**
+   Deploy the code to your server and start the backend:
+   ```bash
+   python server.py
+   ```
+   Ensure port `8000` is open or behind a reverse proxy.
+
+2. **Serve the Client (Frontend):**
+   Serve the contents of the `client/` directory using any static web server (Nginx, Apache, or a simple python script):
+   ```bash
+   python -m http.server 5000 --directory client
+   ```
+3. **Connect the Client to the Backend:**
+   - Open your browser to the client URL (e.g. `http://localhost:5000/`).
+   - Click the **gear icon** (Settings) in the top-right header.
+   - Enter your backend URL (e.g., `http://your-server-ip:8000` or `https://your-domain.com`) in the **Backend API URL** field and save settings.
+   - The client will automatically connect and authenticate using your security token.
 
 ---
 
@@ -146,32 +169,36 @@ To unlock F.R.E.J.A.'s full cognitive capabilities, configure your credentials i
 
 ## 📂 Codebase Architecture
 
-The application separates the browser interface from focused backend modules:
+The application separates the client frontend from focused backend modules:
 
 ```
-├── index.html                  # HUD panel layouts, diagnostics grids, and modals
-├── style.css                   # Glassmorphism grids, animations, and theme variables
-├── app.js                     # Browser-side UI orchestration and DOM bindings
-├── gemini.js                  # Gemini client and multimodal context handling
-├── memory.js                  # Mem0 integration and local memory fallback
-├── speech.js                  # Speech-to-Text and Text-to-Speech engines
-├── save_session.py            # Headful CLI Playwright session setup utility
-├── tools/                     # Browser-side assistant tool declarations
-├── server.py                  # Minimal backend composition and startup entry point
-├── backend/
-│   ├── config.py              # Runtime paths and environment configuration
-│   ├── database.py            # SQLite schema initialization and migrations
-│   ├── request_handler.py     # Central HTTP route dispatcher
-│   ├── routes/                # Domain-specific HTTP handlers
-│   │   ├── settings.py
-│   │   ├── search.py
-│   │   ├── garmin.py
-│   │   ├── strava.py
-│   │   ├── facebook.py        # Scraping controllers (abort, download status, trigger)
-│   │   └── withings.py
-│   └── services/              # External integration services
-│       └── facebook_service.py # Playwright background browser automation scraper
-└── tests/                     # Backend route regression tests
+├── client/                     # Frontend Static Files
+│   ├── index.html              # HUD panel layouts, diagnostics grids, and modals
+│   ├── google_callback.html    # Cross-origin Google Calendar OAuth redirect handler
+│   ├── style.css               # Glassmorphism grids, animations, and theme variables
+│   ├── app.js                  # Browser-side UI orchestration and DOM bindings
+│   ├── gemini.js               # Gemini client and multimodal context handling
+│   ├── memory.js               # Mem0 integration and local memory fallback
+│   ├── speech.js               # Speech-to-Text and Text-to-Speech engines
+│   ├── camera.js               # Webcam capture modules
+│   ├── diagnostics.js          # HUD diagnostics indicators
+│   ├── sound.js                # UI sound synthesis
+│   ├── theme.js                # System theme switcher
+│   ├── visualizer.js           # Holographic Arc Reactor visualizer
+│   └── js/                     # UI components modules
+│       ├── ui-init.js
+│       ├── ui-events.js
+│       ├── ui-tools.js
+│       └── ui-dashboards.js
+├── server.py                   # FastAPI backend server launcher (optional static server)
+├── save_session.py             # Headful CLI Playwright session setup utility
+├── backend/                    # Python Backend Application
+│   ├── config.py               # Runtime paths and environment configuration
+│   ├── database.py             # SQLite schema initialization and migrations
+│   ├── middleware/             # Backend middleware (CORS, Auth)
+│   ├── routes/                 # Domain-specific HTTP handlers
+│   └── services/               # External integration services
+└── tests/                      # Backend route regression tests
 ```
 
 Backend routes are registered centrally but implemented in focused domain modules. This keeps the server entry point small and makes route behavior independently testable.

@@ -4,7 +4,7 @@ import datetime
 import httpx
 import time
 from fastapi import APIRouter, HTTPException, Query, Request, BackgroundTasks
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 from backend.database import get_db_connection
 from backend.services.sync_status import set_sync_state
@@ -370,11 +370,18 @@ class GoogleExchangeRequest(BaseModel):
     client_id: str
     redirect_uri: str
 
-@router.get("/api/google_calendar/callback", response_class=HTMLResponse)
-async def get_google_calendar_callback(code: str = Query("", description="Authorization code")):
+@router.get("/api/google_calendar/callback")
+async def get_google_calendar_callback(
+    code: str = Query("", description="Authorization code"),
+    state: str = Query(None, description="Client frontend origin")
+):
     code = code.strip()
     if not code:
         return HTMLResponse('<h3>Fel: Ingen auktoriseringskod hittades i anropet.</h3>', status_code=400)
+        
+    if state:
+        frontend_url = state.rstrip('/')
+        return RedirectResponse(url=f"{frontend_url}/google_callback.html?code={code}")
     
     # We return an HTML page that does the exchange on the frontend using localStorage
     html_content = """

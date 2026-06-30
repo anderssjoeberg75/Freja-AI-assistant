@@ -5,6 +5,7 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from fastapi.middleware.cors import CORSMiddleware
 
 from backend.config import PORT, PROJECT_ROOT
 from backend.database import init_db
@@ -53,6 +54,15 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# Register CORS Middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Register Authentication Middleware
 from backend.middleware.auth import FrejaAuthMiddleware
 app.add_middleware(FrejaAuthMiddleware)
@@ -76,12 +86,18 @@ app.include_router(trainer_router)
 app.include_router(learning_router)
 
 # Serve index.html specifically at "/"
+CLIENT_DIR = os.path.join(PROJECT_ROOT, "client")
+
 @app.get("/")
 async def read_index():
-    return FileResponse(os.path.join(PROJECT_ROOT, "index.html"))
+    index_path = os.path.join(CLIENT_DIR, "index.html")
+    if os.path.exists(index_path):
+        return FileResponse(index_path)
+    return {"detail": "Client index.html not found. Backend is running in API-only mode."}
 
-# Serve all other static files (app.js, style.css, models, etc.) from project root
-app.mount("/", StaticFiles(directory=str(PROJECT_ROOT)), name="static")
+# Serve all other static files (app.js, style.css, models, etc.) from client root if exists
+if os.path.exists(CLIENT_DIR):
+    app.mount("/", StaticFiles(directory=CLIENT_DIR), name="static")
 
 def run_server():
     """Start the Uvicorn ASGI server."""

@@ -6,6 +6,10 @@ FrejaUIController.prototype.initializeUI = function() {
     const inputAccessToken = document.getElementById('input-access-token');
     if (inputAccessToken) inputAccessToken.value = accessToken;
 
+    const backendUrl = localStorage.getItem("freja_backend_url") || "";
+    const inputBackendUrl = document.getElementById('input-backend-url');
+    if (inputBackendUrl) inputBackendUrl.value = backendUrl;
+
     // Load voice speech rates
     const rate = localStorage.getItem("freja_speech_rate") || "1.0";
     const pitch = localStorage.getItem("freja_speech_pitch") || "1.0";
@@ -83,7 +87,8 @@ FrejaUIController.prototype.initializeUI = function() {
         console.log("[DEBUG STRAVA LINK] clientId:", clientId, "authLink:", authLink);
         if (authLink) {
             if (clientId) {
-                const redirectUri = window.location.origin + '/api/strava/callback';
+                const backendBase = (localStorage.getItem('freja_backend_url') || '').replace(/\/$/, '') || window.location.origin;
+                const redirectUri = backendBase + '/api/strava/callback';
                 authLink.href = `https://www.strava.com/oauth/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=activity:read,activity:read_all`;
                 authLink.style.display = 'block';
                 console.log("[DEBUG STRAVA LINK] Updated link: display block, href:", authLink.href);
@@ -157,7 +162,8 @@ FrejaUIController.prototype.initializeUI = function() {
                 freja_google_calendar_client_id: clientId
             });
             
-            const redirectUri = window.location.origin + '/api/google_calendar/callback';
+            const backendBase = (localStorage.getItem('freja_backend_url') || '').replace(/\/$/, '') || window.location.origin;
+            const redirectUri = backendBase + '/api/google_calendar/callback';
             const scope = 'https://www.googleapis.com/auth/calendar';
             
             const oauthUrl = `https://accounts.google.com/o/oauth2/v2/auth` +
@@ -168,7 +174,8 @@ FrejaUIController.prototype.initializeUI = function() {
                 `&code_challenge=${encodeURIComponent(challenge)}` +
                 `&code_challenge_method=S256` +
                 `&access_type=offline` +
-                `&prompt=consent`;
+                `&prompt=consent` +
+                `&state=${encodeURIComponent(window.location.origin)}`;
             
             window.location.href = oauthUrl;
         });
