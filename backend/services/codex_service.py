@@ -127,6 +127,36 @@ async def run_subprocess_command(cmd_str: str, cwd: str = PROJECT_ROOT) -> dict:
         }
 
 
+async def run_subprocess_exec(args_list, cwd: str = PROJECT_ROOT) -> dict:
+    """Runs a command via exec (no shell), so arguments can't be parsed by a shell. Prevents command injection."""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *args_list,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=cwd
+        )
+        stdout, stderr = await proc.communicate()
+        exit_code = proc.returncode
+        stdout_str = stdout.decode("utf-8", errors="ignore")
+        stderr_str = stderr.decode("utf-8", errors="ignore")
+        output = stdout_str + stderr_str
+
+        return {
+            "exit_code": exit_code,
+            "stdout": stdout_str,
+            "stderr": stderr_str,
+            "output": output
+        }
+    except Exception as e:
+        return {
+            "exit_code": -1,
+            "stdout": "",
+            "stderr": str(e),
+            "output": f"Subprocess exception: {str(e)}"
+        }
+
+
 async def execute_codex_code_impl(args: dict) -> dict:
     """Executes Python code or shell commands locally on the host."""
     language = args.get("language", "python").lower()
@@ -189,28 +219,58 @@ async def execute_codex_code_impl(args: dict) -> dict:
 async def codex_git_ops_impl(args: dict) -> dict:
     """Runs git commands locally within the workspace."""
     action = args.get("action", "").lower()
-    argument = args.get("argument", "")
-    
+    argument = (args.get("argument", "") or "").strip()
+
     if not action:
         return {"error": "Git-åtgärd saknas."}
-        
+
+    # Actions that operate on a user-supplied argument must have one.
+    if action in ("clone", "checkout", "commit") and not argument:
+        return {"error": f"Git-åtgärden '{action}' kräver ett argument."}
+
+    # Reject leading-dash arguments to block git option injection (e.g. --upload-pack=...).
+    if action in ("clone", "checkout") and argument.startswith("-"):
+        return {"error": "Säkerhetsfel: Argumentet får inte börja med '-'."}
+
+    # Commit is two steps: stage everything, then commit with the message as a single argv element.
+    if action == "commit":
+        add_res = await run_subprocess_exec(["git", "add", "."])
+        if add_res["exit_code"] != 0:
+            return {
+                "action": action,
+                "command": "git add .",
+                "exit_code": add_res["exit_code"],
+                "stdout": add_res["stdout"],
+                "stderr": add_res["stderr"],
+                "output": add_res["output"]
+            }
+        res = await run_subprocess_exec(["git", "commit", "-m", argument])
+        return {
+            "action": action,
+            "command": f"git add . && git commit -m '{argument}'",
+            "exit_code": res["exit_code"],
+            "stdout": res["stdout"],
+            "stderr": res["stderr"],
+            "output": res["output"]
+        }
+
+    # Build argv lists (no shell) so the argument can never be parsed as a shell command.
     git_cmds = {
-        "status": "git status",
-        "log": "git log -n 5",
-        "push": "git push",
-        "clone": f"git clone {argument}",
-        "checkout": f"git checkout {argument}",
-        "commit": f"git add . && git commit -m '{argument}'"
+        "status": ["git", "status"],
+        "log": ["git", "log", "-n", "5"],
+        "push": ["git", "push"],
+        "clone": ["git", "clone", argument],
+        "checkout": ["git", "checkout", argument],
     }
-    
-    cmd = git_cmds.get(action)
-    if not cmd:
+
+    cmd_list = git_cmds.get(action)
+    if not cmd_list:
         return {"error": f"Okänd git-åtgärd: '{action}'."}
-        
-    res = await run_subprocess_command(cmd)
+
+    res = await run_subprocess_exec(cmd_list)
     return {
         "action": action,
-        "command": cmd,
+        "command": " ".join(cmd_list),
         "exit_code": res["exit_code"],
         "stdout": res["stdout"],
         "stderr": res["stderr"],

@@ -1,6 +1,7 @@
 """Database schema initialization and migrations."""
 
 import datetime
+import secrets
 import sqlite3
 from contextlib import contextmanager
 
@@ -127,14 +128,17 @@ def init_db():
             ("Läkarbesök", "Årlig hälsokontroll.", f"{in_three_days_str}T08:30:00", f"{in_three_days_str}T09:15:00", "Vårdcentralen City")
         ]
         cursor.executemany('\n            INSERT INTO google_calendar_events (summary, description, start_time, end_time, location)\n            VALUES (?, ?, ?, ?, ?)\n        ', calendar_seed)
-    # Seed default access token if not present
-    cursor.execute("SELECT COUNT(*) FROM api_keys WHERE key_name = 'freja_access_token'")
-    if cursor.fetchone()[0] == 0:
-        cursor.execute("INSERT INTO api_keys (key_name, key_value) VALUES ('freja_access_token', 'freja1234')")
-    else:
-        cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_access_token'")
-        row = cursor.fetchone()
-        if row and row[0] == 'freja_secret':
-            cursor.execute("UPDATE api_keys SET key_value = 'freja1234' WHERE key_name = 'freja_access_token'")
+    # Seed a strong random access token on first start, and rotate away from known weak/legacy defaults.
+    LEGACY_WEAK_TOKENS = ('freja_secret', 'freja1234')
+    cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_access_token'")
+    row = cursor.fetchone()
+    if row is None:
+        new_token = secrets.token_urlsafe(32)
+        cursor.execute("INSERT INTO api_keys (key_name, key_value) VALUES ('freja_access_token', ?)", (new_token,))
+        print(f"[FREJA] Genererade ny åtkomsttoken: {new_token}")
+    elif row[0] in LEGACY_WEAK_TOKENS:
+        new_token = secrets.token_urlsafe(32)
+        cursor.execute("UPDATE api_keys SET key_value = ? WHERE key_name = 'freja_access_token'", (new_token,))
+        print(f"[FREJA] Roterade svag standardtoken till ny slumpmässig åtkomsttoken: {new_token}")
     conn.commit()
     conn.close()
