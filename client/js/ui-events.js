@@ -506,10 +506,12 @@ FrejaUIController.prototype.bindEvents = function() {
                 }
             }
             
-            // Save keys to secure SQLite database
+            // Save keys to secure SQLite database (permission flag included so the
+            // backend, the authoritative enforcement point, sees the same grant).
             await self.saveKeysToServer({
                 freja_garmin_email: garminEmail,
-                freja_garmin_password: garminPassword
+                freja_garmin_password: garminPassword,
+                freja_tool_get_garmin_health_allowed: String(chkGarmin ? chkGarmin.checked : false)
             });
             
             self.writeLog("GARMIN CONNECT CONFIGURATION SECURED", "sys");
@@ -715,11 +717,15 @@ FrejaUIController.prototype.bindEvents = function() {
                 }
             }
             
-            // Save keys to secure SQLite database
+            // Save keys to secure SQLite database (permission flags included so the
+            // backend, the authoritative enforcement point, sees the same grants).
             await self.saveKeysToServer({
                 freja_strava_client_id: stravaClientId,
                 freja_strava_client_secret: stravaClientSecret,
-                freja_strava_refresh_token: stravaRefreshToken
+                freja_strava_refresh_token: stravaRefreshToken,
+                freja_tool_get_strava_data_allowed: String(chkStrava ? chkStrava.checked : false),
+                freja_tool_get_strava_activity_analysis_allowed: String(chkStravaAnalysis ? chkStravaAnalysis.checked : false),
+                freja_tool_get_strava_athlete_stats_allowed: String(chkStravaStats ? chkStravaStats.checked : false)
             });
             
             self.writeLog("STRAVA API CONFIGURATION SECURED", "sys");
@@ -902,11 +908,13 @@ FrejaUIController.prototype.bindEvents = function() {
                 }
             }
             
-            // Save keys to secure SQLite database
+            // Save keys to secure SQLite database (permission flag included so the
+            // backend, the authoritative enforcement point, sees the same grant).
             await self.saveKeysToServer({
                 freja_withings_client_id: withingsClientId,
                 freja_withings_client_secret: withingsClientSecret,
-                freja_withings_refresh_token: withingsRefreshToken
+                freja_withings_refresh_token: withingsRefreshToken,
+                freja_tool_get_withings_health_allowed: String(chkWithings ? chkWithings.checked : false)
             });
             
             self.writeLog("WITHINGS API CONFIGURATION SECURED", "sys");
@@ -974,11 +982,13 @@ FrejaUIController.prototype.bindEvents = function() {
                 }
             }
             
-            // Save keys to secure SQLite database
+            // Save keys to secure SQLite database (permission flag included so the
+            // backend, the authoritative enforcement point, sees the same grant).
             await self.saveKeysToServer({
                 freja_google_calendar_client_id: googleClientId,
                 freja_google_calendar_client_secret: googleClientSecret,
-                freja_google_calendar_refresh_token: googleRefreshToken
+                freja_google_calendar_refresh_token: googleRefreshToken,
+                freja_tool_manage_google_calendar_allowed: String(chkGoogleCalendar ? chkGoogleCalendar.checked : false)
             });
             
             self.writeLog("GOOGLE CALENDAR API CONFIGURATION SECURED", "sys");
@@ -1318,11 +1328,25 @@ FrejaUIController.prototype.bindEvents = function() {
 
         const accessTokenVal = document.getElementById('input-access-token').value.trim();
 
-        // Save keys to secure SQLite database
+        // Save keys to secure SQLite database (permission flags included so the
+        // backend, the authoritative enforcement point for /api/tools/execute,
+        // sees the same grants as these checkboxes reflect).
         const success = await self.saveKeysToServer({
             freja_access_token: accessTokenVal,
             freja_gemini_apikey: apiKey,
-            freja_eleven_apikey: elevenKey
+            freja_eleven_apikey: elevenKey,
+            freja_tool_get_weather_allowed: String(chkWeather ? chkWeather.checked : false),
+            freja_tool_google_search_allowed: String(chkSearch ? chkSearch.checked : false),
+            freja_tool_execute_codex_code_allowed: String(chkCodexExec ? chkCodexExec.checked : false),
+            freja_tool_run_code_allowed: String(chkCodexExec ? chkCodexExec.checked : false),
+            freja_tool_codex_git_ops_allowed: String(chkCodexGit ? chkCodexGit.checked : false),
+            freja_tool_codex_audit_codebase_allowed: String(chkCodexAudit ? chkCodexAudit.checked : false),
+            freja_tool_tool_analyze_code_allowed: String(chkCodexAudit ? chkCodexAudit.checked : false),
+            freja_tool_codex_run_and_fix_allowed: String(chkCodexFix ? chkCodexFix.checked : false),
+            freja_tool_download_facebook_photos_allowed: String(chkFacebookDownload ? chkFacebookDownload.checked : false),
+            freja_tool_get_personal_trainer_advice_allowed: String(chkTrainer ? chkTrainer.checked : false),
+            freja_tool_learn_topic_allowed: String(chkLearnTopic ? chkLearnTopic.checked : false),
+            freja_tool_get_learned_knowledge_allowed: String(chkGetLearnedKnowledge ? chkGetLearnedKnowledge.checked : false)
         });
 
         if (success && accessTokenVal) {

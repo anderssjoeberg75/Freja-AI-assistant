@@ -1,12 +1,53 @@
+import time
 import uuid
 from fastapi import APIRouter, HTTPException, Request, BackgroundTasks
-from backend.services.tool_registry import TOOL_DECLARATIONS, execute_tool
+from backend.services.tool_registry import TOOL_DECLARATIONS, TOOL_PERMISSION_KEYS, execute_tool
 from backend.services.facebook_service import cancel_facebook_download
+from backend.database import get_db_connection
 
 router = APIRouter()
 
 # Global dict to store status and results of background tasks
 TOOL_TASKS = {}
+
+# Short-lived, single-use "allow this call only" grants issued by the frontend's
+# permission-gateway prompt (the "Tillåt denna gång" button). Keeps the authoritative
+# permission check server-side instead of trusting a client-supplied flag, while still
+# allowing one-off approvals that aren't persisted to the permanent allow-list.
+ONE_TIME_GRANTS = {}
+ONE_TIME_GRANT_TTL_SECONDS = 120
+
+
+def is_tool_permanently_allowed(name: str) -> bool:
+    """Checks the persisted (server-side) permission flag for a tool, set via Settings."""
+    permission_key = TOOL_PERMISSION_KEYS.get(name)
+    if not permission_key:
+        # Tool has no permission gate defined; nothing to enforce.
+        return True
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT key_value FROM api_keys WHERE key_name = ?", (permission_key,))
+            row = cursor.fetchone()
+        return bool(row and row[0] and row[0].strip().lower() == "true")
+    except Exception:
+        return False
+
+
+def consume_one_time_grant(name: str) -> bool:
+    """Checks for and consumes a valid, unexpired one-time execution grant for this tool."""
+    grant_expiry = ONE_TIME_GRANTS.get(name)
+    if grant_expiry is None:
+        return False
+    del ONE_TIME_GRANTS[name]
+    return time.time() <= grant_expiry
+
+
+def is_tool_execution_authorized(name: str) -> bool:
+    """Server-side authority for whether a tool call may run right now."""
+    if is_tool_permanently_allowed(name):
+        return True
+    return consume_one_time_grant(name)
 
 async def run_tool_background(task_id: str, name: str, args: dict):
     try:
@@ -60,7 +101,13 @@ async def post_execute_tool(request: Request, background_tasks: BackgroundTasks)
         
         if not name:
             raise HTTPException(status_code=400, detail="Verktygsnamn saknas (name).")
-            
+
+        if not is_tool_execution_authorized(name):
+            raise HTTPException(
+                status_code=403,
+                detail=f"Behörighet saknas för verktyget '{name}'. Godkänn det i Inställningar eller via behörighetsförfrågan."
+            )
+
         task_id = str(uuid.uuid4())
         TOOL_TASKS[task_id] = {
             "status": "processing",
@@ -82,6 +129,21 @@ async def get_tool_status(task_id: str):
     if not task:
         raise HTTPException(status_code=404, detail="Uppgiften hittades inte (Task not found).")
     return task
+
+@router.post("/api/tools/grant_once")
+async def post_grant_once(request: Request):
+    """Issues a short-lived, single-use execution grant for one tool call.
+
+    Called by the frontend's permission-gateway modal when the user clicks
+    "Tillåt denna gång" (allow once), so the following /api/tools/execute
+    call is authorized server-side without persisting a permanent allow-list entry.
+    """
+    body = await request.json()
+    name = body.get("name")
+    if not name:
+        raise HTTPException(status_code=400, detail="Verktygsnamn saknas (name).")
+    ONE_TIME_GRANTS[name] = time.time() + ONE_TIME_GRANT_TTL_SECONDS
+    return {"status": "granted", "name": name, "expires_in": ONE_TIME_GRANT_TTL_SECONDS}
 
 @router.post("/api/tools/cancel_download")
 async def post_cancel_download():

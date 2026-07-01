@@ -20,7 +20,10 @@ window.fetch = async function(url, options = {}) {
     );
     
     if (isBackendApi) {
-        const token = localStorage.getItem('freja_access_token') || 'freja1234';
+        // No fallback to a legacy default: the backend seeds a random token per-install
+        // and rejects unknown/missing tokens, so an empty value here just surfaces a 401
+        // until the real token (shown in the server console on first run) is entered in Settings.
+        const token = localStorage.getItem('freja_access_token') || '';
         options.headers = options.headers || {};
         
         if (options.headers instanceof Headers) {

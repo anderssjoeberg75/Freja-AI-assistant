@@ -14,18 +14,30 @@ def db_token():
 
 def test_api_auth_no_token():
     client = TestClient(app)
-    # Requests without token should now succeed since token auth is disabled
+    # Requests without a token must be rejected
     response = client.get("/api/keys")
-    assert response.status_code == 200
+    assert response.status_code == 401
 
 def test_api_auth_invalid_token():
     client = TestClient(app)
-    # Requests with arbitrary tokens should also succeed
+    # Requests with an arbitrary/wrong token must be rejected
     response = client.get("/api/keys", headers={"X-Freja-Token": "wrong_token"})
+    assert response.status_code == 401
+
+def test_api_auth_valid_token(db_token):
+    client = TestClient(app)
+    # Requests with the real token stored in the database must succeed
+    response = client.get("/api/keys", headers={"X-Freja-Token": db_token})
     assert response.status_code == 200
 
 def test_api_auth_bypass_strava_callback():
     client = TestClient(app)
     # The Strava OAuth callback path should bypass and succeed (or at least not return 401)
     response = client.get("/api/strava/callback?code=mock_code")
+    assert response.status_code != 401
+
+def test_api_auth_bypass_google_calendar_callback():
+    client = TestClient(app)
+    # The Google Calendar OAuth callback path should bypass and succeed (or at least not return 401)
+    response = client.get("/api/google_calendar/callback?code=mock_code")
     assert response.status_code != 401
