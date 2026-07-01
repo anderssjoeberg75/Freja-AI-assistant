@@ -255,18 +255,39 @@ FrejaUIController.prototype.appendPermissionRequest = function(tool, args, resol
     const btnAllowAlways = msgDiv.querySelector('.btn-allow-always');
     const btnDeny = msgDiv.querySelector('.btn-deny');
     
-    btnAllowOnce.addEventListener('click', () => {
+    btnAllowOnce.addEventListener('click', async () => {
         soundSynth.playClick();
         msgDiv.remove();
+        try {
+            // Register a short-lived server-side grant so the backend (the authoritative
+            // enforcement point) allows this single upcoming /api/tools/execute call.
+            await fetch('/api/tools/grant_once', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: tool.name })
+            });
+        } catch (err) {
+            console.error('Failed to register one-time tool grant:', err);
+        }
         self.writeLog(`TOOL PERMISSION GRANTED: ${tool.name} (ONCE)`, "sys");
         resolvePromise(true);
     });
-    
-    btnAllowAlways.addEventListener('click', () => {
+
+    btnAllowAlways.addEventListener('click', async () => {
         soundSynth.playClick();
         msgDiv.remove();
-        // Save always allowed
+        // Save always allowed locally (fast UI read) and persist server-side, since the
+        // backend is the authoritative enforcement point for /api/tools/execute.
         localStorage.setItem(tool.permissionKey, "true");
+        try {
+            await fetch('/api/keys', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ [tool.permissionKey]: "true" })
+            });
+        } catch (err) {
+            console.error('Failed to persist tool permission to server:', err);
+        }
         // Sync UI checkbox if settings modal is open or loaded
         const chk = document.getElementById(`chk-tool-${tool.name}`);
         if (chk) chk.checked = true;

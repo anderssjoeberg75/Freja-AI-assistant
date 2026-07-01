@@ -70,6 +70,23 @@ def test_verify_safe_shell_command_invalid():
             verify_safe_shell_command(cmd)
         assert "Säkerhetsfel" in str(excinfo.value)
 
+def test_verify_safe_shell_command_invalid_extended_blocklist():
+    # Previously-missed bypasses: versioned interpreters and living-off-the-land binaries
+    unsafe_cmds = [
+        "python3.11 -c 'import os'",
+        "py -c 'print(1)'",
+        "cp /etc/passwd ./leaked.txt",
+        "find . -exec cat {} \\;",
+        "docker run --rm -v /:/mnt alpine",
+        "powershell -c Get-Process",
+        "env",
+        "printenv TELEGRAM_BOT_TOKEN",
+    ]
+    for cmd in unsafe_cmds:
+        with pytest.raises(ValueError) as excinfo:
+            verify_safe_shell_command(cmd)
+        assert "Säkerhetsfel" in str(excinfo.value)
+
 def test_verify_safe_python_code_invalid_dunder_and_bypasses():
     # Attempted AST sandbox bypasses using reflection or dunder attributes
     unsafe_codes = [

@@ -75,43 +75,88 @@ def verify_safe_python_code(code: str):
                 if val in blocked_modules or val in blocked_calls:
                     raise ValueError(f"Säkerhetsfel: Textsträng innehåller blockerat ord '{val}' vilket är blockerat.")
 
+BLOCKED_SHELL_COMMANDS = {
+    'rm', 'mv', 'cp', 'wget', 'curl', 'sudo', 'chmod', 'chown', 'dd', 'mkfs',
+    'nc', 'netcat', 'ncat', 'socat', 'bash', 'sh', 'zsh', 'ssh', 'scp', 'sftp',
+    'pip', 'pip3', 'perl', 'ruby', 'php', 'node', 'npx', 'lua',
+    'powershell', 'pwsh', 'cmd', 'cmd.exe', 'cscript', 'wscript',
+    'docker', 'kubectl', 'systemctl', 'service', 'kill', 'killall', 'taskkill',
+    'reg', 'reg.exe', 'certutil', 'bitsadmin', 'rundll32', 'mshta', 'regsvr32',
+    'env', 'printenv', 'set', 'export', 'source', 'eval', 'exec', 'alias',
+    'find', 'awk', 'sed', 'xargs', 'tar', 'zip', 'unzip', '7z',
+}
+
+# Matches python / python3 / python3.11 / py etc. so version-suffixed interpreter
+# names can't slip past an exact-match blocklist.
+BLOCKED_SHELL_PATTERN = re.compile(r'^(python[\d.]*|py|pip[\d.]*)$', re.IGNORECASE)
+
+# Minimal environment passed to any sandboxed subprocess. Excludes application secrets
+# that operators may have set as process env vars (e.g. TELEGRAM_BOT_TOKEN), so a shell
+# command can't exfiltrate them via `env`/`printenv`.
+SAFE_ENV_ALLOWLIST = (
+    'PATH', 'PATHEXT', 'SYSTEMROOT', 'SYSTEMDRIVE', 'WINDIR', 'COMSPEC',
+    'TEMP', 'TMP', 'HOME', 'HOMEDRIVE', 'HOMEPATH',
+    'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'PROGRAMFILES', 'PROGRAMDATA',
+    'LANG', 'LC_ALL', 'PYTHONIOENCODING',
+)
+
+def build_sandbox_env() -> dict:
+    """Builds a minimal subprocess environment, excluding secrets set as process env vars."""
+    return {k: v for k, v in os.environ.items() if k.upper() in SAFE_ENV_ALLOWLIST}
+
+# Default hard timeout (seconds) for any sandboxed subprocess, to prevent a hung
+# or intentionally-looping command from blocking the server indefinitely.
+DEFAULT_SUBPROCESS_TIMEOUT = 120
+
+
 def verify_safe_shell_command(cmd_str: str):
     """Checks the shell command string for suspicious or dangerous operations."""
-    blocked_commands = {
-        'rm', 'mv', 'wget', 'curl', 'sudo', 'chmod', 'chown', 'dd', 'mkfs', 
-        'nc', 'netcat', 'bash', 'sh', 'zsh', 'ssh', 'python', 'python3', 'pip'
-    }
-    
     if '$(' in cmd_str or '`' in cmd_str:
         raise ValueError("Säkerhetsfel: Kommandosubstitution ($() eller `) är blockerad.")
-        
+
     if '>' in cmd_str or '<' in cmd_str:
         raise ValueError("Säkerhetsfel: Omdirigering (> eller <) är blockerad.")
-        
+
     clean_cmd = cmd_str.replace("'", "").replace('"', "").replace('\\', "")
     tokens = re.split(r'[\s/;|&:]+', clean_cmd)
-    
+
     for token in tokens:
         token_clean = token.strip().lower()
-        if token_clean in blocked_commands:
+        if not token_clean:
+            continue
+        if token_clean in BLOCKED_SHELL_COMMANDS or BLOCKED_SHELL_PATTERN.match(token_clean):
             raise ValueError(f"Säkerhetsfel: Kommandot eller operatorn '{token}' är blockerad.")
 
 
-async def run_subprocess_command(cmd_str: str, cwd: str = PROJECT_ROOT) -> dict:
+async def _wait_with_timeout(proc, timeout: int):
+    """Waits for a subprocess to finish, killing it and raising TimeoutError if it hangs."""
+    try:
+        return await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    except asyncio.TimeoutError:
+        try:
+            proc.kill()
+            await proc.communicate()
+        except Exception:
+            pass
+        raise TimeoutError(f"Kommandot överskred tidsgränsen på {timeout} sekunder och avbröts.")
+
+
+async def run_subprocess_command(cmd_str: str, cwd: str = PROJECT_ROOT, timeout: int = DEFAULT_SUBPROCESS_TIMEOUT) -> dict:
     """Helper to run a shell command asynchronously and return results."""
     try:
         proc = await asyncio.create_subprocess_shell(
             cmd_str,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            cwd=cwd
+            cwd=cwd,
+            env=build_sandbox_env()
         )
-        stdout, stderr = await proc.communicate()
+        stdout, stderr = await _wait_with_timeout(proc, timeout)
         exit_code = proc.returncode
         stdout_str = stdout.decode("utf-8", errors="ignore")
         stderr_str = stderr.decode("utf-8", errors="ignore")
         output = stdout_str + stderr_str
-        
+
         return {
             "exit_code": exit_code,
             "stdout": stdout_str,
@@ -127,16 +172,17 @@ async def run_subprocess_command(cmd_str: str, cwd: str = PROJECT_ROOT) -> dict:
         }
 
 
-async def run_subprocess_exec(args_list, cwd: str = PROJECT_ROOT) -> dict:
+async def run_subprocess_exec(args_list, cwd: str = PROJECT_ROOT, timeout: int = DEFAULT_SUBPROCESS_TIMEOUT) -> dict:
     """Runs a command via exec (no shell), so arguments can't be parsed by a shell. Prevents command injection."""
     try:
         proc = await asyncio.create_subprocess_exec(
             *args_list,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            cwd=cwd
+            cwd=cwd,
+            env=build_sandbox_env()
         )
-        stdout, stderr = await proc.communicate()
+        stdout, stderr = await _wait_with_timeout(proc, timeout)
         exit_code = proc.returncode
         stdout_str = stdout.decode("utf-8", errors="ignore")
         stderr_str = stderr.decode("utf-8", errors="ignore")
