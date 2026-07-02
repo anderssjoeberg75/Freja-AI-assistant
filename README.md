@@ -2,9 +2,9 @@
 
 > **Holographic Neural Interface powered by Gemini AI, Web Audio, & Web Speech APIs**
 
-Welcome to **F.R.E.J.A. (Freja)** – a premium, cyberpunk-inspired AI assistant equipped with advanced voice controls, a holographic particle reactor, long-term neural memory, and real-time multimodal optical scanning (webcam support).
+Welcome to **F.R.E.J.A. (Freja)** – a premium, cyberpunk-inspired AI assistant equipped with advanced voice controls, a holographic particle reactor, long-term neural memory, health & fitness integrations (Garmin, Strava, Withings, Google Calendar, AI Personal Trainer), and real-time multimodal optical scanning (webcam support).
 
-F.R.E.J.A. is built using pure modern web standards (Vanilla HTML5, CSS3, ES6 Javascript) and has been fully modularized into clean, independent files to ensure maximum performance, maintainability, and code readability.
+F.R.E.J.A. is built using pure modern web standards (Vanilla HTML5, CSS3, ES6 Javascript) and has been fully modularized into clean, independent files with an event-driven architecture (`FrejaEventBus`) to ensure maximum performance, maintainability, and code readability.
 
 ---
 
@@ -41,7 +41,6 @@ F.R.E.J.A. requires **Python 3.10+** and **Git** installed on your system. Follo
    ```
 
 4. **Install Playwright Browsers:**
-   This installs the Chromium browser binary required for the Facebook scraper:
    ```cmd
    playwright install chromium
    ```
@@ -76,7 +75,6 @@ F.R.E.J.A. requires **Python 3.10+** and **Git** installed on your system. Follo
    ```
 
 5. **Install Playwright Browsers & System Dependencies:**
-   Install Chromium and any missing system libraries needed to run the browser in GUI mode:
    ```bash
    playwright install chromium
    playwright install-deps chromium
@@ -155,8 +153,10 @@ To unlock F.R.E.J.A.'s full cognitive capabilities, configure your credentials i
 * 🎙️ **Hands-free Voice Controls**: Speak naturally after activating the microphone. F.R.E.J.A. automatically pauses speech recognition while speaking to prevent capturing its own voice loop.
 * 👁️ **Neural Optics Scanner**: Choose your webcam directly from the HUD panel. F.R.E.J.A. captures frames in the background to analyze objects, expressions, or visual queries via Gemini's multimodal vision model.
 * 🧠 **Neural Memory Vault**: Remembers personal details, names, cities, and habits across sessions. Open the Vault modal (brain icon in the header) to view, add, or purge engram cards manually.
+* 🏃 **Health & Fitness Dashboards**: Synchronize Garmin Fit metrics, Strava activity logs, Withings measurements, and Google Calendar events into an AI-powered Personal Trainer dashboard.
 * 🎨 **Accent Themes**: Swap between multiple cyberpunk neon color themes in real-time.
 * 🎛️ **Terminal Console Log**: Displays diagnostic startup indicators, network transaction payloads, and audio/webcam links in a live feed terminal at the bottom-right.
+
 ---
 
 ## 📂 Codebase Architecture
@@ -178,29 +178,29 @@ The application separates the client frontend from focused backend modules:
 │   ├── theme.js                # System theme switcher
 │   ├── visualizer.js           # Holographic Arc Reactor visualizer
 │   └── js/                     # UI components modules
-│       ├── ui-init.js
-│       ├── ui-events.js
-│       ├── ui-tools.js
-│       └── ui-dashboards.js
+│       ├── event-bus.js        # Decoupled Pub/Sub event bus & state manager
+│       ├── ui-init.js          # UI initialization
+│       ├── ui-events.js        # Event listener bindings
+│       ├── ui-tools.js         # Tool call & terminal log rendering
+│       └── ui-dashboards.js    # Health & Fitness dashboard visualizations
 ├── server.py                   # FastAPI backend server launcher (optional static server)
-├── save_session.py             # Headful CLI Playwright session setup utility
 ├── backend/                    # Python Backend Application
 │   ├── config.py               # Runtime paths and environment configuration
 │   ├── database.py             # SQLite schema initialization and migrations
 │   ├── middleware/             # Backend middleware (CORS, Auth)
-│   ├── routes/                 # Domain-specific HTTP handlers
-│   └── services/               # External integration services
-└── tests/                      # Backend route regression tests
+│   ├── routes/                 # Domain-specific HTTP handlers (Garmin, Strava, Calendar, Trainer, etc.)
+│   └── services/               # External integration services & Tool Registry
+└── tests/                      # Backend route regression test suite
 ```
 
 Backend routes are registered centrally but implemented in focused domain modules. This keeps the server entry point small and makes route behavior independently testable.
 
-
+### Running Tests
 
 Run backend regression tests with:
 
 ```bash
-python3 -m unittest discover -v
+pytest -v tests
 ```
 
 ---
@@ -211,5 +211,3 @@ python3 -m unittest discover -v
   - We have implemented soft constraints using `ideal` specifications to eliminate the browser `OverconstrainedError`. If your camera does not initialize, check your browser's address bar to ensure camera permissions have been granted.
 * **Microphone Disconnects or Pauses**:
   - Some browsers suspend microphonic listeners if the tab remains inactive in the background. Simply click the microphone button on the HUD to reconnect the interface.
-* **Scraper Fails to Access Profile**:
-  - Run `python3 save_session.py` in your terminal to complete a headful login sequence on Facebook. Playwright will capture the cookies and save them, allowing the background assistant to run smoothly.
