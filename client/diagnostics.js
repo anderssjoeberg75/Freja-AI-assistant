@@ -3,6 +3,9 @@
  */
 window.FrejaDiagnostics = {
     writeLog(msg, type = 'sys') {
+        if (window.frejaEventBus) {
+            window.frejaEventBus.log(msg, type);
+        }
         const logContainer = document.getElementById('terminal-log');
         if (!logContainer) return;
         const now = new Date();
