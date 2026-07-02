@@ -1,5 +1,11 @@
 import pytest
-from backend.services.codex_service import verify_safe_python_code, verify_safe_shell_command
+from backend.services.codex_service import (
+    verify_safe_python_code,
+    verify_safe_shell_command,
+    verify_safe_git_clone_url,
+    resolve_within_project,
+    PROJECT_ROOT,
+)
 
 def test_verify_safe_python_code_valid():
     # Valid and safe Python code should pass
@@ -42,7 +48,6 @@ def test_verify_safe_shell_command_valid():
     safe_cmds = [
         "ls -la",
         "echo 'Hello World'",
-        "git --version",
         "pytest -v tests"
     ]
     for cmd in safe_cmds:
@@ -102,3 +107,59 @@ def test_verify_safe_python_code_invalid_dunder_and_bypasses():
         with pytest.raises(ValueError) as excinfo:
             verify_safe_python_code(code)
         assert "Säkerhetsfel" in str(excinfo.value)
+
+def test_verify_safe_shell_command_blocks_git_entirely():
+    # `git` is fully blocked in the free-form shell channel: `-c core.pager=<cmd> -p` is a
+    # documented GTFOBins technique that executes an arbitrary program via git itself,
+    # bypassing every other token in the blocklist. Git access must go through codex_git_ops.
+    unsafe_cmds = [
+        "git --version",
+        "git -c core.pager=id -p log",
+        "git -c core.editor=id commit",
+    ]
+    for cmd in unsafe_cmds:
+        with pytest.raises(ValueError) as excinfo:
+            verify_safe_shell_command(cmd)
+        assert "Säkerhetsfel" in str(excinfo.value)
+
+def test_verify_safe_git_clone_url_valid():
+    # Standard network transports should pass
+    safe_urls = [
+        "https://github.com/example/repo.git",
+        "http://example.com/repo.git",
+        "git://example.com/repo.git",
+        "ssh://git@example.com/repo.git",
+    ]
+    for url in safe_urls:
+        verify_safe_git_clone_url(url)
+
+def test_verify_safe_git_clone_url_blocks_remote_helpers():
+    # `ext::`/`fd::` remote helpers execute an arbitrary program as part of `git clone`
+    unsafe_urls = [
+        "ext::sh -c 'touch pwned'",
+        "fd::0",
+        "file:///etc/passwd",
+        "EXT::sh -c 'id'",
+    ]
+    for url in unsafe_urls:
+        with pytest.raises(ValueError) as excinfo:
+            verify_safe_git_clone_url(url)
+        assert "Säkerhetsfel" in str(excinfo.value)
+
+def test_resolve_within_project_valid():
+    resolved = resolve_within_project("tests/test_security.py")
+    assert resolved.startswith(str(PROJECT_ROOT))
+
+def test_resolve_within_project_blocks_traversal():
+    unsafe_paths = [
+        "../../etc/passwd",
+        "..\\..\\Windows\\System32\\drivers\\etc\\hosts",
+    ]
+    for path in unsafe_paths:
+        with pytest.raises(ValueError) as excinfo:
+            resolve_within_project(path)
+        assert "Säkerhetsfel" in str(excinfo.value)
+
+def test_resolve_within_project_blocks_absolute_path_outside_root():
+    with pytest.raises(ValueError):
+        resolve_within_project("C:\\Windows\\System32\\drivers\\etc\\hosts")
