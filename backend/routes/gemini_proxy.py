@@ -2,7 +2,7 @@
 
 import httpx
 from fastapi import APIRouter, HTTPException, Query, Request
-from backend.database import get_db_connection
+from backend.database import get_api_key
 
 router = APIRouter()
 
@@ -17,12 +17,7 @@ async def proxy_gemini_generate(
         raise HTTPException(status_code=400, detail="Invalid JSON payload")
 
     # Retrieve API key from SQLite keys.db
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_gemini_apikey'")
-        row = cursor.fetchone()
-
-    api_key = row[0].strip() if row else ""
+    api_key = get_api_key('freja_gemini_apikey') or ""
     if not api_key:
         raise HTTPException(status_code=400, detail="Gemini API key is not configured on the server.")
 

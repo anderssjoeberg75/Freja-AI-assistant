@@ -5,7 +5,7 @@ import httpx
 import json
 import urllib.parse
 from fastapi import APIRouter, HTTPException, Query, Request
-from backend.database import get_db_connection
+from backend.database import get_db_connection, get_api_key
 
 router = APIRouter()
 
@@ -246,12 +246,7 @@ async def generate_trainer_plan(request: Request):
                 )
 
         # 4. Fetch Gemini API key
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_gemini_apikey'")
-            row = cursor.fetchone()
-        
-        api_key = row[0].strip() if row else ""
+        api_key = get_api_key('freja_gemini_apikey') or ""
         if not api_key:
             raise HTTPException(status_code=400, detail="Gemini API-nyckel är inte konfigurerad på serveren.")
 

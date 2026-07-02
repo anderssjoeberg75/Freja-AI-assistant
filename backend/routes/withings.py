@@ -5,7 +5,7 @@ import httpx
 import random
 import time
 from fastapi import APIRouter, HTTPException, Query, Request, BackgroundTasks
-from backend.database import get_db_connection
+from backend.database import get_db_connection, get_api_key, set_api_key
 from backend.services.sync_status import set_sync_state
 
 router = APIRouter()
@@ -116,15 +116,9 @@ async def run_withings_sync_task(client_id, client_secret, refresh_token, days: 
             raise Exception('Inget access_token returnerades.')
             
         if new_refresh_token and new_refresh_token != refresh_token:
-            with get_db_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute('''
-                    INSERT INTO api_keys (key_name, key_value)
-                    VALUES (?, ?)
-                    ON CONFLICT(key_name) DO UPDATE SET key_value = excluded.key_value
-                ''', ('freja_withings_refresh_token', new_refresh_token))
-                conn.commit()
-            
+            set_api_key('freja_withings_refresh_token', new_refresh_token)
+
+
         today_date = datetime.date.today()
         start_date_str = (today_date - datetime.timedelta(days=days)).strftime('%Y-%m-%d')
         end_date_str = today_date.strftime('%Y-%m-%d')
@@ -247,19 +241,10 @@ async def get_withings_sync(
     background_tasks: BackgroundTasks,
     days: int = Query(30, description="Number of days to sync")
 ):
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_withings_client_id'")
-        row_id = cursor.fetchone()
-        cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_withings_client_secret'")
-        row_secret = cursor.fetchone()
-        cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_withings_refresh_token'")
-        row_refresh = cursor.fetchone()
-    
-    client_id = row_id[0].strip() if row_id else ""
-    client_secret = row_secret[0].strip() if row_secret else ""
-    refresh_token = row_refresh[0].strip() if row_refresh else ""
-    
+    client_id = get_api_key('freja_withings_client_id') or ""
+    client_secret = get_api_key('freja_withings_client_secret') or ""
+    refresh_token = get_api_key('freja_withings_refresh_token') or ""
+
     if not client_id or not client_secret or not refresh_token:
         raise HTTPException(
             status_code=400,

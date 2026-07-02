@@ -8,7 +8,7 @@ import datetime
 import urllib.parse
 import httpx
 from starlette.concurrency import run_in_threadpool
-from backend.database import get_db_connection
+from backend.database import get_db_connection, get_api_key
 
 # Import backend business logic routines
 from backend.services.search_service import perform_search
@@ -428,15 +428,12 @@ async def exec_google_search(args):
 
 def is_sync_recent(provider: str, max_age_hours: int = 12) -> bool:
     try:
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT key_value FROM api_keys WHERE key_name = ?", (f"last_sync_{provider}",))
-            row = cursor.fetchone()
-            if row and row[0]:
-                last_sync = datetime.datetime.strptime(row[0], "%Y-%m-%d %H:%M:%S")
-                age = datetime.datetime.now() - last_sync
-                if age.total_seconds() < max_age_hours * 3600:
-                    return True
+        last_sync_value = get_api_key(f"last_sync_{provider}")
+        if last_sync_value:
+            last_sync = datetime.datetime.strptime(last_sync_value, "%Y-%m-%d %H:%M:%S")
+            age = datetime.datetime.now() - last_sync
+            if age.total_seconds() < max_age_hours * 3600:
+                return True
     except Exception as e:
         print(f"[tool_registry] Error checking recent sync for {provider}: {e}")
     return False
@@ -447,15 +444,8 @@ async def exec_garmin_health(args):
     sync_message = ""
     
     # 1. Retrieve keys and sync synchronously
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_garmin_email'")
-        row_email = cursor.fetchone()
-        cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_garmin_password'")
-        row_password = cursor.fetchone()
-        
-    email = row_email[0].strip() if row_email else ""
-    password = row_password[0] if row_password else ""
+    email = get_api_key('freja_garmin_email') or ""
+    password = get_api_key('freja_garmin_password') or ""
     
     if email and password:
         if is_sync_recent("garmin"):
@@ -553,19 +543,10 @@ async def exec_withings_health(args):
     sync_message = ""
     
     # 1. Retrieve keys and sync synchronously
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_withings_client_id'")
-        row_id = cursor.fetchone()
-        cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_withings_client_secret'")
-        row_secret = cursor.fetchone()
-        cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_withings_refresh_token'")
-        row_refresh = cursor.fetchone()
-        
-    client_id = row_id[0].strip() if row_id else ""
-    client_secret = row_secret[0].strip() if row_secret else ""
-    refresh_token = row_refresh[0].strip() if row_refresh else ""
-    
+    client_id = get_api_key('freja_withings_client_id') or ""
+    client_secret = get_api_key('freja_withings_client_secret') or ""
+    refresh_token = get_api_key('freja_withings_refresh_token') or ""
+
     if client_id and client_secret and refresh_token:
         if is_sync_recent("withings"):
             sync_status = "success"
@@ -676,19 +657,10 @@ async def exec_strava_data(args):
     sync_message = ""
     
     # 1. Retrieve keys and sync synchronously
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_strava_client_id'")
-        row_id = cursor.fetchone()
-        cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_strava_client_secret'")
-        row_secret = cursor.fetchone()
-        cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_strava_refresh_token'")
-        row_refresh = cursor.fetchone()
-        
-    client_id = row_id[0].strip() if row_id else ""
-    client_secret = row_secret[0].strip() if row_secret else ""
-    refresh_token = row_refresh[0].strip() if row_refresh else ""
-    
+    client_id = get_api_key('freja_strava_client_id') or ""
+    client_secret = get_api_key('freja_strava_client_secret') or ""
+    refresh_token = get_api_key('freja_strava_refresh_token') or ""
+
     if client_id and client_secret and refresh_token:
         if is_sync_recent("strava"):
             sync_status = "success"

@@ -30,3 +30,4 @@ backend/cache/
 # Secret keys and local state/downloads
 facebook_state.json
 downloads/
+.freja_secret.key
