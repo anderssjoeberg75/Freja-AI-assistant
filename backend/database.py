@@ -6,6 +6,7 @@ import sqlite3
 from contextlib import contextmanager
 
 from backend.config import DB_FILE
+from backend.crypto_utils import encrypt_value, decrypt_value
 
 
 @contextmanager
@@ -17,6 +18,41 @@ def get_db_connection():
         yield conn
     finally:
         conn.close()
+
+
+def get_api_key(key_name: str):
+    """Fetches and decrypts a single value from the api_keys table. Returns None if absent."""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT key_value FROM api_keys WHERE key_name = ?", (key_name,))
+        row = cursor.fetchone()
+    if not row or row[0] is None:
+        return None
+    return decrypt_value(row[0]).strip()
+
+
+def set_api_key(key_name: str, value: str):
+    """Encrypts and upserts a single value into the api_keys table."""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO api_keys (key_name, key_value)
+            VALUES (?, ?)
+            ON CONFLICT(key_name) DO UPDATE SET key_value = excluded.key_value
+            """,
+            (key_name, encrypt_value(value)),
+        )
+        conn.commit()
+
+
+def get_all_api_keys() -> dict:
+    """Returns every stored key, decrypted, keyed by key_name (used by the settings endpoint)."""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT key_name, key_value FROM api_keys")
+        rows = cursor.fetchall()
+    return {name: (decrypt_value(value).strip() if value else "") for name, value in rows}
 
 
 def init_db():
@@ -134,11 +170,11 @@ def init_db():
     row = cursor.fetchone()
     if row is None:
         new_token = secrets.token_urlsafe(32)
-        cursor.execute("INSERT INTO api_keys (key_name, key_value) VALUES ('freja_access_token', ?)", (new_token,))
+        cursor.execute("INSERT INTO api_keys (key_name, key_value) VALUES ('freja_access_token', ?)", (encrypt_value(new_token),))
         print(f"[FREJA] Genererade ny åtkomsttoken: {new_token}")
     elif row[0] in LEGACY_WEAK_TOKENS:
         new_token = secrets.token_urlsafe(32)
-        cursor.execute("UPDATE api_keys SET key_value = ? WHERE key_name = 'freja_access_token'", (new_token,))
+        cursor.execute("UPDATE api_keys SET key_value = ? WHERE key_name = 'freja_access_token'", (encrypt_value(new_token),))
         print(f"[FREJA] Roterade svag standardtoken till ny slumpmässig åtkomsttoken: {new_token}")
     conn.commit()
     conn.close()

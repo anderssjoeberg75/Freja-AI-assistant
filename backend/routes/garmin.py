@@ -4,7 +4,7 @@ import datetime
 import os
 from fastapi import APIRouter, HTTPException, Query, Request, BackgroundTasks
 from backend.config import PROJECT_ROOT
-from backend.database import get_db_connection
+from backend.database import get_db_connection, get_api_key
 from backend.services.sync_status import set_sync_state
 
 router = APIRouter()
@@ -198,15 +198,8 @@ async def get_garmin_sync(
     background_tasks: BackgroundTasks,
     days: int = Query(7, description="Number of days to sync")
 ):
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_garmin_email'")
-        row_email = cursor.fetchone()
-        cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_garmin_password'")
-        row_password = cursor.fetchone()
-    
-    email = row_email[0].strip() if row_email else ""
-    password = row_password[0] if row_password else ""
+    email = get_api_key('freja_garmin_email') or ""
+    password = get_api_key('freja_garmin_password') or ""
     
     if not email or not password:
         raise HTTPException(

@@ -5,7 +5,7 @@ import httpx
 import time
 from fastapi import APIRouter, HTTPException, Query, Request, BackgroundTasks
 from fastapi.responses import HTMLResponse
-from backend.database import get_db_connection
+from backend.database import get_db_connection, get_api_key, set_api_key
 from backend.services.sync_status import set_sync_state
 from backend.services.strava_service import get_strava_access_token
 
@@ -17,16 +17,9 @@ async def get_strava_callback(code: str = Query("", description="Authorization c
     if not code:
         return HTMLResponse('<h3>Fel: Ingen auktoriseringskod hittades i anropet.</h3>', status_code=400)
     try:
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_strava_client_id'")
-            row_id = cursor.fetchone()
-            cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_strava_client_secret'")
-            row_secret = cursor.fetchone()
-        
-        client_id = row_id[0].strip() if row_id else ""
-        client_secret = row_secret[0].strip() if row_secret else ""
-        
+        client_id = get_api_key('freja_strava_client_id') or ""
+        client_secret = get_api_key('freja_strava_client_secret') or ""
+
         if not client_id or not client_secret:
             return HTMLResponse('<h3>Fel: Strava Client ID eller Client Secret saknas i F.R.E.J.A. databasen. Spara dessa i Inställningar först.</h3>', status_code=400)
             
@@ -47,15 +40,8 @@ async def get_strava_callback(code: str = Query("", description="Authorization c
         if not new_refresh_token:
             raise Exception('Kunde inte hämta refresh token från Strava svar.')
             
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                INSERT INTO api_keys (key_name, key_value)
-                VALUES (?, ?)
-                ON CONFLICT(key_name) DO UPDATE SET key_value = excluded.key_value
-            ''', ('freja_strava_refresh_token', new_refresh_token))
-            conn.commit()
-        
+        set_api_key('freja_strava_refresh_token', new_refresh_token)
+
         success_html = """
         <!DOCTYPE html>
         <html>
@@ -163,15 +149,9 @@ async def run_strava_sync_task(client_id, client_secret, refresh_token, days: in
             raise Exception('Inget access_token returnerades från Strava OAuth.')
             
         if new_refresh_token and new_refresh_token != refresh_token:
-            with get_db_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute('''
-                    INSERT INTO api_keys (key_name, key_value)
-                    VALUES (?, ?)
-                    ON CONFLICT(key_name) DO UPDATE SET key_value = excluded.key_value
-                ''', ('freja_strava_refresh_token', new_refresh_token))
-                conn.commit()
-            
+            set_api_key('freja_strava_refresh_token', new_refresh_token)
+
+
         after_time = int(time.time()) - days * 24 * 3600
         activities_url = f"https://www.strava.com/api/v3/athlete/activities?after={after_time}&per_page=200"
         
@@ -272,19 +252,10 @@ async def get_strava_sync(
     background_tasks: BackgroundTasks,
     days: int = Query(14, description="Number of days to sync")
 ):
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_strava_client_id'")
-        row_id = cursor.fetchone()
-        cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_strava_client_secret'")
-        row_secret = cursor.fetchone()
-        cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_strava_refresh_token'")
-        row_refresh = cursor.fetchone()
-    
-    client_id = row_id[0].strip() if row_id else ""
-    client_secret = row_secret[0].strip() if row_secret else ""
-    refresh_token = row_refresh[0].strip() if row_refresh else ""
-    
+    client_id = get_api_key('freja_strava_client_id') or ""
+    client_secret = get_api_key('freja_strava_client_secret') or ""
+    refresh_token = get_api_key('freja_strava_refresh_token') or ""
+
     if not client_id or not client_secret or not refresh_token:
         raise HTTPException(
             status_code=400,

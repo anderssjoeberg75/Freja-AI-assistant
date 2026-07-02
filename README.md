@@ -157,14 +157,6 @@ To unlock F.R.E.J.A.'s full cognitive capabilities, configure your credentials i
 * 🧠 **Neural Memory Vault**: Remembers personal details, names, cities, and habits across sessions. Open the Vault modal (brain icon in the header) to view, add, or purge engram cards manually.
 * 🎨 **Accent Themes**: Swap between multiple cyberpunk neon color themes in real-time.
 * 🎛️ **Terminal Console Log**: Displays diagnostic startup indicators, network transaction payloads, and audio/webcam links in a live feed terminal at the bottom-right.
-* 👥 **Facebook Photo Downloader & Scraper Tool**:
-  - Automatically logins and scrapes high-resolution photos from specific Facebook profiles directly from conversational triggers (e.g., *"Ladda ner bilder från..."*).
-  - **Pre-authenticated Session Persistence**: Includes a standalone utility `python3 save_session.py` to log in once via Playwright and save session cookies/local storage to `facebook_state.json`, bypassing login walls.
-  - **Dynamic Context Cleaning (Anti-Bias)**: Implements dynamic conversation history filtering in the frontend client. Whenever a user submits a download query, historical responses claiming lack of permissions or partial results are purged from active memory to keep the LLM focused on running the tool.
-  - **Cancelable Background Job**: Abort active download queues dynamically via explicit chat messages (e.g., *"Sluta ladda ner"* / *"Avbryt"*) or direct UI button controls.
-  - **Resilient Multi-Strategy Scrolling**: Combines smooth window scrolling, recursive scrollable container traversal, and simulated keyboard commands (`End`/`PageDown`) to unlock infinite scroll content and capture large photo sets.
-  - **Auto-save at Termination**: Updated session states/cookies are automatically saved in the `finally` block before closing the headless browser, protecting authentication from expiring prematurely.
-
 ---
 
 ## 📂 Codebase Architecture

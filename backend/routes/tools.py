@@ -3,7 +3,7 @@ import uuid
 from fastapi import APIRouter, HTTPException, Request, BackgroundTasks
 from backend.services.tool_registry import TOOL_DECLARATIONS, TOOL_PERMISSION_KEYS, execute_tool
 from backend.services.facebook_service import cancel_facebook_download
-from backend.database import get_db_connection
+from backend.database import get_api_key
 
 router = APIRouter()
 
@@ -25,29 +25,47 @@ def is_tool_permanently_allowed(name: str) -> bool:
         # Tool has no permission gate defined; nothing to enforce.
         return True
     try:
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT key_value FROM api_keys WHERE key_name = ?", (permission_key,))
-            row = cursor.fetchone()
-        return bool(row and row[0] and row[0].strip().lower() == "true")
+        value = get_api_key(permission_key)
+        return bool(value and value.strip().lower() == "true")
     except Exception:
         return False
 
 
-def consume_one_time_grant(name: str) -> bool:
-    """Checks for and consumes a valid, unexpired one-time execution grant for this tool."""
-    grant_expiry = ONE_TIME_GRANTS.get(name)
+def consume_one_time_grant(grant_key: str) -> bool:
+    """Checks for and consumes a valid, unexpired one-time execution grant for this key."""
+    grant_expiry = ONE_TIME_GRANTS.get(grant_key)
     if grant_expiry is None:
         return False
-    del ONE_TIME_GRANTS[name]
+    del ONE_TIME_GRANTS[grant_key]
     return time.time() <= grant_expiry
 
 
-def is_tool_execution_authorized(name: str) -> bool:
+def _is_git_push(name: str, args: dict) -> bool:
+    """`git push` publishes to a remote and is hard to reverse, unlike the other
+    codex_git_ops actions (status/log/clone/checkout/commit stay local). It must always
+    be re-confirmed per call, even when the user has permanently allowed codex_git_ops."""
+    return name == "codex_git_ops" and (args or {}).get("action", "").strip().lower() == "push"
+
+
+def _grant_key(name: str, args: dict) -> str:
+    """Derives the ONE_TIME_GRANTS key for a tool call. Git push gets its own namespaced
+    key so a one-time grant issued for a harmless action (e.g. `git log`) can't be reused
+    to authorize a push, and vice versa."""
+    if _is_git_push(name, args):
+        return f"{name}:push"
+    return name
+
+
+def is_tool_execution_authorized(name: str, args: dict = None) -> bool:
     """Server-side authority for whether a tool call may run right now."""
+    args = args or {}
+    grant_key = _grant_key(name, args)
+    if _is_git_push(name, args):
+        # Never satisfied by the permanent allow-list; always needs a fresh one-time grant.
+        return consume_one_time_grant(grant_key)
     if is_tool_permanently_allowed(name):
         return True
-    return consume_one_time_grant(name)
+    return consume_one_time_grant(grant_key)
 
 async def run_tool_background(task_id: str, name: str, args: dict):
     try:
@@ -102,7 +120,7 @@ async def post_execute_tool(request: Request, background_tasks: BackgroundTasks)
         if not name:
             raise HTTPException(status_code=400, detail="Verktygsnamn saknas (name).")
 
-        if not is_tool_execution_authorized(name):
+        if not is_tool_execution_authorized(name, args):
             raise HTTPException(
                 status_code=403,
                 detail=f"Behörighet saknas för verktyget '{name}'. Godkänn det i Inställningar eller via behörighetsförfrågan."
@@ -140,9 +158,11 @@ async def post_grant_once(request: Request):
     """
     body = await request.json()
     name = body.get("name")
+    args = body.get("args", {})
     if not name:
         raise HTTPException(status_code=400, detail="Verktygsnamn saknas (name).")
-    ONE_TIME_GRANTS[name] = time.time() + ONE_TIME_GRANT_TTL_SECONDS
+    grant_key = _grant_key(name, args)
+    ONE_TIME_GRANTS[grant_key] = time.time() + ONE_TIME_GRANT_TTL_SECONDS
     return {"status": "granted", "name": name, "expires_in": ONE_TIME_GRANT_TTL_SECONDS}
 
 @router.post("/api/tools/cancel_download")

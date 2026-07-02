@@ -15,7 +15,7 @@ import asyncio
 import re
 import uuid
 from backend.config import PROJECT_ROOT
-from backend.database import get_db_connection
+from backend.database import get_api_key
 
 # Ignored patterns for codebase auditing
 IGNORED_DIRS = {
@@ -94,6 +94,14 @@ BLOCKED_SHELL_COMMANDS = {
     # other token in this blocklist. All git access must go through the dedicated,
     # argv-only codex_git_ops tool instead of raw shell.
     'git',
+    # File-reading / exfiltration commands: none of these mutate anything, but
+    # they can dump the contents of keys.db, .env, ssh keys, etc. straight to
+    # stdout, which the blocklist above did not previously cover.
+    'cat', 'tac', 'head', 'tail', 'more', 'less', 'nl', 'od', 'hexdump', 'xxd',
+    'strings', 'base64', 'base32', 'grep', 'egrep', 'fgrep', 'sort', 'uniq',
+    'cut', 'tr', 'wc', 'diff', 'cmp', 'file', 'stat', 'readlink', 'ln', 'tee',
+    'type', 'more.com', 'findstr', 'rev', 'fold', 'comm', 'join', 'column',
+    'expand', 'unexpand',
 }
 
 # Matches python / python3 / python3.11 / py etc. so version-suffixed interpreter
@@ -120,6 +128,46 @@ def build_sandbox_env(extra_env: dict = None) -> dict:
 # Default hard timeout (seconds) for any sandboxed subprocess, to prevent a hung
 # or intentionally-looping command from blocking the server indefinitely.
 DEFAULT_SUBPROCESS_TIMEOUT = 120
+
+# Working directory used for ad-hoc AI-authored shell commands (execute_codex_code_impl).
+# Kept separate from PROJECT_ROOT so relative-path commands can't stumble onto keys.db,
+# .env, or other project files just by being run from the repo root. Commands that
+# legitimately need the real project tree (git ops, run_and_fix on a real test file)
+# still run with cwd=PROJECT_ROOT and are validated separately.
+SHELL_SANDBOX_DIR = os.path.join(PROJECT_ROOT, "backend", "cache", "shell_sandbox")
+
+
+def _limit_subprocess_resources():
+    """preexec_fn for POSIX subprocesses: caps memory, process count, and CPU time so a
+    runaway or forkbomb-style command can't exhaust the host, independent of the
+    asyncio-level wall-clock timeout."""
+    import resource
+    for limit, value in (
+        (resource.RLIMIT_AS, 1536 * 1024 * 1024),  # ~1.5 GB address space
+        (resource.RLIMIT_NPROC, 64),
+        (resource.RLIMIT_CPU, 180),
+    ):
+        try:
+            resource.setrlimit(limit, (value, value))
+        except (ValueError, OSError):
+            pass
+
+
+def _sandbox_subprocess_kwargs() -> dict:
+    """Extra Popen kwargs to constrain a sandboxed subprocess. POSIX-only; a no-op on
+    Windows since the `resource` module and preexec_fn forking model don't exist there."""
+    if os.name == "nt":
+        return {}
+    return {"preexec_fn": _limit_subprocess_resources}
+
+
+# Path fragments that must never appear in a sandboxed shell command, regardless of
+# which (non-blocked) binary they're passed to: blocks both directory traversal and
+# direct references to secret/credential files sitting next to the project root.
+SENSITIVE_PATH_MARKERS = (
+    'keys.db', 'freja.db', 'database.db', '.freja_secret.key', '.env',
+    '.ssh', 'id_rsa', 'facebook_state.json',
+)
 
 
 def resolve_within_project(rel_path: str) -> str:
@@ -153,6 +201,14 @@ def verify_safe_shell_command(cmd_str: str):
     if '>' in cmd_str or '<' in cmd_str:
         raise ValueError("Säkerhetsfel: Omdirigering (> eller <) är blockerad.")
 
+    if '..' in cmd_str:
+        raise ValueError("Säkerhetsfel: Katalog-traversal ('..') är blockerad.")
+
+    lowered_cmd = cmd_str.lower()
+    for marker in SENSITIVE_PATH_MARKERS:
+        if marker in lowered_cmd:
+            raise ValueError(f"Säkerhetsfel: Referens till en skyddad fil ('{marker}') är blockerad.")
+
     clean_cmd = cmd_str.replace("'", "").replace('"', "").replace('\\', "")
     tokens = re.split(r'[\s/;|&:]+', clean_cmd)
 
@@ -185,7 +241,8 @@ async def run_subprocess_command(cmd_str: str, cwd: str = PROJECT_ROOT, timeout:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=cwd,
-            env=build_sandbox_env()
+            env=build_sandbox_env(),
+            **_sandbox_subprocess_kwargs()
         )
         stdout, stderr = await _wait_with_timeout(proc, timeout)
         exit_code = proc.returncode
@@ -216,7 +273,8 @@ async def run_subprocess_exec(args_list, cwd: str = PROJECT_ROOT, timeout: int =
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=cwd,
-            env=build_sandbox_env(extra_env)
+            env=build_sandbox_env(extra_env),
+            **_sandbox_subprocess_kwargs()
         )
         stdout, stderr = await _wait_with_timeout(proc, timeout)
         exit_code = proc.returncode
@@ -260,19 +318,22 @@ async def execute_codex_code_impl(args: dict) -> dict:
             "output": f"Säkerhetsfel: {str(val_err)}"
         }
         
+    os.makedirs(SHELL_SANDBOX_DIR, exist_ok=True)
+
     if language == "python":
         # Create temp folder inside backend/cache/ if it doesn't exist
         cache_dir = os.path.join(PROJECT_ROOT, "backend", "cache")
         os.makedirs(cache_dir, exist_ok=True)
         temp_file = os.path.join(cache_dir, f"temp_codex_{uuid.uuid4().hex}.py")
-        
+
         try:
             with open(temp_file, "w", encoding="utf-8") as f:
                 f.write(code)
-            
-            # Execute python script
+
+            # Execute python script from the isolated sandbox dir, not PROJECT_ROOT,
+            # so relative-path filesystem access can't reach keys.db/.env by accident.
             cmd = f"{sys.executable} {temp_file}"
-            res = await run_subprocess_command(cmd)
+            res = await run_subprocess_command(cmd, cwd=SHELL_SANDBOX_DIR)
             return {
                 "message": "Körde Python-kod lokalt på värdmaskinen.",
                 "exit_code": res["exit_code"],
@@ -287,8 +348,8 @@ async def execute_codex_code_impl(args: dict) -> dict:
                 except Exception:
                     pass
     else:
-        # Run shell command directly
-        res = await run_subprocess_command(code)
+        # Run shell command directly, isolated from the real project tree.
+        res = await run_subprocess_command(code, cwd=SHELL_SANDBOX_DIR)
         return {
             "message": "Körde kommandot i lokalt skal.",
             "exit_code": res["exit_code"],
@@ -375,12 +436,7 @@ async def codex_git_ops_impl(args: dict) -> dict:
 async def call_gemini_api(prompt: str, system_instruction: str = "") -> str:
     """Helper to query the official Google Gemini API using local settings credentials."""
     # Fetch API key from db
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_gemini_apikey'")
-        row = cursor.fetchone()
-        
-    api_key = row[0].strip() if row else ""
+    api_key = get_api_key('freja_gemini_apikey') or ""
     if not api_key:
         raise Exception("Gemini API-nyckel saknas i databasen.")
         

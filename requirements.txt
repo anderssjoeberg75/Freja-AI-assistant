@@ -6,3 +6,4 @@ httpx>=0.25.0,<1
 playwright
 duckduckgo_search>=6.0.0
 garminconnect
+cryptography>=41.0,<44

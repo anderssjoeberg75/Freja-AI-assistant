@@ -3,7 +3,8 @@
 import re
 import json
 from fastapi import APIRouter, HTTPException, Request
-from backend.database import get_db_connection
+from backend.database import get_db_connection, get_api_key, set_api_key
+from backend.crypto_utils import decrypt_value
 
 router = APIRouter()
 
@@ -56,25 +57,22 @@ async def delete_learned_entry(knowledge_id: int):
 async def get_learning_credentials():
     """Lists all domains configured with login credentials (passwords masked)."""
     try:
+        # This is a prefix search across many key_names, so it can't go through the
+        # single-key get_api_key() helper; decrypt each returned value directly.
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT key_name, key_value FROM api_keys WHERE key_name LIKE 'login_domain_%'")
             rows = cursor.fetchall()
-            
+
         credentials = []
         for row in rows:
             domain_key = row[0]
-            domain_name = row[1]
+            domain_name = decrypt_value(row[1]).strip() if row[1] else row[1]
             clean_domain = domain_key.replace("login_domain_", "")
-            
+
             # Fetch user for this domain
             user_key = f"login_user_{clean_domain}"
-            with get_db_connection() as conn2:
-                cur2 = conn2.cursor()
-                cur2.execute("SELECT key_value FROM api_keys WHERE key_name = ?", (user_key,))
-                user_row = cur2.fetchone()
-                
-            username = user_row[0] if user_row else ""
+            username = get_api_key(user_key) or ""
             credentials.append({
                 "domain": domain_name,
                 "clean_domain": clean_domain,
@@ -103,23 +101,11 @@ async def post_learning_credentials(request: Request):
         domain_key = f"login_domain_{clean_domain}"
         user_key = f"login_user_{clean_domain}"
         pass_key = f"login_pass_{clean_domain}"
-        
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                INSERT INTO api_keys (key_name, key_value) VALUES (?, ?)
-                ON CONFLICT(key_name) DO UPDATE SET key_value = excluded.key_value
-            ''', (domain_key, domain))
-            cursor.execute('''
-                INSERT INTO api_keys (key_name, key_value) VALUES (?, ?)
-                ON CONFLICT(key_name) DO UPDATE SET key_value = excluded.key_value
-            ''', (user_key, username))
-            cursor.execute('''
-                INSERT INTO api_keys (key_name, key_value) VALUES (?, ?)
-                ON CONFLICT(key_name) DO UPDATE SET key_value = excluded.key_value
-            ''', (pass_key, password))
-            conn.commit()
-            
+
+        set_api_key(domain_key, domain)
+        set_api_key(user_key, username)
+        set_api_key(pass_key, password)
+
         return {"status": "success", "message": f"Autentiseringsuppgifter för {domain} sparade."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

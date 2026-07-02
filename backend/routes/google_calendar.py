@@ -6,25 +6,16 @@ import time
 from fastapi import APIRouter, HTTPException, Query, Request, BackgroundTasks
 from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
-from backend.database import get_db_connection
+from backend.database import get_db_connection, get_api_key, set_api_key
 from backend.services.sync_status import set_sync_state
 
 router = APIRouter()
 
 async def get_google_access_token():
     """Tries to get a fresh access token from Google API using the stored refresh token."""
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_google_calendar_client_id'")
-        row_id = cursor.fetchone()
-        cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_google_calendar_client_secret'")
-        row_secret = cursor.fetchone()
-        cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_google_calendar_refresh_token'")
-        row_refresh = cursor.fetchone()
-
-    client_id = row_id[0].strip() if row_id else ""
-    client_secret = row_secret[0].strip() if row_secret else ""
-    refresh_token = row_refresh[0].strip() if row_refresh else ""
+    client_id = get_api_key('freja_google_calendar_client_id') or ""
+    client_secret = get_api_key('freja_google_calendar_client_secret') or ""
+    refresh_token = get_api_key('freja_google_calendar_refresh_token') or ""
 
     if not client_id or not refresh_token:
         return None
@@ -517,28 +508,12 @@ async def post_google_calendar_exchange(body: GoogleExchangeRequest):
             raise Exception("Inget refresh-token returnerades från Google. Om du redan har kopplat kontot en gång, gå till ditt Google-konto och ta bort behörigheterna för appen innan du ansluter igen för att tvinga Google att visa samtycke och skicka ett refresh-token.")
             
         # Save client_id and refresh_token to the database
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                INSERT INTO api_keys (key_name, key_value)
-                VALUES (?, ?)
-                ON CONFLICT(key_name) DO UPDATE SET key_value = excluded.key_value
-            ''', ('freja_google_calendar_client_id', client_id))
-            cursor.execute('''
-                INSERT INTO api_keys (key_name, key_value)
-                VALUES (?, ?)
-                ON CONFLICT(key_name) DO UPDATE SET key_value = excluded.key_value
-            ''', ('freja_google_calendar_refresh_token', new_refresh_token))
-            
-            # Since we are using PKCE (Desktop app), there is no client secret. We clear the stored secret.
-            cursor.execute('''
-                INSERT INTO api_keys (key_name, key_value)
-                VALUES (?, ?)
-                ON CONFLICT(key_name) DO UPDATE SET key_value = excluded.key_value
-            ''', ('freja_google_calendar_client_secret', ''))
-            
-            conn.commit()
-            
+        set_api_key('freja_google_calendar_client_id', client_id)
+        set_api_key('freja_google_calendar_refresh_token', new_refresh_token)
+
+        # Since we are using PKCE (Desktop app), there is no client secret. We clear the stored secret.
+        set_api_key('freja_google_calendar_client_secret', '')
+
         return {"status": "success", "message": "Google Calendar-konto har kopplats."}
         
     except Exception as e:

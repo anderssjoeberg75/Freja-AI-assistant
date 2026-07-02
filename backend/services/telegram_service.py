@@ -6,7 +6,7 @@ import os
 import re
 import datetime
 import httpx
-from backend.database import get_db_connection
+from backend.database import get_db_connection, get_api_key
 from backend.config import PROJECT_ROOT
 from backend.services.tool_registry import TOOL_DECLARATIONS, execute_tool
 if os.name == 'nt':
@@ -25,18 +25,10 @@ def get_telegram_config():
     chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
     
     try:
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            if not token:
-                cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_telegram_bot_token'")
-                row = cursor.fetchone()
-                if row:
-                    token = row[0].strip()
-            if not chat_id:
-                cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_telegram_chat_id'")
-                row = cursor.fetchone()
-                if row:
-                    chat_id = row[0].strip()
+        if not token:
+            token = get_api_key('freja_telegram_bot_token') or token
+        if not chat_id:
+            chat_id = get_api_key('freja_telegram_chat_id') or chat_id
     except Exception as e:
         print(f"[TELEGRAM] Config fetch error: {e}")
         
@@ -45,11 +37,7 @@ def get_telegram_config():
 def get_gemini_api_key():
     """Retrieves the Gemini API key from the database."""
     try:
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_gemini_apikey'")
-            row = cursor.fetchone()
-        return row[0].strip() if row else ""
+        return get_api_key('freja_gemini_apikey') or ""
     except Exception:
         return ""
 

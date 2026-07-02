@@ -1,16 +1,12 @@
 import pytest
 from fastapi.testclient import TestClient
 from server import app
-from backend.database import get_db_connection
+from backend.database import get_api_key
 
 @pytest.fixture
 def db_token():
     # Retrieve the actual token stored in the database to use in the tests
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_access_token'")
-        row = cursor.fetchone()
-        return row[0] if (row and row[0]) else "freja1234"
+    return get_api_key('freja_access_token') or "freja1234"
 
 def test_api_auth_no_token():
     client = TestClient(app)
@@ -41,3 +37,26 @@ def test_api_auth_bypass_google_calendar_callback():
     # The Google Calendar OAuth callback path should bypass and succeed (or at least not return 401)
     response = client.get("/api/google_calendar/callback?code=mock_code")
     assert response.status_code != 401
+
+
+def test_api_auth_lockout_after_repeated_failures(db_token):
+    from backend.middleware import auth as auth_module
+
+    client = TestClient(app)
+    # Isolate this test's IP bucket so leftover failures from other tests in this
+    # module (which share TestClient's synthetic "testclient" host) don't interfere.
+    auth_module._failed_attempts.pop("testclient", None)
+    auth_module._locked_until.pop("testclient", None)
+
+    try:
+        for _ in range(auth_module.FAILED_ATTEMPT_THRESHOLD):
+            response = client.get("/api/keys", headers={"X-Freja-Token": "wrong_token"})
+            assert response.status_code == 401
+
+        # The next request, even with the correct token, should now be rate-limited.
+        response = client.get("/api/keys", headers={"X-Freja-Token": db_token})
+        assert response.status_code == 429
+        assert "Retry-After" in response.headers
+    finally:
+        auth_module._failed_attempts.pop("testclient", None)
+        auth_module._locked_until.pop("testclient", None)

@@ -4,7 +4,7 @@ import httpx
 import hashlib
 import os
 from fastapi import APIRouter, HTTPException, Request, Response
-from backend.database import get_db_connection
+from backend.database import get_api_key
 from backend.config import PROJECT_ROOT
 
 router = APIRouter()
@@ -39,12 +39,7 @@ async def proxy_elevenlabs_tts(voice_id: str, request: Request):
             print(f"[ELEVENLABS] Failed to read cache file: {e}")
 
     # Retrieve API key from SQLite keys.db
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_eleven_apikey'")
-        row = cursor.fetchone()
-
-    api_key = row[0].strip() if row else ""
+    api_key = get_api_key('freja_eleven_apikey') or ""
     if not api_key:
         raise HTTPException(status_code=400, detail="ElevenLabs API key is not configured on the server.")
 
