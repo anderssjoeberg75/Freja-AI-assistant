@@ -32,15 +32,8 @@ def set_sync_state(provider: str, state: str, error: str = ""):
             now_dt = datetime.datetime.now()
             last_sync_times[provider] = now_dt.strftime("%H:%M:%S")
             try:
-                from backend.database import get_db_connection
-                with get_db_connection() as conn:
-                    cursor = conn.cursor()
-                    cursor.execute('''
-                        INSERT INTO api_keys (key_name, key_value)
-                        VALUES (?, ?)
-                        ON CONFLICT(key_name) DO UPDATE SET key_value = excluded.key_value
-                    ''', (f"last_sync_{provider}", now_dt.strftime("%Y-%m-%d %H:%M:%S")))
-                    conn.commit()
+                from backend.database import set_api_key
+                set_api_key(f"last_sync_{provider}", now_dt.strftime("%Y-%m-%d %H:%M:%S"))
             except Exception as e:
                 print(f"[sync_status] Failed to persist sync time for {provider}: {e}")
 

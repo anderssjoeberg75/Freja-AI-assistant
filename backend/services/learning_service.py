@@ -10,7 +10,7 @@ import asyncio
 from pathlib import Path
 from playwright.async_api import async_playwright
 from backend.config import PROJECT_ROOT
-from backend.database import get_db_connection
+from backend.database import get_db_connection, get_api_key
 from backend.services.search_service import perform_search
 
 ABORT_LEARNING = False
@@ -33,26 +33,14 @@ def get_domain_credentials(domain: str):
     clean_domain = re.sub(r'[^a-zA-Z0-9]', '_', domain).lower()
     username_key = f"login_user_{clean_domain}"
     password_key = f"login_pass_{clean_domain}"
-    
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT key_value FROM api_keys WHERE key_name = ?", (username_key,))
-        row_user = cursor.fetchone()
-        cursor.execute("SELECT key_value FROM api_keys WHERE key_name = ?", (password_key,))
-        row_pass = cursor.fetchone()
-        
-    user = row_user[0].strip() if row_user else None
-    pwd = row_pass[0].strip() if row_pass else None
+
+    user = get_api_key(username_key)
+    pwd = get_api_key(password_key)
     return user, pwd
 
 async def call_gemini_learning_api(prompt: str, system_instruction: str = "") -> str:
     """Helper to query official Gemini API for learning synthesis."""
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_gemini_apikey'")
-        row = cursor.fetchone()
-        
-    api_key = row[0].strip() if row else ""
+    api_key = get_api_key('freja_gemini_apikey') or ""
     if not api_key:
         raise Exception("Gemini API-nyckel saknas i databasen. Konfigurera den i Inställningar.")
         

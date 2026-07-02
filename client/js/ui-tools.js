@@ -178,9 +178,17 @@ FrejaUIController.prototype.handleToolCall = async function(call) {
         return responseData;
     };
     
+    // `git push` publishes to a remote and is hard to reverse, unlike the other
+    // codex_git_ops actions (status/log/clone/checkout/commit stay local). It must
+    // always be re-confirmed, even if the user previously chose "Tillåt alltid" for
+    // Git-operationer in general. The backend enforces this independently too
+    // (see is_tool_execution_authorized in backend/routes/tools.py) since the client
+    // check is only a UX convenience, not the authority.
+    const isGitPush = call.name === "codex_git_ops" && (call.args?.action || "").toLowerCase() === "push";
+
     // Check permission (either true/false from localStorage)
-    const isAllowed = localStorage.getItem(tool.permissionKey) === "true";
-    
+    const isAllowed = !isGitPush && localStorage.getItem(tool.permissionKey) === "true";
+
     if (isAllowed) {
         this.writeLog(`EXECUTING TOOL: ${tool.displayName}`, "sys");
         try {
@@ -197,7 +205,7 @@ FrejaUIController.prototype.handleToolCall = async function(call) {
         
         // We return a Promise that resolves when the user allows or denies
         const allowed = await new Promise((resolve) => {
-            this.appendPermissionRequest(tool, call.args, resolve);
+            this.appendPermissionRequest(tool, call.args, resolve, isGitPush);
         });
         
         if (allowed) {
@@ -217,13 +225,21 @@ FrejaUIController.prototype.handleToolCall = async function(call) {
     }
 };
 
-FrejaUIController.prototype.appendPermissionRequest = function(tool, args, resolvePromise) {
+FrejaUIController.prototype.appendPermissionRequest = function(tool, args, resolvePromise, isGitPush) {
     const chatHistory = document.getElementById('chat-history');
     const msgDiv = document.createElement('div');
     msgDiv.className = 'chat-msg system-msg permission-request-msg';
-    
+
     const argsStr = JSON.stringify(args, null, 2);
-    
+
+    const warningText = isGitPush
+        ? `FREJA vill köra <strong>git push</strong> och publicera lokala commits till fjärrarkivet. Detta går inte enkelt att ångra och kräver alltid bekräftelse, oavsett tidigare inställningar för Git-operationer.`
+        : `FREJA begär åtkomst till verktyget <strong>${tool.displayName || tool.name}</strong> för att slutföra din begäran.`;
+
+    // git push can never be permanently allowed from this dialog - only "allow once" or "deny".
+    const allowAlwaysButton = isGitPush ? '' :
+        `<button class="hud-btn btn-secondary btn-allow-always" style="font-size: 10px; padding: 4px 10px;">Tillåt alltid</button>`;
+
     msgDiv.innerHTML = `
         <div class="msg-sender">[SÄKERHETS-GATEWAY]</div>
         <div class="msg-content glass-morphic" style="border-color: #fdd663; padding: 12px; margin-top: 5px; background: rgba(25, 20, 10, 0.45);">
@@ -231,40 +247,42 @@ FrejaUIController.prototype.appendPermissionRequest = function(tool, args, resol
                 <i class="fa-solid fa-shield-halved"></i> BEHÖRIGHETSBEGÄRAN KRÄVS
             </h4>
             <p style="font-size: 11px; margin: 6px 0; line-height: 1.4; color: #f8f9fa;">
-                FREJA begär åtkomst till verktyget <strong>${tool.displayName || tool.name}</strong> för att slutföra din begäran.
+                ${warningText}
             </p>
             <div style="background: rgba(0,0,0,0.6); border: 1px solid rgba(253, 214, 99, 0.2); border-radius: 4px; padding: 6px; font-family: var(--font-mono); font-size: 10px; color: #fdd663; margin-bottom: 10px; white-space: pre-wrap;">Argument: ${argsStr}</div>
             <div style="display: flex; gap: 8px;">
                 <button class="hud-btn btn-primary btn-allow-once" style="background: #fdd663; border-color: #fdd663; color: #000; font-size: 10px; padding: 4px 10px;">Tillåt denna gång</button>
-                <button class="hud-btn btn-secondary btn-allow-always" style="font-size: 10px; padding: 4px 10px;">Tillåt alltid</button>
+                ${allowAlwaysButton}
                 <button class="hud-btn btn-secondary btn-deny" style="border-color: #ff3b30; color: #ff3b30; font-size: 10px; padding: 4px 10px;">Neka</button>
             </div>
         </div>
     `;
-    
+
     chatHistory.appendChild(msgDiv);
     chatHistory.scrollTop = chatHistory.scrollHeight;
-    
+
     // Speak warning notification sound or synthesize a voice warning
     soundSynth.playNotify();
-    
+
     const self = this;
-    
+
     // Button Event Listeners
     const btnAllowOnce = msgDiv.querySelector('.btn-allow-once');
     const btnAllowAlways = msgDiv.querySelector('.btn-allow-always');
     const btnDeny = msgDiv.querySelector('.btn-deny');
-    
+
     btnAllowOnce.addEventListener('click', async () => {
         soundSynth.playClick();
         msgDiv.remove();
         try {
             // Register a short-lived server-side grant so the backend (the authoritative
             // enforcement point) allows this single upcoming /api/tools/execute call.
+            // Args are included so the backend can namespace the grant per git action
+            // (a grant for `git log` must not also authorize a subsequent `git push`).
             await fetch('/api/tools/grant_once', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: tool.name })
+                body: JSON.stringify({ name: tool.name, args })
             });
         } catch (err) {
             console.error('Failed to register one-time tool grant:', err);
@@ -273,7 +291,7 @@ FrejaUIController.prototype.appendPermissionRequest = function(tool, args, resol
         resolvePromise(true);
     });
 
-    btnAllowAlways.addEventListener('click', async () => {
+    if (btnAllowAlways) btnAllowAlways.addEventListener('click', async () => {
         soundSynth.playClick();
         msgDiv.remove();
         // Save always allowed locally (fast UI read) and persist server-side, since the

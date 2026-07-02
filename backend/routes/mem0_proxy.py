@@ -2,16 +2,12 @@
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request, Response, Query
-from backend.database import get_db_connection
+from backend.database import get_api_key
 
 router = APIRouter()
 
 def get_mem0_api_key():
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_mem0_apikey'")
-        row = cursor.fetchone()
-    return row[0].strip() if row else ""
+    return get_api_key('freja_mem0_apikey') or ""
 
 @router.post("/api/mem0/add")
 async def proxy_mem0_add(request: Request):

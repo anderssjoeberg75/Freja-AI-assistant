@@ -1,7 +1,7 @@
 """Telegram integration API route router using FastAPI."""
 
 from fastapi import APIRouter, HTTPException, Request
-from backend.database import get_db_connection
+from backend.database import set_api_key
 from backend.services.telegram_service import get_telegram_config, recent_messages
 
 router = APIRouter()
@@ -30,25 +30,11 @@ async def post_telegram_config(request: Request):
         data = await request.json()
         token = data.get("token", "").strip()
         chat_id = data.get("chat_id", "").strip()
-        
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            
-            # Insert or update keys
-            cursor.execute('''
-                INSERT INTO api_keys (key_name, key_value)
-                VALUES ('freja_telegram_bot_token', ?)
-                ON CONFLICT(key_name) DO UPDATE SET key_value = excluded.key_value
-            ''', (token,))
-            
-            cursor.execute('''
-                INSERT INTO api_keys (key_name, key_value)
-                VALUES ('freja_telegram_chat_id', ?)
-                ON CONFLICT(key_name) DO UPDATE SET key_value = excluded.key_value
-            ''', (chat_id,))
-            
-            conn.commit()
-        
+
+        # Insert or update keys
+        set_api_key('freja_telegram_bot_token', token)
+        set_api_key('freja_telegram_chat_id', chat_id)
+
         return {"status": "success", "message": "Telegram inställningar sparade."}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
