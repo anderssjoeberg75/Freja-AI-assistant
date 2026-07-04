@@ -76,10 +76,17 @@ FrejaUIController.prototype.bindEvents = function() {
         }, 1000);
     };
     
-    if (initAudioBtn) initAudioBtn.addEventListener('click', removeShield);
-    if (shield) shield.addEventListener('click', (e) => {
-        if (e.target === shield || e.target.closest('#btn-initialize-audio')) removeShield();
-    });
+    if (initAudioBtn) {
+        initAudioBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            removeShield();
+        });
+    }
+    if (shield) {
+        shield.addEventListener('click', (e) => {
+            removeShield();
+        });
+    }
     
     // Voice Microphone Activation Toggle Button
     const btnMic = document.getElementById('btn-mic');
@@ -1666,40 +1673,6 @@ FrejaUIController.prototype.bindEvents = function() {
         btnRefreshTelegram.addEventListener('click', () => {
             soundSynth.playClick();
             self.loadTelegramDashboardUI();
-        });
-    }
-
-    const btnSubmitLogin = document.getElementById('btn-submit-login');
-    if (btnSubmitLogin) {
-        btnSubmitLogin.addEventListener('click', async () => {
-            soundSynth.playClick();
-            const tokenInput = document.getElementById('input-login-token').value.trim();
-            const errDiv = document.getElementById('login-error-msg');
-            if (!tokenInput) return;
-
-            localStorage.setItem('freja_access_token', tokenInput);
-            const inputAccessToken = document.getElementById('input-access-token');
-            if (inputAccessToken) inputAccessToken.value = tokenInput;
-
-            try {
-                const res = await fetch('/api/keys');
-                if (res.ok) {
-                    if (errDiv) errDiv.style.display = 'none';
-                    const modalAuth = document.getElementById('modal-auth-login');
-                    if (modalAuth) modalAuth.classList.remove('active');
-                    self.writeLog("BACKEND SESSION VERIFIED AND CONNECTED", "sys");
-                    soundSynth.playNotify();
-                    if (self.gemini && typeof self.gemini.loadApiKey === 'function') {
-                        await self.gemini.loadApiKey();
-                    }
-                } else {
-                    if (errDiv) errDiv.style.display = 'block';
-                    soundSynth.playError();
-                }
-            } catch (e) {
-                if (errDiv) errDiv.style.display = 'block';
-                soundSynth.playError();
-            }
         });
     }
 };
