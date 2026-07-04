@@ -85,25 +85,28 @@ app.include_router(tools_router)
 app.include_router(trainer_router)
 app.include_router(learning_router)
 
-# Serve index.html specifically at "/"
+# Paths
+ADMIN_HTML = os.path.join(PROJECT_ROOT, "backend", "admin", "admin.html")
 CLIENT_DIR = os.path.join(PROJECT_ROOT, "client")
 
+# Serve Backend Admin GUI at "/" and "/admin"
 @app.get("/")
-async def read_index():
-    index_path = os.path.join(CLIENT_DIR, "index.html")
-    if os.path.exists(index_path):
-        return FileResponse(index_path)
-    return {"detail": "Client index.html not found. Backend is running in API-only mode."}
+@app.get("/admin")
+async def read_admin():
+    if os.path.exists(ADMIN_HTML):
+        return FileResponse(ADMIN_HTML)
+    return {"detail": "Backend admin.html not found."}
 
-# Serve all other static files (app.js, style.css, models, etc.) from client root if exists
+# Mount Client static files at "/client"
 if os.path.exists(CLIENT_DIR):
-    app.mount("/", StaticFiles(directory=CLIENT_DIR), name="static")
+    app.mount("/client", StaticFiles(directory=CLIENT_DIR, html=True), name="client_static")
 
 def run_server():
     """Start the Uvicorn ASGI server."""
     print("===========================================================")
-    print(f"  F.R.E.J.A. Neural Server running on http://localhost:{PORT}")
-    print("  API keys database active (FastAPI Mode)")
+    print(f"  F.R.E.J.A. Neural Backend Control Panel: http://localhost:{PORT}")
+    print(f"  Client HUD (Bundled Mode): http://localhost:{PORT}/client/")
+    print("  API keys database & security active (FastAPI Mode)")
     print("===========================================================")
     # reload=True forces SelectorEventLoop on Windows, which doesn't support subprocesses (needed for Playwright).
     # Thus, reload is disabled on Windows.

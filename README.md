@@ -84,50 +84,38 @@ F.R.E.J.A. requires **Python 3.10+** and **Git** installed on your system. Follo
 
 ## 🌐 Client-Backend Architecture
 
-F.R.E.J.A. is split into a **Frontend Client** and a **FastAPI Backend Server**. This architecture allows you to run the backend on a remote server/VPS while running the client locally or on a separate static web hosting provider.
-
-### CORS Enabled
-The backend includes Cross-Origin Resource Sharing (CORS) middleware to allow client connections from different hosts, ports, or domains.
+F.R.E.J.A. is strictly divided into a **Frontend Client HUD** and a **FastAPI Backend Server & Admin Control Panel**:
+- **Backend Admin GUI (`http://localhost:8000/`)**: Served by `server.py`. Contains strictly server-side configurations, API key database management, integration credentials (Telegram, Garmin, Strava, Withings, Google Calendar), backend tool permission toggles, and live server status.
+- **Client HUD (`http://localhost:5000/` or `http://localhost:8000/client/`)**: Holographic AI Assistant interface containing voice controls, speech synthesis, optics camera scanner, Arc Reactor visualizer, personal health & fitness dashboards, and neural memory vault.
 
 ---
 
 ## 🚀 Running the Project
 
-Because F.R.E.J.A. accesses your webcam, microphone, and external APIs, you must run the client via a web server (rather than opening the `index.html` file directly). This guarantees that browser security protocols allow media capturing streams to initialize.
+### 1. Start the Backend Server & Admin Panel
+Ensure your virtual environment is active, then run:
+```bash
+python server.py
+```
+- Open **Backend Admin Control Panel**: `http://localhost:8000/`
 
-### Option A: Integrated Local Setup (Simultaneous)
+### 2. Start the Client Assistant HUD
+You can run the Client HUD standalone or via bundled mode:
 
-If you run everything on the same machine, the backend server can automatically serve the client files from the `client/` subdirectory.
+* **Standalone Mode (Recommended):**
+  Run the dedicated client launcher:
+  ```bash
+  python run_client.py
+  ```
+  Open **Client HUD Interface**: `http://localhost:5000/`
 
-1. **Start the Backend Server:**
-   Ensure your virtual environment is active, then run:
-   ```bash
-   python server.py
-   ```
-2. **Access the HUD Interface:**
-   Navigate your browser to `http://localhost:8000/`.
+* **Bundled Mode:**
+  Access the client directly from the backend server at: `http://localhost:8000/client/`
 
-### Option B: Separated Setup (Remote Backend + Static Client)
-
-If you run the backend on a server and the client elsewhere:
-
-1. **Deploy & Start the Backend Server:**
-   Deploy the code to your server and start the backend:
-   ```bash
-   python server.py
-   ```
-   Ensure port `8000` is open or behind a reverse proxy.
-
-2. **Serve the Client (Frontend):**
-   Serve the contents of the `client/` directory using any static web server (Nginx, Apache, or a simple python script):
-   ```bash
-   python -m http.server 5000 --directory client
-   ```
-3. **Connect the Client to the Backend:**
-   - Open your browser to the client URL (e.g. `http://localhost:5000/`).
-   - Click the **gear icon** (Settings) in the top-right header.
-   - Enter your backend URL (e.g., `http://your-server-ip:8000` or `https://your-domain.com`) in the **Backend API URL** field and save settings.
-   - The client will automatically connect and authenticate using your security token.
+3. **Connect Client to Backend:**
+   - In the Client HUD, click the **gear icon** (Settings).
+   - Enter your **Backend API URL** (e.g. `http://localhost:8000`) and **Freja Access Token**.
+   - Use the **Backend Admin Portal** link in settings to manage server-side API keys and integration settings.
 
 ---
 

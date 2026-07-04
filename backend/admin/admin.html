@@ -1,0 +1,766 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>F.R.E.J.A. // Backend Admin Portal</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Orbitron:wght@400;600;800;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+    <!-- FontAwesome icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        :root {
+            --color-bg: #070913;
+            --color-surface: #0e1322;
+            --color-surface-card: rgba(16, 23, 42, 0.7);
+            --color-border: #1e293b;
+            --color-border-glow: #00f0ff44;
+            --color-primary: #00f0ff;
+            --color-primary-dark: #0088aa;
+            --color-accent: #7000ff;
+            --color-success: #00ff66;
+            --color-warning: #ffaa00;
+            --color-error: #ff3366;
+            --color-text: #e2e8f0;
+            --color-text-muted: #94a3b8;
+            --font-main: 'Inter', -apple-system, sans-serif;
+            --font-display: 'Orbitron', sans-serif;
+            --font-mono: 'Share Tech Mono', monospace;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--color-bg);
+            color: var(--color-text);
+            font-family: var(--font-main);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            background-image: 
+                radial-gradient(circle at 10% 20%, rgba(112, 0, 255, 0.08) 0%, transparent 40%),
+                radial-gradient(circle at 90% 80%, rgba(0, 240, 255, 0.08) 0%, transparent 40%);
+            background-attachment: fixed;
+        }
+
+        /* Scanline & Grid overlay */
+        .scanlines {
+            position: fixed;
+            top: 0; left: 0; width: 100vw; height: 100vh;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%);
+            background-size: 100% 4px;
+            z-index: 999;
+            pointer-events: none;
+            opacity: 0.4;
+        }
+
+        header {
+            background: rgba(14, 19, 34, 0.85);
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--color-border);
+            padding: 16px 32px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header-logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .logo-badge {
+            font-family: var(--font-display);
+            font-size: 18px;
+            font-weight: 800;
+            letter-spacing: 2px;
+            color: var(--color-primary);
+            text-shadow: 0 0 10px rgba(0, 240, 255, 0.4);
+        }
+
+        .tag-backend {
+            background: rgba(112, 0, 255, 0.2);
+            border: 1px solid var(--color-accent);
+            color: #d8b4fe;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-family: var(--font-mono);
+            font-size: 11px;
+            letter-spacing: 1px;
+        }
+
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .btn {
+            background: var(--color-surface);
+            border: 1px solid var(--color-border);
+            color: var(--color-text);
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-family: var(--font-main);
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.2s ease;
+            text-decoration: none;
+        }
+
+        .btn:hover {
+            border-color: var(--color-primary);
+            color: var(--color-primary);
+            box-shadow: 0 0 10px rgba(0, 240, 255, 0.2);
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #0088aa, #00f0ff);
+            color: #000;
+            border: none;
+            font-weight: 600;
+        }
+
+        .btn-primary:hover {
+            background: linear-gradient(135deg, #00aacc, #55f5ff);
+            color: #000;
+            box-shadow: 0 0 15px rgba(0, 240, 255, 0.4);
+        }
+
+        main {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 32px;
+            width: 100%;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        .status-bar {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 16px;
+        }
+
+        .status-card {
+            background: var(--color-surface-card);
+            backdrop-filter: blur(8px);
+            border: 1px solid var(--color-border);
+            border-radius: 8px;
+            padding: 16px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .status-icon {
+            width: 44px;
+            height: 44px;
+            border-radius: 8px;
+            background: rgba(0, 240, 255, 0.1);
+            border: 1px solid rgba(0, 240, 255, 0.2);
+            color: var(--color-primary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+        }
+
+        .status-info {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .status-label {
+            font-size: 11px;
+            color: var(--color-text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .status-val {
+            font-family: var(--font-mono);
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--color-text);
+        }
+
+        .grid-layout {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+        }
+
+        @media (max-width: 1024px) {
+            .grid-layout {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .panel {
+            background: var(--color-surface-card);
+            backdrop-filter: blur(8px);
+            border: 1px solid var(--color-border);
+            border-radius: 12px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .panel-header {
+            padding: 16px 20px;
+            background: rgba(14, 19, 34, 0.6);
+            border-bottom: 1px solid var(--color-border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .panel-title {
+            font-family: var(--font-display);
+            font-size: 13px;
+            letter-spacing: 1.5px;
+            color: var(--color-primary);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .panel-body {
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        label {
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--color-text);
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .label-hint {
+            font-size: 11px;
+            color: var(--color-text-muted);
+            font-weight: normal;
+        }
+
+        .input-wrapper {
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+
+        .input-control {
+            width: 100%;
+            background: rgba(7, 9, 19, 0.7);
+            border: 1px solid var(--color-border);
+            border-radius: 6px;
+            padding: 10px 14px;
+            color: var(--color-text);
+            font-family: var(--font-mono);
+            font-size: 13px;
+            transition: border-color 0.2s;
+        }
+
+        .input-control:focus {
+            outline: none;
+            border-color: var(--color-primary);
+            box-shadow: 0 0 8px rgba(0, 240, 255, 0.2);
+        }
+
+        .toggle-btn {
+            position: absolute;
+            right: 10px;
+            background: none;
+            border: none;
+            color: var(--color-text-muted);
+            cursor: pointer;
+            padding: 4px;
+        }
+
+        .toggle-btn:hover {
+            color: var(--color-text);
+        }
+
+        /* Toggles grid */
+        .tools-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 12px;
+        }
+
+        .tool-card {
+            background: rgba(7, 9, 19, 0.5);
+            border: 1px solid var(--color-border);
+            border-radius: 6px;
+            padding: 10px 14px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .tool-name {
+            font-size: 12px;
+            font-family: var(--font-mono);
+            color: var(--color-text);
+        }
+
+        /* Modern Switch */
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 38px;
+            height: 20px;
+        }
+
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: #1e293b;
+            transition: .3s;
+            border-radius: 20px;
+            border: 1px solid var(--color-border);
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 14px;
+            width: 14px;
+            left: 2px;
+            bottom: 2px;
+            background-color: #94a3b8;
+            transition: .3s;
+            border-radius: 50%;
+        }
+
+        input:checked + .slider {
+            background-color: rgba(0, 240, 255, 0.2);
+            border-color: var(--color-primary);
+        }
+
+        input:checked + .slider:before {
+            transform: translateX(18px);
+            background-color: var(--color-primary);
+            box-shadow: 0 0 8px var(--color-primary);
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            background: var(--color-surface);
+            border: 1px solid var(--color-primary);
+            color: var(--color-text);
+            padding: 12px 20px;
+            border-radius: 8px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 13px;
+            z-index: 1000;
+            opacity: 0;
+            transform: translateY(20px);
+            transition: all 0.3s ease;
+            pointer-events: none;
+        }
+
+        .toast.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .divider {
+            border: 0;
+            height: 1px;
+            background: var(--color-border);
+            margin: 8px 0;
+        }
+
+        footer {
+            padding: 20px 32px;
+            border-top: 1px solid var(--color-border);
+            text-align: center;
+            font-size: 12px;
+            color: var(--color-text-muted);
+            font-family: var(--font-mono);
+        }
+    </style>
+</head>
+<body>
+    <div class="scanlines"></div>
+
+    <header>
+        <div class="header-logo">
+            <span class="logo-badge">[F.R.E.J.A.]</span>
+            <span class="tag-backend"><i class="fa-solid fa-server"></i> BACKEND CONTROL CENTER</span>
+        </div>
+        <div class="header-actions">
+            <button id="btn-save-all" class="btn btn-primary">
+                <i class="fa-solid fa-floppy-disk"></i> SPARA ALLA INSTÄLLNINGAR
+            </button>
+            <a href="/client/" target="_blank" class="btn">
+                <i class="fa-solid fa-up-right-from-square"></i> ÖPPNA KLIENT HUD
+            </a>
+        </div>
+    </header>
+
+    <main>
+        <!-- STATUS CARDS -->
+        <div class="status-bar">
+            <div class="status-card">
+                <div class="status-icon"><i class="fa-solid fa-heart-pulse"></i></div>
+                <div class="status-info">
+                    <span class="status-label">SERVER STATUS</span>
+                    <span class="status-val" id="val-server-status" style="color: var(--color-success);">ONLINE (FastAPI)</span>
+                </div>
+            </div>
+            <div class="status-card">
+                <div class="status-icon"><i class="fa-solid fa-database"></i></div>
+                <div class="status-info">
+                    <span class="status-label">DATABAS & KEYS</span>
+                    <span class="status-val" id="val-db-status">WAL Mode (SQLite)</span>
+                </div>
+            </div>
+            <div class="status-card">
+                <div class="status-icon"><i class="fa-brands fa-telegram"></i></div>
+                <div class="status-info">
+                    <span class="status-label">TELEGRAM WORKER</span>
+                    <span class="status-val" id="val-telegram-status">KONTROLLERAR...</span>
+                </div>
+            </div>
+            <div class="status-card">
+                <div class="status-icon"><i class="fa-solid fa-shield-halved"></i></div>
+                <div class="status-info">
+                    <span class="status-label">API ANVÄNDARSKYDD</span>
+                    <span class="status-val" id="val-auth-status">AKTIVT (TOKEN)</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid-layout">
+            <!-- LEFT COLUMN: AI & CORE CREDENTIALS -->
+            <div class="panel">
+                <div class="panel-header">
+                    <span class="panel-title"><i class="fa-solid fa-key"></i> CORE API CREDENTIALS & SECURITY</span>
+                </div>
+                <div class="panel-body">
+                    <!-- Freja Token -->
+                    <div class="form-group">
+                        <label for="key-freja_access_token">
+                            Freja Access Token
+                            <span class="label-hint">Lösenord för klientanslutning</span>
+                        </label>
+                        <div class="input-wrapper">
+                            <input type="password" id="key-freja_access_token" class="input-control" placeholder="Ange säkerhetstoken...">
+                            <button type="button" class="toggle-btn" onclick="toggleVisibility('key-freja_access_token')"><i class="fa-solid fa-eye"></i></button>
+                        </div>
+                    </div>
+
+                    <hr class="divider">
+
+                    <!-- Gemini API Key -->
+                    <div class="form-group">
+                        <label for="key-gemini_api_key">
+                            Google Gemini API Key
+                            <span class="label-hint">Krävs för AI Intelligens</span>
+                        </label>
+                        <div class="input-wrapper">
+                            <input type="password" id="key-gemini_api_key" class="input-control" placeholder="AIzaSy...">
+                            <button type="button" class="toggle-btn" onclick="toggleVisibility('key-gemini_api_key')"><i class="fa-solid fa-eye"></i></button>
+                        </div>
+                    </div>
+
+                    <!-- ElevenLabs API Key -->
+                    <div class="form-group">
+                        <label for="key-elevenlabs_api_key">
+                            ElevenLabs API Key (Valfri)
+                            <span class="label-hint">Neural Röstsyntes</span>
+                        </label>
+                        <div class="input-wrapper">
+                            <input type="password" id="key-elevenlabs_api_key" class="input-control" placeholder="xi-api-key...">
+                            <button type="button" class="toggle-btn" onclick="toggleVisibility('key-elevenlabs_api_key')"><i class="fa-solid fa-eye"></i></button>
+                        </div>
+                    </div>
+
+                    <!-- Mem0 API Key -->
+                    <div class="form-group">
+                        <label for="key-mem0_api_key">
+                            Mem0 Cloud API Key (Valfri)
+                            <span class="label-hint">Långtidsminne molntjänst</span>
+                        </label>
+                        <div class="input-wrapper">
+                            <input type="password" id="key-mem0_api_key" class="input-control" placeholder="Mem0 Token...">
+                            <button type="button" class="toggle-btn" onclick="toggleVisibility('key-mem0_api_key')"><i class="fa-solid fa-eye"></i></button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- RIGHT COLUMN: THIRD PARTY INTEGRATIONS -->
+            <div class="panel">
+                <div class="panel-header">
+                    <span class="panel-title"><i class="fa-solid fa-network-wired"></i> EXTERNAL INTEGRATION CREDENTIALS</span>
+                </div>
+                <div class="panel-body">
+                    <!-- Telegram Integration -->
+                    <div class="form-group">
+                        <label for="key-telegram_bot_token">Telegram Bot Token</label>
+                        <div class="input-wrapper">
+                            <input type="password" id="key-telegram_bot_token" class="input-control" placeholder="BotFather Token...">
+                            <button type="button" class="toggle-btn" onclick="toggleVisibility('key-telegram_bot_token')"><i class="fa-solid fa-eye"></i></button>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="key-telegram_chat_id">Telegram Authorized Chat ID</label>
+                        <input type="text" id="key-telegram_chat_id" class="input-control" placeholder="t.ex. 123456789">
+                    </div>
+
+                    <hr class="divider">
+
+                    <!-- Garmin Credentials -->
+                    <div class="form-group">
+                        <label for="key-garmin_email">Garmin E-post</label>
+                        <input type="email" id="key-garmin_email" class="input-control" placeholder="namn@doman.se">
+                    </div>
+                    <div class="form-group">
+                        <label for="key-garmin_password">Garmin Lösenord</label>
+                        <div class="input-wrapper">
+                            <input type="password" id="key-garmin_password" class="input-control" placeholder="Garmin lösenord...">
+                            <button type="button" class="toggle-btn" onclick="toggleVisibility('key-garmin_password')"><i class="fa-solid fa-eye"></i></button>
+                        </div>
+                    </div>
+
+                    <hr class="divider">
+
+                    <!-- Strava Credentials -->
+                    <div class="form-group">
+                        <label for="key-strava_client_id">Strava Client ID</label>
+                        <input type="text" id="key-strava_client_id" class="input-control" placeholder="Strava Client ID">
+                    </div>
+                    <div class="form-group">
+                        <label for="key-strava_client_secret">Strava Client Secret</label>
+                        <div class="input-wrapper">
+                            <input type="password" id="key-strava_client_secret" class="input-control" placeholder="Strava Secret...">
+                            <button type="button" class="toggle-btn" onclick="toggleVisibility('key-strava_client_secret')"><i class="fa-solid fa-eye"></i></button>
+                        </div>
+                    </div>
+
+                    <hr class="divider">
+
+                    <!-- Google Calendar Credentials -->
+                    <div class="form-group">
+                        <label for="key-google_calendar_client_id">Google Client ID</label>
+                        <input type="text" id="key-google_calendar_client_id" class="input-control" placeholder="OAuth Client ID...">
+                    </div>
+                    <div class="form-group">
+                        <label for="key-google_calendar_client_secret">Google Client Secret</label>
+                        <div class="input-wrapper">
+                            <input type="password" id="key-google_calendar_client_secret" class="input-control" placeholder="OAuth Secret...">
+                            <button type="button" class="toggle-btn" onclick="toggleVisibility('key-google_calendar_client_secret')"><i class="fa-solid fa-eye"></i></button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- FULL WIDTH: SYSTEM TOOL PERMISSIONS -->
+        <div class="panel">
+            <div class="panel-header">
+                <span class="panel-title"><i class="fa-solid fa-sliders"></i> BACKEND SYSTEM TOOL PERMISSIONS</span>
+            </div>
+            <div class="panel-body">
+                <div class="tools-grid" id="tools-container">
+                    <!-- Dynamically populated tool permission switches -->
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <div class="toast" id="toast-msg">
+        <i class="fa-solid fa-circle-check" style="color: var(--color-success);"></i>
+        <span id="toast-text">Inställningarna har sparats i databasen.</span>
+    </div>
+
+    <footer>
+        F.R.E.J.A. Neural Backend &copy; 2026 // Standalone Backend Server Environment
+    </footer>
+
+    <script>
+        const TOOL_LIST = [
+            { id: 'tool-get_weather', label: 'Väderverktyg (get_weather)' },
+            { id: 'tool-google_search', label: 'Google Sökning (google_search)' },
+            { id: 'tool-execute_codex_code', label: 'Kodexekvering (execute_codex_code)' },
+            { id: 'tool-codex_git_ops', label: 'Git Operationer (codex_git_ops)' },
+            { id: 'tool-codex_audit_codebase', label: 'Kodgranskning (codex_audit_codebase)' },
+            { id: 'tool-codex_run_and_fix', label: 'Auto-rättning (codex_run_and_fix)' },
+            { id: 'tool-download_facebook_photos', label: 'Facebook Nedladdning (download_facebook_photos)' },
+            { id: 'tool-get_personal_trainer_advice', label: 'Personlig Tränare (get_personal_trainer_advice)' },
+            { id: 'tool-learn_topic', label: 'Neural Inlärning (learn_topic)' },
+            { id: 'tool-get_learned_knowledge', label: 'Kunskapsbank Sök (get_learned_knowledge)' },
+            { id: 'tool-get_garmin_health', label: 'Garmin Hälsocoach (get_garmin_health)' },
+            { id: 'tool-get_strava_data', label: 'Strava Träningscoach (get_strava_data)' },
+            { id: 'tool-get_withings_health', label: 'Withings Hälsocoach (get_withings_health)' },
+            { id: 'tool-manage_google_calendar', label: 'Google Kalender (manage_google_calendar)' }
+        ];
+
+        function toggleVisibility(id) {
+            const el = document.getElementById(id);
+            if (el) {
+                el.type = el.type === 'password' ? 'text' : 'password';
+            }
+        }
+
+        function showToast(msg) {
+            const toast = document.getElementById('toast-msg');
+            document.getElementById('toast-text').innerText = msg;
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 3000);
+        }
+
+        function buildToolsGrid() {
+            const container = document.getElementById('tools-container');
+            container.innerHTML = '';
+            TOOL_LIST.forEach(tool => {
+                const card = document.createElement('div');
+                card.className = 'tool-card';
+                card.innerHTML = `
+                    <span class="tool-name">${tool.label}</span>
+                    <label class="switch">
+                        <input type="checkbox" id="key-${tool.id}">
+                        <span class="slider"></span>
+                    </label>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        async function loadBackendSettings() {
+            try {
+                const res = await fetch('/api/keys');
+                if (!res.ok) {
+                    if (res.status === 401) {
+                        showToast('Åtkomst nekas. Kräver Freja Access Token.');
+                        return;
+                    }
+                    throw new Error('Misslyckades att hämta nycklar.');
+                }
+                const data = await res.json();
+                
+                // Populate inputs
+                Object.keys(data).forEach(key => {
+                    const el = document.getElementById(`key-${key}`);
+                    if (el) {
+                        if (el.type === 'checkbox') {
+                            el.checked = data[key] === 'true' || data[key] === true;
+                        } else {
+                            el.value = data[key] || '';
+                        }
+                    }
+                });
+
+                // Update Telegram status
+                checkTelegramStatus();
+            } catch (err) {
+                console.error(err);
+                showToast('Kunde inte kontakta backend API.');
+            }
+        }
+
+        async function checkTelegramStatus() {
+            try {
+                const res = await fetch('/api/telegram/status');
+                if (res.ok) {
+                    const data = await res.json();
+                    const el = document.getElementById('val-telegram-status');
+                    if (data.active) {
+                        el.innerText = 'AKTIV';
+                        el.style.color = 'var(--color-success)';
+                    } else {
+                        el.innerText = 'INAKTIV';
+                        el.style.color = 'var(--color-warning)';
+                    }
+                }
+            } catch (e) {}
+        }
+
+        async function saveAllSettings() {
+            const payload = {};
+            // Collect standard inputs
+            document.querySelectorAll('[id^="key-"]').forEach(el => {
+                const keyName = el.id.replace('key-', '');
+                if (el.type === 'checkbox') {
+                    payload[keyName] = el.checked ? 'true' : 'false';
+                } else {
+                    payload[keyName] = el.value.trim();
+                }
+            });
+
+            try {
+                const token = document.getElementById('key-freja_access_token').value;
+                const headers = { 'Content-Type': 'application/json' };
+                if (token) {
+                    headers['X-Freja-Token'] = token;
+                }
+
+                const res = await fetch('/api/keys', {
+                    method: 'POST',
+                    headers: headers,
+                    body: JSON.stringify(payload)
+                });
+
+                if (res.ok) {
+                    showToast('Alla backend-inställningar har sparats framgångsrikt!');
+                    checkTelegramStatus();
+                } else {
+                    showToast('Fel vid sparning: ' + res.statusText);
+                }
+            } catch (err) {
+                console.error(err);
+                showToast('Ett nätverksfel uppstod vid sparning.');
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            buildToolsGrid();
+            loadBackendSettings();
+            document.getElementById('btn-save-all').addEventListener('click', saveAllSettings);
+        });
+    </script>
+</body>
+</html>
