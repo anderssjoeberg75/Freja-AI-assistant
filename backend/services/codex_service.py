@@ -26,8 +26,9 @@ IGNORED_DIRS = {
     'docs', 'downloads',
 }
 ALLOWED_EXTENSIONS = {'.py', '.js', '.html', '.css', '.json', '.md', '.sh', '.txt'}
-# facebook_state.json holds live session cookies and must never be sent to the
-# Gemini API as part of an audit prompt.
+# facebook_state.json holds live Playwright session cookies/localStorage (see
+# save_session.py / facebook_service.py) and must never be shipped to the external
+# Gemini API as part of a codebase dump.
 IGNORED_FILES = {
     'keys.db', 'freja.db', '.telegram_bot.lock', 'package-lock.json',
     'facebook_state.json',
@@ -107,6 +108,12 @@ BLOCKED_SHELL_COMMANDS = {
     'reg', 'reg.exe', 'certutil', 'bitsadmin', 'rundll32', 'mshta', 'regsvr32',
     'env', 'printenv', 'set', 'export', 'source', 'eval', 'exec', 'alias',
     'find', 'awk', 'sed', 'xargs', 'tar', 'zip', 'unzip', '7z',
+    # 'git' is deliberately blocked here: `-c core.pager=<cmd> -p` (and similar
+    # core.editor / diff.external config overrides) is a documented GTFOBins
+    # technique that executes an arbitrary program via git itself, bypassing every
+    # other token in this blocklist. All git access must go through the dedicated,
+    # argv-only codex_git_ops tool instead of raw shell.
+    'git',
     # File-reading / exfiltration commands: none of these mutate anything, but
     # they can dump the contents of keys.db, .env, ssh keys, etc. straight to
     # stdout, which the blocklist above did not previously cover.
@@ -131,9 +138,12 @@ SAFE_ENV_ALLOWLIST = (
     'LANG', 'LC_ALL', 'PYTHONIOENCODING',
 )
 
-def build_sandbox_env() -> dict:
+def build_sandbox_env(extra_env: dict = None) -> dict:
     """Builds a minimal subprocess environment, excluding secrets set as process env vars."""
-    return {k: v for k, v in os.environ.items() if k.upper() in SAFE_ENV_ALLOWLIST}
+    env = {k: v for k, v in os.environ.items() if k.upper() in SAFE_ENV_ALLOWLIST}
+    if extra_env:
+        env.update(extra_env)
+    return env
 
 # Default hard timeout (seconds) for any sandboxed subprocess, to prevent a hung
 # or intentionally-looping command from blocking the server indefinitely.
@@ -273,6 +283,35 @@ def log_codex_execution(tool: str, command: str, exit_code, detail: str = ""):
         print(f"[CODEX AUDIT LOG] Kunde inte skriva till loggen: {e}")
 
 
+def resolve_within_project(rel_path: str) -> str:
+    """Resolves rel_path against PROJECT_ROOT and raises ValueError if it escapes the project directory
+    (via '..' traversal or an absolute path that overrides the join)."""
+    # Windows-style separators and drive letters are never part of a valid
+    # forward-slash relative path; reject them on every OS so a path like
+    # '..\\..\\x' can't slip through os.path.join as a single literal component
+    # on Linux while traversing on a Windows deployment.
+    if '\\' in rel_path or re.match(r'^[A-Za-z]:', rel_path):
+        raise ValueError(f"Säkerhetsfel: Sökvägen '{rel_path}' innehåller ogiltiga Windows-tecken.")
+    project_root_real = os.path.realpath(PROJECT_ROOT)
+    abs_path = os.path.realpath(os.path.join(project_root_real, rel_path))
+    if os.path.commonpath([abs_path, project_root_real]) != project_root_real:
+        raise ValueError(f"Säkerhetsfel: Sökvägen '{rel_path}' ligger utanför projektkatalogen.")
+    return abs_path
+
+
+# Git supports "remote helper" transports (ext::, fd::) that run an arbitrary program
+# as part of a clone. Only allow well-known network protocols.
+ALLOWED_GIT_CLONE_SCHEMES = ('https://', 'http://', 'git://', 'ssh://')
+
+
+def verify_safe_git_clone_url(url: str):
+    """Blocks git clone transports (ext::, fd::, file://, etc.) that can execute arbitrary commands."""
+    if not url.lower().startswith(ALLOWED_GIT_CLONE_SCHEMES):
+        raise ValueError(
+            "Säkerhetsfel: Endast https://, http://, git:// eller ssh:// är tillåtna för klon-URL:er."
+        )
+
+
 def verify_safe_shell_command(cmd_str: str):
     """Checks the shell command string for suspicious or dangerous operations."""
     if '$(' in cmd_str or '`' in cmd_str:
@@ -345,7 +384,7 @@ async def run_subprocess_command(cmd_str: str, cwd: str = PROJECT_ROOT, timeout:
         }
 
 
-async def run_subprocess_exec(args_list, cwd: str = PROJECT_ROOT, timeout: int = DEFAULT_SUBPROCESS_TIMEOUT) -> dict:
+async def run_subprocess_exec(args_list, cwd: str = PROJECT_ROOT, timeout: int = DEFAULT_SUBPROCESS_TIMEOUT, extra_env: dict = None) -> dict:
     """Runs a command via exec (no shell), so arguments can't be parsed by a shell. Prevents command injection."""
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -353,7 +392,7 @@ async def run_subprocess_exec(args_list, cwd: str = PROJECT_ROOT, timeout: int =
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=cwd,
-            env=build_sandbox_env(),
+            env=build_sandbox_env(extra_env),
             **_sandbox_subprocess_kwargs()
         )
         stdout, stderr = await _wait_with_timeout(proc, timeout)
@@ -503,12 +542,24 @@ async def codex_git_ops_impl(args: dict) -> dict:
     if action in ("clone", "checkout") and argument.startswith("-"):
         return {"error": "Säkerhetsfel: Argumentet får inte börja med '-'."}
 
+    # Block remote-helper transports (ext::, fd::, ...) that let `git clone` execute an
+    # arbitrary program instead of fetching over a network protocol.
+    if action == "clone":
+        try:
+            verify_safe_git_clone_url(argument)
+        except ValueError as val_err:
+            return {"error": str(val_err)}
+
+    # Defense in depth: restrict git itself to safe network protocols, in case a future
+    # code path builds a clone/fetch argument without going through verify_safe_git_clone_url.
+    git_env = {"GIT_ALLOW_PROTOCOL": "http:https:git:ssh"}
+
     # Commit is two steps: stage everything, then commit with the message as a single argv element.
     if action == "commit":
-        add_res = await run_subprocess_exec(["git", "add", "."])
+        add_res = await run_subprocess_exec(["git", "add", "."], extra_env=git_env)
         if add_res["exit_code"] != 0:
             return _git_result(action, "git add .", add_res)
-        res = await run_subprocess_exec(["git", "commit", "-m", argument])
+        res = await run_subprocess_exec(["git", "commit", "-m", argument], extra_env=git_env)
         return _git_result(action, f"git add . && git commit -m '{argument}'", res)
 
     # Checkout is restricted to existing local branches: `git checkout <file>` would
@@ -518,15 +569,16 @@ async def codex_git_ops_impl(args: dict) -> dict:
         if not await _git_branch_exists(argument):
             return {"error": f"Säkerhetsfel: '{argument}' är inte en befintlig lokal branch. "
                              "Checkout av filer eller okända referenser är blockerad."}
-        res = await run_subprocess_exec(["git", "checkout", argument])
+        res = await run_subprocess_exec(["git", "checkout", argument], extra_env=git_env)
         return _git_result(action, f"git checkout {argument}", res)
 
-    # Clone only via https, into the dedicated workspace directory.
+    # Clone only via https (verify_safe_git_clone_url above already blocked remote-helper
+    # transports), into the dedicated workspace directory.
     if action == "clone":
         if not argument.lower().startswith("https://"):
             return {"error": "Säkerhetsfel: Endast https://-URL:er kan klonas."}
         os.makedirs(GIT_CLONE_WORKSPACE, exist_ok=True)
-        res = await run_subprocess_exec(["git", "clone", argument], cwd=GIT_CLONE_WORKSPACE)
+        res = await run_subprocess_exec(["git", "clone", argument], cwd=GIT_CLONE_WORKSPACE, extra_env=git_env)
         return _git_result(action, f"git clone {argument} (i {GIT_CLONE_WORKSPACE})", res)
 
     # Build argv lists (no shell) so the argument can never be parsed as a shell command.
@@ -543,7 +595,7 @@ async def codex_git_ops_impl(args: dict) -> dict:
     if not cmd_list:
         return {"error": f"Okänd git-åtgärd: '{action}'."}
 
-    res = await run_subprocess_exec(cmd_list)
+    res = await run_subprocess_exec(cmd_list, extra_env=git_env)
     return _git_result(action, " ".join(cmd_list), res)
 
 
@@ -659,7 +711,10 @@ async def codex_run_and_fix_impl(args: dict) -> dict:
     except ValueError as val_err:
         return {"error": f"Säkerhetsfel i run_and_fix: {str(val_err)}"}
         
-    abs_file_path = os.path.abspath(os.path.join(PROJECT_ROOT, file_path))
+    try:
+        abs_file_path = resolve_within_project(file_path)
+    except ValueError as val_err:
+        return {"error": str(val_err)}
     if not os.path.exists(abs_file_path):
         return {"error": f"Målfilen hittades inte på: {abs_file_path}"}
 
@@ -736,6 +791,19 @@ VIKTIGT: Returnera enbart den fullständiga, uppdaterade källkoden. Skriv inga 
             if len(fixed_code) < 10 or len(fixed_code) < len(current_code) * 0.2:
                 history.append(f"Försök {attempt + 1}: AI-svaret förkastades (tomt eller misstänkt kort) - filen lämnades orörd.")
                 continue
+
+            # Re-run the same AST sandbox check used for execute_codex_code before writing
+            # LLM-generated code to disk, so auto-fix can't silently reintroduce blocked
+            # imports/calls (os, subprocess, eval, etc.) that the sandbox exists to prevent.
+            if abs_file_path.endswith(".py"):
+                try:
+                    verify_safe_python_code(fixed_code)
+                except ValueError as val_err:
+                    return {
+                        "error": f"Säkerhetsfel: Genererad fix-kod blockerades: {str(val_err)}",
+                        "backup_file": backup_path,
+                        "history": history
+                    }
 
             diff = "\n".join(difflib.unified_diff(
                 current_code.splitlines(), fixed_code.splitlines(),

@@ -14,13 +14,35 @@ window.FrejaCamera = {
         if (!selectCam) return;
         
         try {
-            const devices = await navigator.mediaDevices.enumerateDevices();
-            const videoDevices = devices.filter(d => d.kind === 'videoinput');
+            if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+                console.warn("[CAMERA] MediaDevices API not supported in this browser environment.");
+                selectCam.innerHTML = '<option value="off">Kamera stöds ej</option>';
+                return;
+            }
+
+            let devices = await navigator.mediaDevices.enumerateDevices();
+            let videoDevices = devices.filter(d => d.kind === 'videoinput');
+            
+            // If device labels are empty, request media permission to unlock labels
+            if (videoDevices.length > 0 && (!videoDevices[0].label || videoDevices[0].label === "")) {
+                try {
+                    const tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
+                    tempStream.getTracks().forEach(t => t.stop());
+                    devices = await navigator.mediaDevices.enumerateDevices();
+                    videoDevices = devices.filter(d => d.kind === 'videoinput');
+                } catch (permErr) {
+                    console.warn("[CAMERA] User denied camera permission or camera busy:", permErr);
+                }
+            }
             
             selectCam.innerHTML = '<option value="off">Scanner avstängd</option>';
             
             if (videoDevices.length === 0) {
                 console.warn("[CAMERA] No camera devices found.");
+                const option = document.createElement('option');
+                option.value = "off";
+                option.textContent = "Ingen kamera hittades";
+                selectCam.appendChild(option);
                 return;
             }
             

@@ -2,11 +2,11 @@
  * F.R.E.J.A. UI Controller - UI Initialization Module
  */
 FrejaUIController.prototype.initializeUI = function() {
-    const accessToken = localStorage.getItem("freja_access_token") || "freja1234";
+    const accessToken = localStorage.getItem("freja_access_token") || "";
     const inputAccessToken = document.getElementById('input-access-token');
     if (inputAccessToken) inputAccessToken.value = accessToken;
 
-    const backendUrl = localStorage.getItem("freja_backend_url") || "";
+    const backendUrl = localStorage.getItem("freja_backend_url") || (window.location.port === '5000' ? (window.location.protocol + '//' + window.location.hostname + ':8000') : "");
     const inputBackendUrl = document.getElementById('input-backend-url');
     if (inputBackendUrl) inputBackendUrl.value = backendUrl;
 
@@ -28,6 +28,9 @@ FrejaUIController.prototype.initializeUI = function() {
 
     document.getElementById('textarea-persona').value = persona;
     this.gemini.systemPrompt = persona;
+    if (this.gemini && typeof this.gemini.loadApiKey === 'function') {
+        this.gemini.loadApiKey();
+    }
 
     document.getElementById('chk-autospeak').checked = autospeak;
     this.speech.autoSpeak = autospeak;
@@ -40,20 +43,22 @@ FrejaUIController.prototype.initializeUI = function() {
     const elevenVoice = localStorage.getItem("freja_eleven_voice") || "21m00Tcm4TlvDq8ikWAM";
     const elevenCustomVoice = localStorage.getItem("freja_eleven_custom_voice") || "";
 
-    document.getElementById('input-eleven-key').value = elevenKey;
+    const inputElevenKey = document.getElementById('input-eleven-key');
+    if (inputElevenKey) inputElevenKey.value = elevenKey;
     this.speech.elevenApiKey = elevenKey;
 
-    document.getElementById('select-eleven-voice').value = elevenVoice;
+    const selectElevenVoice = document.getElementById('select-eleven-voice');
+    if (selectElevenVoice) selectElevenVoice.value = elevenVoice;
     this.speech.elevenVoice = elevenVoice;
 
-    document.getElementById('input-eleven-custom-voice').value = elevenCustomVoice;
+    const inputElevenCustom = document.getElementById('input-eleven-custom-voice');
+    if (inputElevenCustom) inputElevenCustom.value = elevenCustomVoice;
     this.speech.elevenCustomVoice = elevenCustomVoice;
 
     // Toggle custom ElevenLabs voice input group dynamically
-    if (elevenVoice === 'custom') {
-        document.getElementById('group-eleven-custom').style.display = 'block';
-    } else {
-        document.getElementById('group-eleven-custom').style.display = 'none';
+    const groupElevenCustom = document.getElementById('group-eleven-custom');
+    if (groupElevenCustom) {
+        groupElevenCustom.style.display = (elevenVoice === 'custom') ? 'block' : 'none';
     }
 
     // Load Mem0 credentials
