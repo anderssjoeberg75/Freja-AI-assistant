@@ -91,7 +91,8 @@ To run the F.R.E.J.A. Backend automatically in the background on system boot (e.
 
 2. **Add the following configuration:**
    > [!IMPORTANT]
-   > Run `whoami` in terminal to get your exact Ubuntu username, and `pwd` to get your exact project path. Replace `YOUR_USERNAME` and `/path/to/Freja-AI-assistant` accordingly below (otherwise systemd will fail with `status=217/USER`).
+   > Run `whoami` to get your exact username, and `pwd` inside the project folder to get your exact path.
+   > Make sure to replace `YOUR_USERNAME` and `/path/to/Freja-AI-assistant` with your actual values below.
 
    ```ini
    [Unit]
@@ -121,6 +122,11 @@ To run the F.R.E.J.A. Backend automatically in the background on system boot (e.
    sudo systemctl status freja-backend
    sudo journalctl -u freja-backend -f
    ```
+
+> [!TIP]
+> **Troubleshooting Systemd Exit Errors:**
+> - `status=217/USER`: The `User=` setting in the service file is set to a user that doesn't exist on Ubuntu. Check with `whoami`.
+> - `status=203/EXEC`: Systemd cannot find the python executable at `ExecStart`. Run `ls -l $(pwd)/venv/bin/python` to verify the exact path to your python binary in your virtual environment. If using system python instead of venv, use `/usr/bin/python3`.
 
 ---
 
