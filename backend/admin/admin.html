@@ -626,50 +626,10 @@
                         <input type="text" id="key-telegram_chat_id" class="input-control" placeholder="t.ex. 123456789">
                     </div>
 
-                    <hr class="divider">
-
-                    <!-- Garmin Credentials -->
-                    <div class="form-group">
-                        <label for="key-garmin_email">Garmin E-post</label>
-                        <input type="email" id="key-garmin_email" class="input-control" placeholder="namn@doman.se">
-                    </div>
-                    <div class="form-group">
-                        <label for="key-garmin_password">Garmin Lösenord</label>
-                        <div class="input-wrapper">
-                            <input type="password" id="key-garmin_password" class="input-control" placeholder="Garmin lösenord...">
-                            <button type="button" class="toggle-btn" onclick="toggleVisibility('key-garmin_password')"><i class="fa-solid fa-eye"></i></button>
-                        </div>
-                    </div>
-
-                    <hr class="divider">
-
-                    <!-- Strava Credentials -->
-                    <div class="form-group">
-                        <label for="key-strava_client_id">Strava Client ID</label>
-                        <input type="text" id="key-strava_client_id" class="input-control" placeholder="Strava Client ID">
-                    </div>
-                    <div class="form-group">
-                        <label for="key-strava_client_secret">Strava Client Secret</label>
-                        <div class="input-wrapper">
-                            <input type="password" id="key-strava_client_secret" class="input-control" placeholder="Strava Secret...">
-                            <button type="button" class="toggle-btn" onclick="toggleVisibility('key-strava_client_secret')"><i class="fa-solid fa-eye"></i></button>
-                        </div>
-                    </div>
-
-                    <hr class="divider">
-
-                    <!-- Google Calendar Credentials -->
-                    <div class="form-group">
-                        <label for="key-google_calendar_client_id">Google Client ID</label>
-                        <input type="text" id="key-google_calendar_client_id" class="input-control" placeholder="OAuth Client ID...">
-                    </div>
-                    <div class="form-group">
-                        <label for="key-google_calendar_client_secret">Google Client Secret</label>
-                        <div class="input-wrapper">
-                            <input type="password" id="key-google_calendar_client_secret" class="input-control" placeholder="OAuth Secret...">
-                            <button type="button" class="toggle-btn" onclick="toggleVisibility('key-google_calendar_client_secret')"><i class="fa-solid fa-eye"></i></button>
-                        </div>
-                    </div>
+                    <p style="font-size: 11px; color: var(--color-text-muted); line-height: 1.5; margin-top: 12px; background: rgba(0, 240, 255, 0.05); border: 1px solid rgba(0, 240, 255, 0.2); border-radius: 6px; padding: 12px;">
+                        <i class="fa-solid fa-circle-info" style="color: var(--color-primary); margin-right: 6px;"></i>
+                        <strong>OBS:</strong> Hälso- och kalenderkonton (Garmin, Strava, Withings och Google Calendar) ställs in direkt i klientens GUI under respektive instrumentpanel.
+                    </p>
                 </div>
             </div>
         </div>
