@@ -825,7 +825,7 @@
                 if (res.ok) {
                     const data = await res.json();
                     const el = document.getElementById('val-telegram-status');
-                    if (data.active) {
+                    if (data.active || data.is_active) {
                         el.innerText = 'AKTIV';
                         el.style.color = 'var(--color-success)';
                     } else {

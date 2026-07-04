@@ -13,6 +13,7 @@ async def get_telegram_status():
         token, chat_id = get_telegram_config()
         is_active = bool(token and chat_id)
         return {
+            "active": is_active,
             "is_active": is_active,
             "token_configured": bool(token),
             "chat_id_configured": bool(chat_id),
