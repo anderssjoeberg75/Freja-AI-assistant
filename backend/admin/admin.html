@@ -503,6 +503,9 @@
             <span class="tag-backend"><i class="fa-solid fa-server"></i> BACKEND CONTROL CENTER</span>
         </div>
         <div class="header-actions">
+            <button id="btn-update-github" class="btn">
+                <i class="fa-brands fa-github"></i> HÄMTA FRÅN GITHUB & STARTA OM
+            </button>
             <button id="btn-save-all" class="btn btn-primary">
                 <i class="fa-solid fa-floppy-disk"></i> SPARA ALLA INSTÄLLNINGAR
             </button>
@@ -875,10 +878,65 @@
             }
         }
 
+        async function updateFromGithub() {
+            if (!confirm("Vill du hämta den senaste koden från GitHub (git pull) och starta om backend-servern?")) {
+                return;
+            }
+
+            showToast("Hämtar uppdateringar från GitHub...", false);
+            const token = getActiveToken();
+            const headers = { 'Content-Type': 'application/json' };
+            if (token) headers['X-Freja-Token'] = token;
+
+            try {
+                const res = await fetch('/api/system/update', {
+                    method: 'POST',
+                    headers: headers
+                });
+
+                const data = await res.json();
+                if (res.ok && data.status === 'success') {
+                    showToast(data.message + (data.log ? "\n\nLogg:\n" + data.log : ""), false);
+                    setTimeout(pollServerRestart, 2000);
+                } else {
+                    showToast('Fel vid uppdatering: ' + (data.message || res.statusText) + (data.log ? " - " + data.log : ""), true);
+                }
+            } catch (err) {
+                console.error(err);
+                showToast('Ett nätverksfel uppstod vid uppdateringen.', true);
+            }
+        }
+
+        async function pollServerRestart() {
+            showToast("Väntar på att servern ska starta om...", false);
+            let attempts = 0;
+            const interval = setInterval(async () => {
+                attempts++;
+                try {
+                    const token = getActiveToken();
+                    const headers = {};
+                    if (token) headers['X-Freja-Token'] = token;
+
+                    const res = await fetch('/api/keys', { headers: headers });
+                    if (res.ok || res.status === 401) {
+                        clearInterval(interval);
+                        showToast("Servern har startats om! Laddar om sidan...", false);
+                        setTimeout(() => location.reload(), 1200);
+                    }
+                } catch (e) {
+                    if (attempts > 30) {
+                        clearInterval(interval);
+                        showToast("Kunde inte bekräfta omstart automatisk. Ladda om sidan manuellt.", true);
+                    }
+                }
+            }, 1500);
+        }
+
         document.addEventListener('DOMContentLoaded', () => {
             buildToolsGrid();
             loadBackendSettings();
             document.getElementById('btn-save-all').addEventListener('click', saveAllSettings);
+            document.getElementById('btn-update-github').addEventListener('click', updateFromGithub);
             
             document.getElementById('btn-submit-auth').addEventListener('click', () => {
                 const inputToken = document.getElementById('input-auth-token').value.trim();
