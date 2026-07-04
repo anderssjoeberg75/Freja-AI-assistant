@@ -103,9 +103,12 @@ if os.path.exists(CLIENT_DIR):
 
 def run_server():
     """Start the Uvicorn ASGI server."""
+    from backend.database import get_api_key
+    active_token = get_api_key('freja_access_token') or "Not Set"
     print("===========================================================")
     print(f"  F.R.E.J.A. Neural Backend Control Panel: http://localhost:{PORT}")
     print(f"  Client HUD (Bundled Mode): http://localhost:{PORT}/client/")
+    print(f"  Active Access Token: {active_token}")
     print("  API keys database & security active (FastAPI Mode)")
     print("===========================================================")
     # reload=True forces SelectorEventLoop on Windows, which doesn't support subprocesses (needed for Playwright).
