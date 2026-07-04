@@ -10,7 +10,11 @@ FrejaUIController.prototype.bindEvents = function() {
     const removeShield = () => {
         soundSynth.init();
         soundSynth.playStartupSweep();
-        shield.classList.add('fade-out');
+        if (shield) {
+            shield.classList.add('fade-out');
+            shield.style.pointerEvents = 'none';
+            setTimeout(() => { shield.style.display = 'none'; }, 500);
+        }
         
         self.writeLog("COGNITIVE SERVICES LINKING ACTIVE", "sys");
         self.writeLog("SPEECH RECOGNITION ONLINE [SV-SE]", "sys");
@@ -52,7 +56,10 @@ FrejaUIController.prototype.bindEvents = function() {
         }, 1000);
     };
     
-    initAudioBtn.addEventListener('click', removeShield);
+    if (initAudioBtn) initAudioBtn.addEventListener('click', removeShield);
+    if (shield) shield.addEventListener('click', (e) => {
+        if (e.target === shield || e.target.closest('#btn-initialize-audio')) removeShield();
+    });
     
     // Voice Microphone Activation Toggle Button
     const btnMic = document.getElementById('btn-mic');
