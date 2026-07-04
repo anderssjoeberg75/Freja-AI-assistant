@@ -20,29 +20,62 @@ def get_db_connection():
         conn.close()
 
 
+KEY_ALIASES = {
+    'telegram_bot_token': 'freja_telegram_bot_token',
+    'telegram_chat_id': 'freja_telegram_chat_id',
+    'gemini_api_key': 'freja_gemini_apikey',
+    'elevenlabs_api_key': 'freja_eleven_apikey',
+    'mem0_api_key': 'freja_mem0_apikey',
+    'garmin_email': 'freja_garmin_email',
+    'garmin_password': 'freja_garmin_password',
+    'strava_client_id': 'freja_strava_client_id',
+    'strava_client_secret': 'freja_strava_client_secret',
+    'strava_refresh_token': 'freja_strava_refresh_token',
+    'withings_client_id': 'freja_withings_client_id',
+    'withings_client_secret': 'freja_withings_client_secret',
+    'withings_refresh_token': 'freja_withings_refresh_token',
+    'google_calendar_client_id': 'freja_google_calendar_client_id',
+    'google_calendar_client_secret': 'freja_google_calendar_client_secret',
+    'google_calendar_refresh_token': 'freja_google_calendar_refresh_token',
+}
+
+REVERSE_KEY_ALIASES = {v: k for k, v in KEY_ALIASES.items()}
+
 def get_api_key(key_name: str):
-    """Fetches and decrypts a single value from the api_keys table. Returns None if absent."""
+    """Fetches and decrypts a single value from the api_keys table. Checks aliases if absent."""
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT key_value FROM api_keys WHERE key_name = ?", (key_name,))
         row = cursor.fetchone()
+        if not row or row[0] is None:
+            alt_key = KEY_ALIASES.get(key_name) or REVERSE_KEY_ALIASES.get(key_name)
+            if alt_key:
+                cursor.execute("SELECT key_value FROM api_keys WHERE key_name = ?", (alt_key,))
+                row = cursor.fetchone()
     if not row or row[0] is None:
         return None
     return decrypt_value(row[0]).strip()
 
 
 def set_api_key(key_name: str, value: str):
-    """Encrypts and upserts a single value into the api_keys table."""
+    """Encrypts and upserts a value into api_keys table. Also saves alias key for backward compatibility."""
+    encrypted = encrypt_value(value)
+    keys_to_set = [key_name]
+    alt_key = KEY_ALIASES.get(key_name) or REVERSE_KEY_ALIASES.get(key_name)
+    if alt_key:
+        keys_to_set.append(alt_key)
+
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute(
-            """
-            INSERT INTO api_keys (key_name, key_value)
-            VALUES (?, ?)
-            ON CONFLICT(key_name) DO UPDATE SET key_value = excluded.key_value
-            """,
-            (key_name, encrypt_value(value)),
-        )
+        for k in keys_to_set:
+            cursor.execute(
+                """
+                INSERT INTO api_keys (key_name, key_value)
+                VALUES (?, ?)
+                ON CONFLICT(key_name) DO UPDATE SET key_value = excluded.key_value
+                """,
+                (k, encrypted),
+            )
         conn.commit()
 
 
