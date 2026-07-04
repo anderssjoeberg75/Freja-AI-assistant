@@ -1234,27 +1234,48 @@ FrejaUIController.prototype.bindEvents = function() {
     btnSaveSettings.addEventListener('click', async () => {
         soundSynth.playClick();
         
-        const backendUrlVal = document.getElementById('input-backend-url')?.value.trim() || "";
-        localStorage.setItem("freja_backend_url", backendUrlVal);
-        
-        // Save API Keys
-        const apiKey = inputApiKey.value.trim();
-        self.gemini.setApiKey(apiKey);
-        
-        localStorage.setItem("freja_speech_rate", sliderRate.value);
-        localStorage.setItem("freja_speech_pitch", sliderPitch.value);
-        localStorage.setItem("freja_speech_persona", document.getElementById('textarea-persona').value);
-        self.gemini.systemPrompt = document.getElementById('textarea-persona').value;
+        const inputBackendUrl = document.getElementById('input-backend-url');
+        const backendUrlVal = inputBackendUrl ? inputBackendUrl.value.trim() : "";
+        if (backendUrlVal) {
+            localStorage.setItem("freja_backend_url", backendUrlVal);
+        }
 
-        if (selectVoice.value) {
+        const inputAccessToken = document.getElementById('input-access-token');
+        const accessTokenVal = inputAccessToken ? inputAccessToken.value.trim() : "";
+        if (accessTokenVal) {
+            localStorage.setItem("freja_access_token", accessTokenVal);
+        }
+
+        const inputApiKeyEl = document.getElementById('input-api-key');
+        const apiKey = inputApiKeyEl ? inputApiKeyEl.value.trim() : (localStorage.getItem("freja_gemini_apikey") || "");
+        if (apiKey && apiKey !== "•••••••• (Konfigurerad på Backend)") {
+            self.gemini.setApiKey(apiKey);
+        }
+        
+        const sliderRate = document.getElementById('slider-rate');
+        const sliderPitch = document.getElementById('slider-pitch');
+        if (sliderRate) localStorage.setItem("freja_speech_rate", sliderRate.value);
+        if (sliderPitch) localStorage.setItem("freja_speech_pitch", sliderPitch.value);
+        
+        const personaEl = document.getElementById('textarea-persona');
+        if (personaEl) {
+            localStorage.setItem("freja_speech_persona", personaEl.value);
+            self.gemini.systemPrompt = personaEl.value;
+        }
+
+        const selectVoice = document.getElementById('select-voice');
+        if (selectVoice && selectVoice.value) {
             localStorage.setItem("freja_speech_voiceidx", selectVoice.value);
         }
 
-        const elevenKey = document.getElementById('input-eleven-key').value.trim();
-        const elevenVoice = document.getElementById('select-eleven-voice').value;
-        const elevenCustomVoice = document.getElementById('input-eleven-custom-voice').value.trim();
+        const inputElevenKey = document.getElementById('input-eleven-key');
+        const elevenKey = inputElevenKey ? inputElevenKey.value.trim() : (localStorage.getItem("freja_eleven_apikey") || "");
+        const elevenVoiceEl = document.getElementById('select-eleven-voice');
+        const elevenVoice = elevenVoiceEl ? elevenVoiceEl.value : "21m00Tcm4TlvDq8ikWAM";
+        const elevenCustomVoiceEl = document.getElementById('input-eleven-custom-voice');
+        const elevenCustomVoice = elevenCustomVoiceEl ? elevenCustomVoiceEl.value.trim() : "";
 
-        localStorage.setItem("freja_eleven_apikey", elevenKey);
+        if (elevenKey) localStorage.setItem("freja_eleven_apikey", elevenKey);
         self.speech.elevenApiKey = elevenKey;
 
         localStorage.setItem("freja_eleven_voice", elevenVoice);
@@ -1263,105 +1284,11 @@ FrejaUIController.prototype.bindEvents = function() {
         localStorage.setItem("freja_eleven_custom_voice", elevenCustomVoice);
         self.speech.elevenCustomVoice = elevenCustomVoice;
 
-        // Save tool permissions
-        const chkWeather = document.getElementById('chk-tool-get_weather');
-        if (chkWeather) {
-            localStorage.setItem("freja_tool_get_weather_allowed", chkWeather.checked);
-        }
-
-        const chkSearch = document.getElementById('chk-tool-google_search');
-        if (chkSearch) {
-            localStorage.setItem("freja_tool_google_search_allowed", chkSearch.checked);
-        }
-
-        const chkCodexExec = document.getElementById('chk-tool-execute_codex_code');
-        if (chkCodexExec) {
-            localStorage.setItem("freja_tool_execute_codex_code_allowed", chkCodexExec.checked);
-            localStorage.setItem("freja_tool_run_code_allowed", chkCodexExec.checked);
-        }
-
-        const chkCodexGit = document.getElementById('chk-tool-codex_git_ops');
-        if (chkCodexGit) {
-            localStorage.setItem("freja_tool_codex_git_ops_allowed", chkCodexGit.checked);
-        }
-
-        const chkCodexAudit = document.getElementById('chk-tool-codex_audit_codebase');
-        if (chkCodexAudit) {
-            localStorage.setItem("freja_tool_codex_audit_codebase_allowed", chkCodexAudit.checked);
-            localStorage.setItem("freja_tool_tool_analyze_code_allowed", chkCodexAudit.checked);
-        }
-
-        const chkCodexFix = document.getElementById('chk-tool-codex_run_and_fix');
-        if (chkCodexFix) {
-            localStorage.setItem("freja_tool_codex_run_and_fix_allowed", chkCodexFix.checked);
-        }
-
-        const chkFacebookDownload = document.getElementById('chk-tool-download_facebook_photos');
-        if (chkFacebookDownload) {
-            localStorage.setItem("freja_tool_download_facebook_photos_allowed", chkFacebookDownload.checked);
-        }
-
-        const chkTrainer = document.getElementById('chk-tool-get_personal_trainer_advice');
-        if (chkTrainer) {
-            localStorage.setItem("freja_tool_get_personal_trainer_advice_allowed", chkTrainer.checked);
-            const capTrainer = document.getElementById('cap-trainer');
-            if (capTrainer) {
-                if (chkTrainer.checked) {
-                    capTrainer.classList.add('active');
-                } else {
-                    capTrainer.classList.remove('active');
-                }
-            }
-        }
-
-        const chkLearnTopic = document.getElementById('chk-tool-learn_topic');
-        if (chkLearnTopic) {
-            localStorage.setItem("freja_tool_learn_topic_allowed", chkLearnTopic.checked);
-        }
-
-        const chkGetLearnedKnowledge = document.getElementById('chk-tool-get_learned_knowledge');
-        if (chkGetLearnedKnowledge) {
-            localStorage.setItem("freja_tool_get_learned_knowledge_allowed", chkGetLearnedKnowledge.checked);
-        }
-
-        const capLearning = document.getElementById('cap-learning');
-        if (capLearning) {
-            if ((chkLearnTopic && chkLearnTopic.checked) || (chkGetLearnedKnowledge && chkGetLearnedKnowledge.checked)) {
-                capLearning.classList.add('active');
-            } else {
-                capLearning.classList.remove('active');
-            }
-        }
-
-        const accessTokenVal = document.getElementById('input-access-token').value.trim();
-        const backendUrlVal = document.getElementById('input-backend-url').value.trim();
-
-        if (accessTokenVal) {
-            localStorage.setItem("freja_access_token", accessTokenVal);
-        }
-        if (backendUrlVal !== undefined) {
-            localStorage.setItem("freja_backend_url", backendUrlVal);
-        }
-
-        // Save keys to secure SQLite database (permission flags included so the
-        // backend, the authoritative enforcement point for /api/tools/execute,
-        // sees the same grants as these checkboxes reflect).
-        const success = await self.saveKeysToServer({
+        // Save keys to secure SQLite database
+        await self.saveKeysToServer({
             freja_access_token: accessTokenVal,
             freja_gemini_apikey: apiKey,
-            freja_eleven_apikey: elevenKey,
-            freja_tool_get_weather_allowed: String(chkWeather ? chkWeather.checked : false),
-            freja_tool_google_search_allowed: String(chkSearch ? chkSearch.checked : false),
-            freja_tool_execute_codex_code_allowed: String(chkCodexExec ? chkCodexExec.checked : false),
-            freja_tool_run_code_allowed: String(chkCodexExec ? chkCodexExec.checked : false),
-            freja_tool_codex_git_ops_allowed: String(chkCodexGit ? chkCodexGit.checked : false),
-            freja_tool_codex_audit_codebase_allowed: String(chkCodexAudit ? chkCodexAudit.checked : false),
-            freja_tool_tool_analyze_code_allowed: String(chkCodexAudit ? chkCodexAudit.checked : false),
-            freja_tool_codex_run_and_fix_allowed: String(chkCodexFix ? chkCodexFix.checked : false),
-            freja_tool_download_facebook_photos_allowed: String(chkFacebookDownload ? chkFacebookDownload.checked : false),
-            freja_tool_get_personal_trainer_advice_allowed: String(chkTrainer ? chkTrainer.checked : false),
-            freja_tool_learn_topic_allowed: String(chkLearnTopic ? chkLearnTopic.checked : false),
-            freja_tool_get_learned_knowledge_allowed: String(chkGetLearnedKnowledge ? chkGetLearnedKnowledge.checked : false)
+            freja_eleven_apikey: elevenKey
         });
 
         if (self.gemini && typeof self.gemini.loadApiKey === 'function') {
