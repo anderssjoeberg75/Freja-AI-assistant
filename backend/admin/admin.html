@@ -685,6 +685,26 @@
                 </div>
             </div>
         </div>
+
+        <!-- FULL WIDTH: LIVE SYSTEM LOGS & TERMINAL MONITOR -->
+        <div class="panel">
+            <div class="panel-header">
+                <span class="panel-title"><i class="fa-solid fa-terminal"></i> REAL-TIME SYSTEM LOGS & MONITOR</span>
+                <div style="display: flex; gap: 12px; align-items: center;">
+                    <label style="font-size: 11px; color: var(--color-text-muted); cursor: pointer; user-select: none; display: flex; align-items: center; gap: 4px;">
+                        <input type="checkbox" id="chk-autoscroll" checked> Auto-skrolla
+                    </label>
+                    <button id="btn-clear-logs" class="btn" style="padding: 4px 10px; font-size: 11px;">
+                        <i class="fa-solid fa-trash-can"></i> Rensa Loggar
+                    </button>
+                </div>
+            </div>
+            <div class="panel-body" style="padding: 12px;">
+                <div id="terminal-console" style="background: #04060c; border: 1px solid var(--color-border); border-radius: 6px; padding: 12px; height: 260px; overflow-y: auto; font-family: var(--font-mono); font-size: 12px; display: flex; flex-direction: column; gap: 4px;">
+                    <div style="color: var(--color-text-muted);">Initierar loggmätare...</div>
+                </div>
+            </div>
+        </div>
     </main>
 
     <div class="toast" id="toast-msg">
@@ -932,17 +952,77 @@
             }, 1500);
         }
 
+        async function loadSystemLogs() {
+            const token = getActiveToken();
+            const headers = {};
+            if (token) headers['X-Freja-Token'] = token;
+
+            try {
+                const res = await fetch('/api/system/logs', { headers: headers });
+                if (res.ok) {
+                    const data = await res.json();
+                    renderTerminalLogs(data.logs || []);
+                }
+            } catch (e) {}
+        }
+
+        function renderTerminalLogs(logs) {
+            const consoleEl = document.getElementById('terminal-console');
+            if (!consoleEl) return;
+
+            if (logs.length === 0) {
+                consoleEl.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; padding: 20px;">Inga loggar registrerade ännu.</div>';
+                return;
+            }
+
+            consoleEl.innerHTML = logs.map(item => {
+                let tagColor = 'var(--color-primary)';
+                if (item.level === 'ERROR' || item.level === 'CRITICAL') tagColor = 'var(--color-error)';
+                else if (item.level === 'WARN' || item.level === 'WARNING') tagColor = 'var(--color-warning)';
+                
+                return `<div class="log-line" style="line-height: 1.4;">
+                    <span style="color: var(--color-text-muted); font-size: 11px;">[${item.time}]</span>
+                    <span style="color: ${tagColor}; font-weight: bold; margin: 0 4px;">[${item.level}]</span>
+                    <span style="color: var(--color-text);">${escapeHtml(item.message)}</span>
+                </div>`;
+            }).join('');
+
+            const chkAuto = document.getElementById('chk-autoscroll');
+            if (chkAuto && chkAuto.checked) {
+                consoleEl.scrollTop = consoleEl.scrollHeight;
+            }
+        }
+
+        function escapeHtml(str) {
+            return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+
+        async function clearLogs() {
+            const token = getActiveToken();
+            const headers = {};
+            if (token) headers['X-Freja-Token'] = token;
+            try {
+                await fetch('/api/system/logs', { method: 'DELETE', headers: headers });
+                loadSystemLogs();
+            } catch (e) {}
+        }
+
         document.addEventListener('DOMContentLoaded', () => {
             buildToolsGrid();
             loadBackendSettings();
+            loadSystemLogs();
+            setInterval(loadSystemLogs, 2500);
+
             document.getElementById('btn-save-all').addEventListener('click', saveAllSettings);
             document.getElementById('btn-update-github').addEventListener('click', updateFromGithub);
+            document.getElementById('btn-clear-logs').addEventListener('click', clearLogs);
             
             document.getElementById('btn-submit-auth').addEventListener('click', () => {
                 const inputToken = document.getElementById('input-auth-token').value.trim();
                 if (inputToken) {
                     setActiveToken(inputToken);
                     loadBackendSettings();
+                    loadSystemLogs();
                 }
             });
         });
