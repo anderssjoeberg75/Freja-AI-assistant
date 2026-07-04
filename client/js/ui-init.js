@@ -13,29 +13,35 @@ FrejaUIController.prototype.initializeUI = function() {
     // Load voice speech rates
     const rate = localStorage.getItem("freja_speech_rate") || "1.0";
     const pitch = localStorage.getItem("freja_speech_pitch") || "1.0";
-    const persona = localStorage.getItem("freja_speech_persona") || document.getElementById('textarea-persona').value;
+    const personaEl = document.getElementById('textarea-persona');
+    const persona = localStorage.getItem("freja_speech_persona") || (personaEl ? personaEl.value : "");
     const autospeak = localStorage.getItem("freja_autospeak") !== "false";
     const lang = localStorage.getItem("freja_lang") || "sv-SE";
     const theme = localStorage.getItem("freja_theme") || "cyan";
 
-    document.getElementById('slider-rate').value = rate;
-    document.getElementById('val-rate').textContent = rate;
+    const sliderRate = document.getElementById('slider-rate');
+    const valRate = document.getElementById('val-rate');
+    if (sliderRate) sliderRate.value = rate;
+    if (valRate) valRate.textContent = rate;
     this.speech.rate = parseFloat(rate);
 
-    document.getElementById('slider-pitch').value = pitch;
-    document.getElementById('val-pitch').textContent = pitch;
-    this.speech.pitch = parseFloat(pitch);
+    const sliderPitch = document.getElementById('slider-pitch');
+    const valPitch = document.getElementById('val-pitch');
+    if (sliderPitch) sliderPitch.value = pitch;
+    if (valPitch) valPitch.textContent = pitch;
 
-    document.getElementById('textarea-persona').value = persona;
+    if (personaEl) personaEl.value = persona;
     this.gemini.systemPrompt = persona;
     if (this.gemini && typeof this.gemini.loadApiKey === 'function') {
         this.gemini.loadApiKey();
     }
 
-    document.getElementById('chk-autospeak').checked = autospeak;
+    const chkAutospeak = document.getElementById('chk-autospeak');
+    if (chkAutospeak) chkAutospeak.checked = autospeak;
     this.speech.autoSpeak = autospeak;
 
-    document.getElementById('select-lang-quick').value = lang;
+    const selectLangQuick = document.getElementById('select-lang-quick');
+    if (selectLangQuick) selectLangQuick.value = lang;
     this.speech.setLanguage(lang);
 
     // Load ElevenLabs API keys & voice configs

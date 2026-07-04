@@ -8,8 +8,13 @@ FrejaUIController.prototype.bindEvents = function() {
     const initAudioBtn = document.getElementById('btn-initialize-audio');
 
     const removeShield = () => {
-        soundSynth.init();
-        soundSynth.playStartupSweep();
+        try {
+            soundSynth.init();
+            soundSynth.playStartupSweep();
+        } catch (e) {
+            console.warn("[AUDIO] Sound synth init error:", e);
+        }
+
         if (shield) {
             shield.classList.add('fade-out');
             shield.style.pointerEvents = 'none';
@@ -20,24 +25,40 @@ FrejaUIController.prototype.bindEvents = function() {
         self.writeLog("SPEECH RECOGNITION ONLINE [SV-SE]", "sys");
         
         // Populate camera selection inputs dropdown
-        self.loadCameraDevices();
+        try {
+            self.loadCameraDevices();
+        } catch (e) {
+            console.warn("[CAMERA] Device load warning:", e);
+        }
         
         // Initiate canvas visualizer animations
-        window.visualizer = new ArcReactorVisualizer('arc-canvas');
-        window.visualizer.setThemeHue(self.getCurrentThemeHue());
-        window.visualizer.startAnimation();
+        try {
+            if (typeof ArcReactorVisualizer !== 'undefined') {
+                window.visualizer = new ArcReactorVisualizer('arc-canvas');
+                window.visualizer.setThemeHue(self.getCurrentThemeHue());
+                window.visualizer.startAnimation();
+            }
+        } catch (e) {
+            console.warn("[VISUALIZER] Canvas init warning:", e);
+        }
         
         // Ask permission for microphone in background
-        soundSynth.getMicrophoneStream().then(() => {
-            self.writeLog("MICROPHONE CORE ACQUIRED. DYNAMIC EQUALIZER LINKED", "sys");
-        }).catch(() => {
-            self.writeLog("MICROPHONE DENIED. RUNNING SPEECH VIA MANUAL WRITING", "warn");
-        });
+        try {
+            soundSynth.getMicrophoneStream().then(() => {
+                self.writeLog("MICROPHONE CORE ACQUIRED. DYNAMIC EQUALIZER LINKED", "sys");
+            }).catch(() => {
+                self.writeLog("MICROPHONE DENIED. RUNNING SPEECH VIA MANUAL WRITING", "warn");
+            });
+        } catch (e) {
+            console.warn("[AUDIO] Mic stream request error:", e);
+        }
 
         // Greet User post boot-up sequence
         setTimeout(() => {
+            const langEl = document.getElementById('select-lang-quick');
+            const sv = langEl ? langEl.value === 'sv-SE' : true;
+
             if (self.hasLoadedHistory) {
-                const sv = document.getElementById('select-lang-quick').value === 'sv-SE';
                 const resumeMsg = sv
                     ? "Välkommen tillbaka, sir. Chattsession återupptagen."
                     : "Welcome back, sir. Chat session resumed.";
@@ -46,7 +67,6 @@ FrejaUIController.prototype.bindEvents = function() {
                 return;
             }
 
-            const sv = document.getElementById('select-lang-quick').value === 'sv-SE';
             const startMsg = sv 
                 ? "System aktiverat. Alla nätverksprotokoll online. Hur kan jag hjälpa dig idag, sir?"
                 : "Systems fully engaged. AI diagnostic matrix secure. How may I assist you today, sir?";
