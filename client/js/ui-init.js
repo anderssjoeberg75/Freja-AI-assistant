@@ -2,11 +2,11 @@
  * F.R.E.J.A. UI Controller - UI Initialization Module
  */
 FrejaUIController.prototype.initializeUI = function() {
-    const accessToken = localStorage.getItem("freja_access_token") || "freja1234";
+    const accessToken = localStorage.getItem("freja_access_token") || "";
     const inputAccessToken = document.getElementById('input-access-token');
     if (inputAccessToken) inputAccessToken.value = accessToken;
 
-    const backendUrl = localStorage.getItem("freja_backend_url") || "";
+    const backendUrl = localStorage.getItem("freja_backend_url") || (window.location.port === '5000' ? (window.location.protocol + '//' + window.location.hostname + ':8000') : "");
     const inputBackendUrl = document.getElementById('input-backend-url');
     if (inputBackendUrl) inputBackendUrl.value = backendUrl;
 
@@ -28,6 +28,9 @@ FrejaUIController.prototype.initializeUI = function() {
 
     document.getElementById('textarea-persona').value = persona;
     this.gemini.systemPrompt = persona;
+    if (this.gemini && typeof this.gemini.loadApiKey === 'function') {
+        this.gemini.loadApiKey();
+    }
 
     document.getElementById('chk-autospeak').checked = autospeak;
     this.speech.autoSpeak = autospeak;

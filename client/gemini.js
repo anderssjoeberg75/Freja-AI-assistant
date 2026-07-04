@@ -91,17 +91,38 @@ class GeminiClient {
     /**
      * Loads the Gemini API credential key from LocalStorage.
      */
-    loadApiKey() {
+    async loadApiKey() {
         const stored = localStorage.getItem("freja_gemini_apikey");
         if (stored) {
             this.apiKey = stored;
             document.getElementById('input-api-key').value = stored;
             document.getElementById('cap-gemini').classList.add('active');
             console.log("[GEMINI] Loaded API key from LocalStorage");
-        } else {
-            console.warn("[GEMINI] No API key set. Running in Offline Mock mode.");
-            document.getElementById('cap-gemini').classList.remove('active');
+            return;
         }
+
+        // Check backend server keys database via API
+        try {
+            const res = await fetch("/api/keys");
+            if (res.ok) {
+                const keys = await res.json();
+                const serverKey = keys.freja_gemini_apikey || keys.gemini_api_key;
+                if (serverKey && serverKey !== "" && !serverKey.startsWith("••••")) {
+                    this.apiKey = "configured";
+                    document.getElementById('input-api-key').value = "•••••••• (Konfigurerad på Backend)";
+                    document.getElementById('cap-gemini').classList.add('active');
+                    console.log("[GEMINI] Loaded active Gemini API key from backend database.");
+                    return;
+                }
+            } else if (res.status === 401) {
+                console.warn("[GEMINI] Backend auth 401: Access token invalid or missing.");
+            }
+        } catch (e) {
+            console.warn("[GEMINI] Backend key check failed:", e);
+        }
+
+        console.warn("[GEMINI] No API key set. Running in Offline Mock mode.");
+        document.getElementById('cap-gemini').classList.remove('active');
     }
 
     /**

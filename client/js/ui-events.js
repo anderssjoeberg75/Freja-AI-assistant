@@ -1334,6 +1334,14 @@ FrejaUIController.prototype.bindEvents = function() {
         }
 
         const accessTokenVal = document.getElementById('input-access-token').value.trim();
+        const backendUrlVal = document.getElementById('input-backend-url').value.trim();
+
+        if (accessTokenVal) {
+            localStorage.setItem("freja_access_token", accessTokenVal);
+        }
+        if (backendUrlVal !== undefined) {
+            localStorage.setItem("freja_backend_url", backendUrlVal);
+        }
 
         // Save keys to secure SQLite database (permission flags included so the
         // backend, the authoritative enforcement point for /api/tools/execute,
@@ -1356,8 +1364,8 @@ FrejaUIController.prototype.bindEvents = function() {
             freja_tool_get_learned_knowledge_allowed: String(chkGetLearnedKnowledge ? chkGetLearnedKnowledge.checked : false)
         });
 
-        if (success && accessTokenVal) {
-            localStorage.setItem("freja_access_token", accessTokenVal);
+        if (self.gemini && typeof self.gemini.loadApiKey === 'function') {
+            await self.gemini.loadApiKey();
         }
 
         modalSettings.classList.remove('active');
@@ -1705,6 +1713,40 @@ FrejaUIController.prototype.bindEvents = function() {
         btnRefreshTelegram.addEventListener('click', () => {
             soundSynth.playClick();
             self.loadTelegramDashboardUI();
+        });
+    }
+
+    const btnSubmitLogin = document.getElementById('btn-submit-login');
+    if (btnSubmitLogin) {
+        btnSubmitLogin.addEventListener('click', async () => {
+            soundSynth.playClick();
+            const tokenInput = document.getElementById('input-login-token').value.trim();
+            const errDiv = document.getElementById('login-error-msg');
+            if (!tokenInput) return;
+
+            localStorage.setItem('freja_access_token', tokenInput);
+            const inputAccessToken = document.getElementById('input-access-token');
+            if (inputAccessToken) inputAccessToken.value = tokenInput;
+
+            try {
+                const res = await fetch('/api/keys');
+                if (res.ok) {
+                    if (errDiv) errDiv.style.display = 'none';
+                    const modalAuth = document.getElementById('modal-auth-login');
+                    if (modalAuth) modalAuth.classList.remove('active');
+                    self.writeLog("BACKEND SESSION VERIFIED AND CONNECTED", "sys");
+                    soundSynth.playNotify();
+                    if (self.gemini && typeof self.gemini.loadApiKey === 'function') {
+                        await self.gemini.loadApiKey();
+                    }
+                } else {
+                    if (errDiv) errDiv.style.display = 'block';
+                    soundSynth.playError();
+                }
+            } catch (e) {
+                if (errDiv) errDiv.style.display = 'block';
+                soundSynth.playError();
+            }
         });
     }
 };
