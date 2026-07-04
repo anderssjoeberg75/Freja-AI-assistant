@@ -80,6 +80,45 @@ F.R.E.J.A. requires **Python 3.10+** and **Git** installed on your system. Follo
    playwright install-deps chromium
    ```
 
+### ⚙️ Autostart Backend on Ubuntu (systemd Service)
+
+To run the F.R.E.J.A. Backend automatically in the background on system boot (e.g. on an Ubuntu VPS/server):
+
+1. **Create a systemd Service File:**
+   ```bash
+   sudo nano /etc/systemd/system/freja-backend.service
+   ```
+
+2. **Add the following configuration:** (replace `/home/user/Freja-AI-assistant` and `user` with your actual path and username)
+   ```ini
+   [Unit]
+   Description=F.R.E.J.A. Neural Backend Service
+   After=network.target
+
+   [Service]
+   Type=simple
+   User=user
+   WorkingDirectory=/home/user/Freja-AI-assistant
+   ExecStart=/home/user/Freja-AI-assistant/venv/bin/python server.py
+   Restart=always
+   RestartSec=5
+
+   [Install]
+   WantedBy=multi-user.target
+   ```
+
+3. **Enable and Start the Service:**
+   ```bash
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now freja-backend
+   ```
+
+4. **Verify Service Status & Logs:**
+   ```bash
+   sudo systemctl status freja-backend
+   sudo journalctl -u freja-backend -f
+   ```
+
 ---
 
 ## 🌐 Client-Backend Architecture
