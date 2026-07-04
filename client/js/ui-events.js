@@ -283,42 +283,48 @@ FrejaUIController.prototype.bindEvents = function() {
     // Toggle API Keys visibility masks
     const btnToggleKey = document.getElementById('btn-toggle-key');
     const inputApiKey = document.getElementById('input-api-key');
-    btnToggleKey.addEventListener('click', () => {
-        soundSynth.playClick();
-        if (inputApiKey.type === 'password') {
-            inputApiKey.type = 'text';
-            btnToggleKey.innerHTML = '<i class="fa-solid fa-eye-slash"></i>';
-        } else {
-            inputApiKey.type = 'password';
-            btnToggleKey.innerHTML = '<i class="fa-solid fa-eye"></i>';
-        }
-    });
+    if (btnToggleKey && inputApiKey) {
+        btnToggleKey.addEventListener('click', () => {
+            soundSynth.playClick();
+            if (inputApiKey.type === 'password') {
+                inputApiKey.type = 'text';
+                btnToggleKey.innerHTML = '<i class="fa-solid fa-eye-slash"></i>';
+            } else {
+                inputApiKey.type = 'password';
+                btnToggleKey.innerHTML = '<i class="fa-solid fa-eye"></i>';
+            }
+        });
+    }
 
     const btnToggleElevenKey = document.getElementById('btn-toggle-eleven-key');
     const inputElevenKey = document.getElementById('input-eleven-key');
-    btnToggleElevenKey.addEventListener('click', () => {
-        soundSynth.playClick();
-        if (inputElevenKey.type === 'password') {
-            inputElevenKey.type = 'text';
-            btnToggleElevenKey.innerHTML = '<i class="fa-solid fa-eye-slash"></i>';
-        } else {
-            inputElevenKey.type = 'password';
-            btnToggleElevenKey.innerHTML = '<i class="fa-solid fa-eye"></i>';
-        }
-    });
+    if (btnToggleElevenKey && inputElevenKey) {
+        btnToggleElevenKey.addEventListener('click', () => {
+            soundSynth.playClick();
+            if (inputElevenKey.type === 'password') {
+                inputElevenKey.type = 'text';
+                btnToggleElevenKey.innerHTML = '<i class="fa-solid fa-eye-slash"></i>';
+            } else {
+                inputElevenKey.type = 'password';
+                btnToggleElevenKey.innerHTML = '<i class="fa-solid fa-eye"></i>';
+            }
+        });
+    }
 
     const btnToggleMem0Key = document.getElementById('btn-toggle-mem0-key');
     const inputMem0Key = document.getElementById('input-mem0-key');
-    btnToggleMem0Key.addEventListener('click', () => {
-        soundSynth.playClick();
-        if (inputMem0Key.type === 'password') {
-            inputMem0Key.type = 'text';
-            btnToggleMem0Key.innerHTML = '<i class="fa-solid fa-eye-slash"></i>';
-        } else {
-            inputMem0Key.type = 'password';
-            btnToggleMem0Key.innerHTML = '<i class="fa-solid fa-eye"></i>';
-        }
-    });
+    if (btnToggleMem0Key && inputMem0Key) {
+        btnToggleMem0Key.addEventListener('click', () => {
+            soundSynth.playClick();
+            if (inputMem0Key.type === 'password') {
+                inputMem0Key.type = 'text';
+                btnToggleMem0Key.innerHTML = '<i class="fa-solid fa-eye-slash"></i>';
+            } else {
+                inputMem0Key.type = 'password';
+                btnToggleMem0Key.innerHTML = '<i class="fa-solid fa-eye"></i>';
+            }
+        });
+    }
 
     const btnToggleGarminPassword = document.getElementById('btn-toggle-garmin-password');
     const inputGarminPassword = document.getElementById('input-garmin-password');

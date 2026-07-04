@@ -65,8 +65,10 @@ FrejaUIController.prototype.initializeUI = function() {
     const mem0Key = localStorage.getItem("freja_mem0_apikey") || "";
     const mem0Enabled = localStorage.getItem("freja_mem0_enabled") !== "false";
     
-    document.getElementById('input-mem0-key').value = mem0Key;
-    document.getElementById('chk-use-mem0').checked = mem0Enabled;
+    const inputMem0Key = document.getElementById('input-mem0-key');
+    if (inputMem0Key) inputMem0Key.value = mem0Key;
+    const chkUseMem0 = document.getElementById('chk-use-mem0');
+    if (chkUseMem0) chkUseMem0.checked = mem0Enabled;
     
     const garminEmail = localStorage.getItem("freja_garmin_email") || "";
     const garminPassword = localStorage.getItem("freja_garmin_password") || "";
