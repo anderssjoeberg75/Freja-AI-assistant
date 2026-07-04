@@ -96,7 +96,7 @@ class GeminiClient {
         const inputApiKeyEl = document.getElementById('input-api-key');
         const capGeminiEl = document.getElementById('cap-gemini');
 
-        if (stored) {
+        if (stored && stored.trim() !== "") {
             this.apiKey = stored;
             if (inputApiKeyEl) inputApiKeyEl.value = stored;
             if (capGeminiEl) capGeminiEl.classList.add('active');
@@ -110,7 +110,7 @@ class GeminiClient {
             if (res.ok) {
                 const keys = await res.json();
                 const serverKey = keys.freja_gemini_apikey || keys.gemini_api_key;
-                if (serverKey && serverKey !== "" && !serverKey.startsWith("••••")) {
+                if (serverKey && serverKey.trim() !== "") {
                     this.apiKey = "configured";
                     if (inputApiKeyEl) inputApiKeyEl.value = "•••••••• (Konfigurerad på Backend)";
                     if (capGeminiEl) capGeminiEl.classList.add('active');
@@ -125,6 +125,7 @@ class GeminiClient {
         }
 
         console.warn("[GEMINI] No API key set. Running in Offline Mock mode.");
+        this.apiKey = null;
         if (capGeminiEl) capGeminiEl.classList.remove('active');
     }
 
