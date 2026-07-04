@@ -205,6 +205,18 @@ python3 -m unittest discover -v
 
 ---
 
+## 🔒 Codex Sandbox (AI Code Execution)
+
+F.R.E.J.A.'s Codex tools can run AI-generated Python code and shell commands. How isolated that execution is depends on the `FREJA_CODEX_SANDBOX` environment variable:
+
+* **`auto`** (default): Runs code inside a throwaway Docker container (no network, read-only root filesystem, capped memory/CPU/processes) if Docker is installed — otherwise falls back to local execution.
+* **`docker`**: Always requires Docker; execution fails if the Docker daemon is unavailable.
+* **`local`**: Runs directly on the host. Isolation then relies solely on AST/blocklist validation plus POSIX resource limits — **notably weaker**, and on Windows the resource limits are unavailable entirely. Installing Docker is strongly recommended.
+
+The container image defaults to `python:3.12-alpine` and can be overridden with `FREJA_CODEX_DOCKER_IMAGE`. Every Codex execution (code, git operations, auto-fixes) is recorded in the `codex_audit_log` table in the SQLite database. The `codex_run_and_fix` tool always writes a `.codex_backup` copy of the target file before letting the AI rewrite it, and `git push` always requires a fresh confirmation in the UI — it can never be permanently allowed.
+
+---
+
 ## 🛠️ Troubleshooting & Tips
 
 * **Webcam Streams Fail / Overconstrained Error**:

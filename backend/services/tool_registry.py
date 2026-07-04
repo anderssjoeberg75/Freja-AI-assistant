@@ -207,18 +207,18 @@ TOOL_DECLARATIONS = [
     },
     {
         "name": "codex_git_ops",
-        "description": "Hanterar git-operationer i den lokala källkodskatalogen (t.ex. status, commit, log, push, checkout).",
+        "description": "Hanterar git-operationer i den lokala källkodskatalogen (t.ex. status, log, diff, branch, pull, commit, push, checkout).",
         "parameters": {
             "type": "OBJECT",
             "properties": {
                 "action": {
                     "type": "STRING",
-                    "description": "Git-åtgärden: 'status', 'log', 'push', 'checkout', 'clone' eller 'commit'.",
-                    "enum": ["status", "log", "push", "checkout", "clone", "commit"]
+                    "description": "Git-åtgärden: 'status', 'log', 'diff', 'branch', 'pull', 'push', 'checkout' (endast befintliga lokala brancher), 'clone' (endast https, klonas till separat arbetsyta) eller 'commit'.",
+                    "enum": ["status", "log", "diff", "branch", "pull", "push", "checkout", "clone", "commit"]
                 },
                 "argument": {
                     "type": "STRING",
-                    "description": "Argument för åtgärden (t.ex. branch-namn, commit-meddelande eller repolänk)."
+                    "description": "Argument för åtgärden (t.ex. branch-namn, commit-meddelande eller https-repolänk)."
                 }
             },
             "required": ["action"]

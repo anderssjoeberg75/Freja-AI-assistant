@@ -6,23 +6,32 @@ and autonomous debugging capabilities using the local host environment and Gemin
 
 import os
 import sys
+import shutil
 import subprocess
-import hashlib
 import datetime
-import httpx
-import json
+import difflib
 import asyncio
 import re
+import uuid
 from backend.config import PROJECT_ROOT
-from backend.database import get_api_key
+from backend.database import get_db_connection
+from backend.services import gemini_client
 
-# Ignored patterns for codebase auditing
+# Ignored patterns for codebase auditing. Directory names are matched against the
+# basename of each directory (os.walk yields basenames), so entries must be plain
+# names like 'cache', not paths like 'backend/cache'.
 IGNORED_DIRS = {
-    '.git', '__pycache__', 'venv', 'node_modules', 'backend/cache', 
-    'freja_io_temp', '.garminconnect', '.pytest_cache', 'htmlcov'
+    '.git', '__pycache__', 'venv', 'node_modules', 'cache',
+    'freja_io_temp', '.garminconnect', '.pytest_cache', 'htmlcov',
+    'docs', 'downloads',
 }
 ALLOWED_EXTENSIONS = {'.py', '.js', '.html', '.css', '.json', '.md', '.sh', '.txt'}
-IGNORED_FILES = {'keys.db', 'freja.db', '.telegram_bot.lock', 'package-lock.json'}
+# facebook_state.json holds live session cookies and must never be sent to the
+# Gemini API as part of an audit prompt.
+IGNORED_FILES = {
+    'keys.db', 'freja.db', '.telegram_bot.lock', 'package-lock.json',
+    'facebook_state.json',
+}
 
 
 import ast
@@ -30,12 +39,21 @@ import ast
 def verify_safe_python_code(code: str):
     """Parses the Python code into an AST and throws ValueError if suspicious operations are detected."""
     blocked_calls = {
-        'eval', 'exec', 'open', 'compile', 'input', '__import__', 'getattr', 'setattr', 
+        'eval', 'exec', 'open', 'compile', 'input', '__import__', 'getattr', 'setattr',
         'globals', 'locals', 'vars', 'classmethod', 'staticmethod', 'breakpoint'
     }
     blocked_modules = {
-        'os', 'sys', 'subprocess', 'shutil', 'pty', 'platform', 'socket', 'urllib', 
-        'http', 'httpx', 'requests', 'sqlite3', 'ctypes', 'importlib', 'builtins'
+        'os', 'sys', 'subprocess', 'shutil', 'pty', 'platform', 'socket', 'urllib',
+        'http', 'httpx', 'requests', 'sqlite3', 'ctypes', 'importlib', 'builtins',
+        # File access routes around the blocked `open` builtin
+        'pathlib', 'io', 'tempfile', 'glob', 'fileinput', 'zipfile', 'tarfile',
+        'shelve', 'pickle', 'marshal', 'codecs', 'mmap',
+        # Network routes around the blocked socket/http modules
+        'asyncio', 'ftplib', 'smtplib', 'telnetlib', 'xmlrpc', 'aiohttp',
+        'poplib', 'imaplib', 'nntplib',
+        # Process/thread spawning and interpreter control
+        'multiprocessing', 'threading', 'concurrent', 'signal', 'webbrowser',
+        'runpy', 'code', 'codeop',
     }
     
     try:
@@ -54,6 +72,11 @@ def verify_safe_python_code(code: str):
                 mod = node.module.split('.')[0]
                 if mod in blocked_modules:
                     raise ValueError(f"Säkerhetsfel: Import från modulen '{node.module}' är blockerad.")
+            # Block `from <module> import open as reader`-style aliasing: the imported
+            # object keeps its dangerous behavior even when bound to an innocent name.
+            for name in node.names:
+                if name.name in blocked_calls:
+                    raise ValueError(f"Säkerhetsfel: Import av '{name.name}' är blockerad.")
         elif isinstance(node, ast.Call):
             if isinstance(node.func, ast.Name):
                 if node.func.id in blocked_calls:
@@ -155,6 +178,99 @@ SENSITIVE_PATH_MARKERS = (
     'keys.db', 'freja.db', 'database.db', '.freja_secret.key', '.env',
     '.ssh', 'id_rsa', 'facebook_state.json',
 )
+
+# --- Container sandbox -------------------------------------------------------
+# FREJA_CODEX_SANDBOX selects how AI-authored code is executed:
+#   'docker' - always run inside a throwaway container (fails if docker is missing)
+#   'local'  - run directly on the host (the pre-existing behavior; blocklist +
+#              rlimits are then the only isolation, which is weaker - notably on
+#              Windows where the `resource` module doesn't exist at all)
+#   'auto'   - use docker when available, otherwise fall back to local (default)
+CODEX_SANDBOX_MODE_ENV = "FREJA_CODEX_SANDBOX"
+DOCKER_SANDBOX_IMAGE = os.environ.get("FREJA_CODEX_DOCKER_IMAGE", "python:3.12-alpine")
+
+_docker_available_cache = None
+
+
+def _docker_available() -> bool:
+    """Checks (and caches) whether a usable docker CLI + daemon exists on the host."""
+    global _docker_available_cache
+    if _docker_available_cache is None:
+        if shutil.which("docker") is None:
+            _docker_available_cache = False
+        else:
+            try:
+                probe = subprocess.run(
+                    ["docker", "info"], capture_output=True, timeout=10
+                )
+                _docker_available_cache = probe.returncode == 0
+            except Exception:
+                _docker_available_cache = False
+    return _docker_available_cache
+
+
+def resolve_sandbox_mode() -> str:
+    """Returns the effective sandbox mode: 'docker' or 'local'."""
+    mode = os.environ.get(CODEX_SANDBOX_MODE_ENV, "auto").strip().lower()
+    if mode == "docker":
+        return "docker"
+    if mode == "local":
+        return "local"
+    return "docker" if _docker_available() else "local"
+
+
+def _docker_run_args(container_name: str, inner_cmd: list) -> list:
+    """Builds the argv for a locked-down throwaway container: no network, read-only
+    root filesystem, capped memory/pids/cpu, with only the sandbox dir writable."""
+    return [
+        "docker", "run", "--rm",
+        "--name", container_name,
+        "--network=none",
+        "--read-only",
+        "--memory=512m",
+        "--pids-limit=64",
+        "--cpus=1",
+        "--tmpfs", "/tmp:size=64m",
+        "-v", f"{SHELL_SANDBOX_DIR}:/work",
+        "-w", "/work",
+        DOCKER_SANDBOX_IMAGE,
+    ] + inner_cmd
+
+
+async def _kill_container(container_name: str):
+    """Best-effort cleanup of a container that outlived its client (e.g. on timeout)."""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "docker", "kill", container_name,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await asyncio.wait_for(proc.communicate(), timeout=15)
+    except Exception:
+        pass
+
+
+def log_codex_execution(tool: str, command: str, exit_code, detail: str = ""):
+    """Appends one row to the persistent codex audit log. Never raises: logging
+    failure must not break the tool call itself."""
+    try:
+        with get_db_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO codex_audit_log (timestamp, tool, command, exit_code, detail)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    datetime.datetime.now().isoformat(timespec="seconds"),
+                    tool,
+                    command[:2000],
+                    exit_code if exit_code is not None else -999,
+                    detail[:500],
+                ),
+            )
+            conn.commit()
+    except Exception as e:
+        print(f"[CODEX AUDIT LOG] Kunde inte skriva till loggen: {e}")
 
 
 def verify_safe_shell_command(cmd_str: str):
@@ -261,50 +377,64 @@ async def run_subprocess_exec(args_list, cwd: str = PROJECT_ROOT, timeout: int =
         }
 
 
+async def _run_in_docker(language: str, code: str, temp_file_name: str = None) -> dict:
+    """Runs the code/command inside a throwaway, network-less container. The sandbox
+    dir is the only writable mount, so host files can't be read or modified even if
+    the blocklist were bypassed."""
+    container_name = f"freja_codex_{uuid.uuid4().hex[:12]}"
+    if language == "python":
+        inner_cmd = ["python", f"/work/{temp_file_name}"]
+    else:
+        inner_cmd = ["sh", "-c", code]
+
+    res = await run_subprocess_exec(_docker_run_args(container_name, inner_cmd))
+    if "tidsgränsen" in res.get("stderr", ""):
+        await _kill_container(container_name)
+    return res
+
+
 async def execute_codex_code_impl(args: dict) -> dict:
-    """Executes Python code or shell commands locally on the host."""
+    """Executes Python code or shell commands in a sandbox (docker if available)."""
     language = args.get("language", "python").lower()
     code = args.get("code", "")
-    
+
     if not code:
         return {"error": "Ingen kod eller kommando angavs."}
-        
+
+    # The AST/blocklist validation always runs, even in docker mode (defense in depth).
     try:
         if language == "python":
             verify_safe_python_code(code)
         else:
             verify_safe_shell_command(code)
     except ValueError as val_err:
+        log_codex_execution("execute_codex_code", code, None, f"blocked: {val_err}")
         return {
             "exit_code": -1,
             "stdout": "",
             "stderr": str(val_err),
             "output": f"Säkerhetsfel: {str(val_err)}"
         }
-        
+
     os.makedirs(SHELL_SANDBOX_DIR, exist_ok=True)
+    sandbox_mode = resolve_sandbox_mode()
 
     if language == "python":
-        # Create temp folder inside backend/cache/ if it doesn't exist
-        cache_dir = os.path.join(PROJECT_ROOT, "backend", "cache")
-        os.makedirs(cache_dir, exist_ok=True)
-        temp_file = os.path.join(cache_dir, f"temp_codex_{int(datetime.datetime.now().timestamp())}.py")
+        # Unique name so concurrent calls can't collide; placed inside the sandbox
+        # dir so the docker mount can see it and relative paths stay contained.
+        temp_file_name = f"temp_codex_{uuid.uuid4().hex}.py"
+        temp_file = os.path.join(SHELL_SANDBOX_DIR, temp_file_name)
 
         try:
             with open(temp_file, "w", encoding="utf-8") as f:
                 f.write(code)
 
-            # Execute python script from the isolated sandbox dir, not PROJECT_ROOT,
-            # so relative-path filesystem access can't reach keys.db/.env by accident.
-            cmd = f"{sys.executable} {temp_file}"
-            res = await run_subprocess_command(cmd, cwd=SHELL_SANDBOX_DIR)
-            return {
-                "message": "Körde Python-kod lokalt på värdmaskinen.",
-                "exit_code": res["exit_code"],
-                "stdout": res["stdout"],
-                "stderr": res["stderr"],
-                "output": res["output"]
-            }
+            if sandbox_mode == "docker":
+                res = await _run_in_docker("python", code, temp_file_name)
+            else:
+                res = await run_subprocess_command(
+                    f"{sys.executable} {temp_file}", cwd=SHELL_SANDBOX_DIR
+                )
         finally:
             if os.path.exists(temp_file):
                 try:
@@ -312,15 +442,49 @@ async def execute_codex_code_impl(args: dict) -> dict:
                 except Exception:
                     pass
     else:
-        # Run shell command directly, isolated from the real project tree.
-        res = await run_subprocess_command(code, cwd=SHELL_SANDBOX_DIR)
-        return {
-            "message": "Körde kommandot i lokalt skal.",
-            "exit_code": res["exit_code"],
-            "stdout": res["stdout"],
-            "stderr": res["stderr"],
-            "output": res["output"]
-        }
+        if sandbox_mode == "docker":
+            res = await _run_in_docker("shell", code)
+        else:
+            res = await run_subprocess_command(code, cwd=SHELL_SANDBOX_DIR)
+
+    log_codex_execution("execute_codex_code", code, res["exit_code"], f"sandbox={sandbox_mode}")
+    sandbox_note = (
+        "isolerad Docker-container" if sandbox_mode == "docker"
+        else "lokalt på värdmaskinen (svagare isolering; installera Docker för full sandbox)"
+    )
+    return {
+        "message": f"Körde {'Python-kod' if language == 'python' else 'kommandot'} i {sandbox_note}.",
+        "sandbox": sandbox_mode,
+        "exit_code": res["exit_code"],
+        "stdout": res["stdout"],
+        "stderr": res["stderr"],
+        "output": res["output"]
+    }
+
+
+# Cloned repos land in a dedicated workspace instead of PROJECT_ROOT, so a clone
+# can never shadow project modules or dump files into the served client directory.
+GIT_CLONE_WORKSPACE = os.path.join(PROJECT_ROOT, "backend", "cache", "git_workspace")
+
+
+async def _git_branch_exists(branch: str) -> bool:
+    """True if `branch` names an existing local branch (not a file path or remote ref)."""
+    res = await run_subprocess_exec(
+        ["git", "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}"]
+    )
+    return res["exit_code"] == 0
+
+
+def _git_result(action: str, command: str, res: dict) -> dict:
+    log_codex_execution("codex_git_ops", command, res["exit_code"], f"action={action}")
+    return {
+        "action": action,
+        "command": command,
+        "exit_code": res["exit_code"],
+        "stdout": res["stdout"],
+        "stderr": res["stderr"],
+        "output": res["output"]
+    }
 
 
 async def codex_git_ops_impl(args: dict) -> dict:
@@ -343,31 +507,36 @@ async def codex_git_ops_impl(args: dict) -> dict:
     if action == "commit":
         add_res = await run_subprocess_exec(["git", "add", "."])
         if add_res["exit_code"] != 0:
-            return {
-                "action": action,
-                "command": "git add .",
-                "exit_code": add_res["exit_code"],
-                "stdout": add_res["stdout"],
-                "stderr": add_res["stderr"],
-                "output": add_res["output"]
-            }
+            return _git_result(action, "git add .", add_res)
         res = await run_subprocess_exec(["git", "commit", "-m", argument])
-        return {
-            "action": action,
-            "command": f"git add . && git commit -m '{argument}'",
-            "exit_code": res["exit_code"],
-            "stdout": res["stdout"],
-            "stderr": res["stderr"],
-            "output": res["output"]
-        }
+        return _git_result(action, f"git add . && git commit -m '{argument}'", res)
+
+    # Checkout is restricted to existing local branches: `git checkout <file>` would
+    # silently discard uncommitted changes in that file, which the AI must not be
+    # able to trigger.
+    if action == "checkout":
+        if not await _git_branch_exists(argument):
+            return {"error": f"Säkerhetsfel: '{argument}' är inte en befintlig lokal branch. "
+                             "Checkout av filer eller okända referenser är blockerad."}
+        res = await run_subprocess_exec(["git", "checkout", argument])
+        return _git_result(action, f"git checkout {argument}", res)
+
+    # Clone only via https, into the dedicated workspace directory.
+    if action == "clone":
+        if not argument.lower().startswith("https://"):
+            return {"error": "Säkerhetsfel: Endast https://-URL:er kan klonas."}
+        os.makedirs(GIT_CLONE_WORKSPACE, exist_ok=True)
+        res = await run_subprocess_exec(["git", "clone", argument], cwd=GIT_CLONE_WORKSPACE)
+        return _git_result(action, f"git clone {argument} (i {GIT_CLONE_WORKSPACE})", res)
 
     # Build argv lists (no shell) so the argument can never be parsed as a shell command.
     git_cmds = {
         "status": ["git", "status"],
         "log": ["git", "log", "-n", "5"],
+        "diff": ["git", "diff", "--stat", "HEAD"],
+        "branch": ["git", "branch", "--list"],
+        "pull": ["git", "pull"],
         "push": ["git", "push"],
-        "clone": ["git", "clone", argument],
-        "checkout": ["git", "checkout", argument],
     }
 
     cmd_list = git_cmds.get(action)
@@ -375,76 +544,60 @@ async def codex_git_ops_impl(args: dict) -> dict:
         return {"error": f"Okänd git-åtgärd: '{action}'."}
 
     res = await run_subprocess_exec(cmd_list)
-    return {
-        "action": action,
-        "command": " ".join(cmd_list),
-        "exit_code": res["exit_code"],
-        "stdout": res["stdout"],
-        "stderr": res["stderr"],
-        "output": res["output"]
-    }
+    return _git_result(action, " ".join(cmd_list), res)
 
 
 async def call_gemini_api(prompt: str, system_instruction: str = "") -> str:
-    """Helper to query the official Google Gemini API using local settings credentials."""
-    # Fetch API key from db
-    api_key = get_api_key('freja_gemini_apikey') or ""
-    if not api_key:
-        raise Exception("Gemini API-nyckel saknas i databasen.")
-        
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
-    
-    contents = []
-    if system_instruction:
-        # System instructions are placed in systemInstruction block
-        payload = {
-            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-            "systemInstruction": {"parts": [{"text": system_instruction}]},
-            "generationConfig": {"temperature": 0.2}
-        }
-    else:
-        payload = {
-            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-            "generationConfig": {"temperature": 0.2}
-        }
-        
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(url, json=payload, timeout=60.0)
-        resp.raise_for_status()
-        resp_json = resp.json()
-        
-    text = resp_json.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
-    return text
+    """Queries Gemini via the shared client (kept as a thin wrapper for existing callers)."""
+    return await gemini_client.generate_text(prompt, system_instruction)
+
+
+AUDIT_MAX_CHARS = 180000
 
 
 async def codex_audit_codebase_impl(args: dict = None) -> dict:
     """Analyzes the Freja python/JS codebase for bugs and code quality, writing the review to a file."""
-    # 1. Read files recursively
-    code_content = ""
-    file_count = 0
-    
+    # 1. Collect candidate files, most recently modified first, so that when the
+    # prompt hits the size limit it's the stale files that get cut - not whichever
+    # files happened to come last in os.walk order.
+    candidates = []
     for root, dirs, files in os.walk(PROJECT_ROOT):
         # Filter directories in place
         dirs[:] = [d for d in dirs if d not in IGNORED_DIRS]
-        
+
         for file in files:
             ext = os.path.splitext(file)[1]
             if ext in ALLOWED_EXTENSIONS and file not in IGNORED_FILES:
                 file_path = os.path.join(root, file)
-                rel_path = os.path.relpath(file_path, PROJECT_ROOT)
                 try:
-                    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                        code_content += f"\n--- FIL: {rel_path} ---\n{f.read()}\n"
-                        file_count += 1
-                except Exception as e:
-                    print(f"[CODEX AUDIT] Kunde inte läsa {rel_path}: {e}")
-                    
+                    mtime = os.path.getmtime(file_path)
+                except OSError:
+                    mtime = 0
+                candidates.append((mtime, file_path))
+
+    candidates.sort(reverse=True)
+
+    code_content = ""
+    file_count = 0
+    truncated = False
+    for _, file_path in candidates:
+        rel_path = os.path.relpath(file_path, PROJECT_ROOT)
+        try:
+            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                code_content += f"\n--- FIL: {rel_path} ---\n{f.read()}\n"
+                file_count += 1
+        except Exception as e:
+            print(f"[CODEX AUDIT] Kunde inte läsa {rel_path}: {e}")
+        if len(code_content) > AUDIT_MAX_CHARS:
+            truncated = True
+            break
+
     if file_count == 0:
         return {"error": "Inga filer hittades att granska."}
-        
-    # Limit character context size to prevent token exhaustion (e.g. max 180,000 chars)
-    if len(code_content) > 180000:
-        code_content = code_content[:180000] + "\n\n... [TRUNCATED DUE TO SIZE LIMITS] ..."
+
+    # Limit character context size to prevent token exhaustion
+    if truncated or len(code_content) > AUDIT_MAX_CHARS:
+        code_content = code_content[:AUDIT_MAX_CHARS] + "\n\n... [TRUNCATED DUE TO SIZE LIMITS] ..."
         
     system_instruction = """Du är en expert och senior mjukvaruarkitekt.
 Analysera den bifogade källkoden med avseende på:
@@ -509,9 +662,17 @@ async def codex_run_and_fix_impl(args: dict) -> dict:
     abs_file_path = os.path.abspath(os.path.join(PROJECT_ROOT, file_path))
     if not os.path.exists(abs_file_path):
         return {"error": f"Målfilen hittades inte på: {abs_file_path}"}
-        
+
+    # Safety net: keep a backup of the original file so a bad AI rewrite can always
+    # be rolled back, even if the file was never committed to git.
+    backup_path = abs_file_path + ".codex_backup"
+    try:
+        shutil.copy2(abs_file_path, backup_path)
+    except Exception as backup_err:
+        return {"error": f"Kunde inte skapa säkerhetskopia ({backup_path}): {backup_err}"}
+
     history = []
-    
+
     for attempt in range(max_retries + 1):
         # Execute the command
         res = await run_subprocess_command(command)
@@ -523,14 +684,17 @@ async def codex_run_and_fix_impl(args: dict) -> dict:
                 "status": "success",
                 "message": f"Kommando lyckades på försök {attempt + 1}!",
                 "output": output,
+                "backup_file": backup_path,
                 "history": history
             }
-            
+
         if attempt == max_retries:
             return {
                 "status": "failed",
-                "message": f"Misslyckades efter {max_retries} auto-fix försök.",
+                "message": f"Misslyckades efter {max_retries} auto-fix försök. "
+                           f"Originalfilen kan återställas från: {backup_path}",
                 "output": output,
+                "backup_file": backup_path,
                 "history": history
             }
             
@@ -558,22 +722,41 @@ VIKTIGT: Returnera enbart den fullständiga, uppdaterade källkoden. Skriv inga 
         
         try:
             fixed_code = await call_gemini_api(prompt, "Du är en AI-kodningsassistent som svarar med enbart ren kod utan markdown-omslag.")
-            
+
             # Clean markdown code block wraps if LLM ignored instructions
             if fixed_code.startswith("```"):
                 fixed_code = fixed_code.split("\n", 1)[1]
             if fixed_code.endswith("```"):
                 fixed_code = fixed_code.rsplit("\n", 1)[0]
-                
+
+            fixed_code = fixed_code.strip()
+
+            # Refuse suspicious rewrites: an empty or drastically shrunken response
+            # is almost always a truncated/failed generation, not a real fix.
+            if len(fixed_code) < 10 or len(fixed_code) < len(current_code) * 0.2:
+                history.append(f"Försök {attempt + 1}: AI-svaret förkastades (tomt eller misstänkt kort) - filen lämnades orörd.")
+                continue
+
+            diff = "\n".join(difflib.unified_diff(
+                current_code.splitlines(), fixed_code.splitlines(),
+                fromfile=f"{file_path} (före)", tofile=f"{file_path} (efter)", lineterm=""
+            ))
+
             # Write fixed code back to file
             with open(abs_file_path, "w", encoding="utf-8") as f:
-                f.write(fixed_code.strip() + "\n")
-                
-            history.append(f"Försök {attempt + 1}: Korrigerade källkoden baserat på exekveringsfel.")
+                f.write(fixed_code + "\n")
+
+            log_codex_execution("codex_run_and_fix", command, exit_code,
+                                f"rewrote {file_path} (attempt {attempt + 1})")
+            history.append(
+                f"Försök {attempt + 1}: Korrigerade källkoden baserat på exekveringsfel. "
+                f"Säkerhetskopia: {backup_path}\nDiff:\n{diff[:4000]}"
+            )
         except Exception as e:
             return {
                 "error": f"Fel uppstod vid generering av auto-fix på försök {attempt + 1}: {str(e)}",
+                "backup_file": backup_path,
                 "history": history
             }
-            
+
     return {"error": "Oväntat slut på loopen."}
