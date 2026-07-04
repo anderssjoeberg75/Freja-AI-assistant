@@ -89,7 +89,10 @@ To run the F.R.E.J.A. Backend automatically in the background on system boot (e.
    sudo nano /etc/systemd/system/freja-backend.service
    ```
 
-2. **Add the following configuration:** (replace `/home/user/Freja-AI-assistant` and `user` with your actual path and username)
+2. **Add the following configuration:**
+   > [!IMPORTANT]
+   > Run `whoami` in terminal to get your exact Ubuntu username, and `pwd` to get your exact project path. Replace `YOUR_USERNAME` and `/path/to/Freja-AI-assistant` accordingly below (otherwise systemd will fail with `status=217/USER`).
+
    ```ini
    [Unit]
    Description=F.R.E.J.A. Neural Backend Service
@@ -97,9 +100,9 @@ To run the F.R.E.J.A. Backend automatically in the background on system boot (e.
 
    [Service]
    Type=simple
-   User=user
-   WorkingDirectory=/home/user/Freja-AI-assistant
-   ExecStart=/home/user/Freja-AI-assistant/venv/bin/python server.py
+   User=YOUR_USERNAME
+   WorkingDirectory=/path/to/Freja-AI-assistant
+   ExecStart=/path/to/Freja-AI-assistant/venv/bin/python server.py
    Restart=always
    RestartSec=5
 
