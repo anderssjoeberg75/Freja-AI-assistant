@@ -374,16 +374,21 @@ FrejaUIController.prototype.bindEvents = function() {
     const modalMemory = document.getElementById('modal-memory');
     const btnCloseMemory = document.getElementById('btn-close-memory');
     
-    btnMemory.addEventListener('click', () => {
-        soundSynth.playClick();
-        modalMemory.classList.add('active');
-        self.loadMemoryVaultUI();
-    });
+    if (btnMemory && modalMemory) {
+        btnMemory.addEventListener('click', () => {
+            soundSynth.playClick();
+            modalMemory.classList.add('active');
+            self.loadMemoryVaultUI();
+        });
+    }
     
-    btnCloseMemory.addEventListener('click', () => {
-        soundSynth.playClick();
-        modalMemory.classList.remove('active');
-    });
+    if (btnCloseMemory && modalMemory) {
+        btnCloseMemory.addEventListener('click', () => {
+            soundSynth.playClick();
+            modalMemory.classList.remove('active');
+        });
+    }
+
 
     // Save Memory API Settings from Memory modal
     const btnSaveMemoryApi = document.getElementById('btn-save-memory-api');
@@ -1186,94 +1191,99 @@ FrejaUIController.prototype.bindEvents = function() {
     const btnAddMemoryManual = document.getElementById('btn-add-memory-manual');
     const inputNewMemory = document.getElementById('input-new-memory');
     
-    btnAddMemoryManual.addEventListener('click', async () => {
-        const text = inputNewMemory.value.trim();
-        if (!text) return;
-        soundSynth.playClick();
-        inputNewMemory.value = "";
-        self.writeLog("ENCODING MANUAL MEMORY ENGRAM", "sys");
+    if (btnAddMemoryManual && inputNewMemory) {
+        btnAddMemoryManual.addEventListener('click', async () => {
+            const text = inputNewMemory.value.trim();
+            if (!text) return;
+            soundSynth.playClick();
+            inputNewMemory.value = "";
+            self.writeLog("ENCODING MANUAL MEMORY ENGRAM", "sys");
+            
+            const success = await self.memory.addMemoryManual(text);
+            if (success) {
+                self.writeLog("MANUAL ENGRAM SECURED", "sys");
+                soundSynth.playNotify();
+                self.loadMemoryVaultUI();
+            } else {
+                self.writeLog("ENGRAM COGNITION FAILURE", "err");
+                soundSynth.playError();
+            }
+        });
         
-        const success = await self.memory.addMemoryManual(text);
-        if (success) {
-            self.writeLog("MANUAL ENGRAM SECURED", "sys");
-            soundSynth.playNotify();
-            self.loadMemoryVaultUI();
-        } else {
-            self.writeLog("ENGRAM COGNITION FAILURE", "err");
-            soundSynth.playError();
-        }
-    });
-    
-    inputNewMemory.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') btnAddMemoryManual.click();
-    });
+        inputNewMemory.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') btnAddMemoryManual.click();
+        });
+    }
     
     // Synchronize engrams list
     const btnRefreshMemory = document.getElementById('btn-refresh-memory');
-    btnRefreshMemory.addEventListener('click', () => {
-        soundSynth.playClick();
-        self.writeLog("SYNCHRONIZING NEURAL ENGRAMS", "sys");
-        self.loadMemoryVaultUI();
-    });
+    if (btnRefreshMemory) {
+        btnRefreshMemory.addEventListener('click', () => {
+            soundSynth.playClick();
+            self.writeLog("SYNCHRONIZING NEURAL ENGRAMS", "sys");
+            self.loadMemoryVaultUI();
+        });
+    }
     
     // Core Memory wipe-out button
     const btnWipeMemory = document.getElementById('btn-wipe-memory');
-    btnWipeMemory.addEventListener('click', async () => {
-        soundSynth.playError();
-        if (confirm("VIKTIGT: Är du säker på att du vill radera alla samlade minnen och engram? Detta kan inte ångras.")) {
-            self.writeLog("INITIATING CORE MEMORY WIPE", "warn");
-            const success = await self.memory.deleteAllMemories();
-            if (success) {
-                self.writeLog("NEURAL PATHWAYS COMPLETELY CLEARED", "sys");
-                soundSynth.playStartupSweep();
-                self.loadMemoryVaultUI();
-            } else {
-                self.writeLog("MEMORY CLEARANCE ABORTED OR FAILED", "err");
+    if (btnWipeMemory) {
+        btnWipeMemory.addEventListener('click', async () => {
+            soundSynth.playError();
+            if (confirm("VIKTIGT: Är du säker på att du vill radera alla samlade minnen och engram? Detta kan inte ångras.")) {
+                self.writeLog("INITIATING CORE MEMORY WIPE", "warn");
+                const success = await self.memory.deleteAllMemories();
+                if (success) {
+                    self.writeLog("NEURAL PATHWAYS COMPLETELY CLEARED", "sys");
+                    soundSynth.playStartupSweep();
+                    self.loadMemoryVaultUI();
+                } else {
+                    self.writeLog("MEMORY CLEARANCE ABORTED OR FAILED", "err");
+                }
             }
-        }
-    });
+        });
+    }
 
     // Local Speech Synthesizer voice selectors changes
     const selectVoice = document.getElementById('select-voice');
-    selectVoice.addEventListener('change', () => {
-        self.speech.voiceIndex = selectVoice.value ? parseInt(selectVoice.value) : null;
-    });
+    if (selectVoice) {
+        selectVoice.addEventListener('change', () => {
+            self.speech.voiceIndex = selectVoice.value ? parseInt(selectVoice.value) : null;
+        });
+    }
 
     // ElevenLabs voice dropdown selection triggers
     const selectElevenVoice = document.getElementById('select-eleven-voice');
     const groupElevenCustom = document.getElementById('group-eleven-custom');
-    selectElevenVoice.addEventListener('change', () => {
-        if (selectElevenVoice.value === 'custom') {
-            groupElevenCustom.style.display = 'block';
-        } else {
-            groupElevenCustom.style.display = 'none';
-        }
-    });
+    if (selectElevenVoice && groupElevenCustom) {
+        selectElevenVoice.addEventListener('change', () => {
+            if (selectElevenVoice.value === 'custom') {
+                groupElevenCustom.style.display = 'block';
+            } else {
+                groupElevenCustom.style.display = 'none';
+            }
+        });
+    }
 
     // Sliders change bindings
     const sliderRate = document.getElementById('slider-rate');
-    sliderRate.addEventListener('input', () => {
-        document.getElementById('val-rate').textContent = sliderRate.value;
-        self.speech.rate = parseFloat(sliderRate.value);
-    });
+    if (sliderRate) {
+        sliderRate.addEventListener('input', () => {
+            document.getElementById('val-rate').textContent = sliderRate.value;
+            self.speech.rate = parseFloat(sliderRate.value);
+        });
+    }
 
     const sliderPitch = document.getElementById('slider-pitch');
-    sliderPitch.addEventListener('input', () => {
-        document.getElementById('val-pitch').textContent = sliderPitch.value;
-        self.speech.pitch = parseFloat(sliderPitch.value);
-    });
-
-    // Toggle custom ElevenLabs voice input field dynamically when user changes preset dropdown
-    const selectElevenVoiceEl = document.getElementById('select-eleven-voice');
-    const groupElevenCustomEl = document.getElementById('group-eleven-custom');
-    if (selectElevenVoiceEl && groupElevenCustomEl) {
-        selectElevenVoiceEl.addEventListener('change', () => {
-            soundSynth.playClick();
-            groupElevenCustomEl.style.display = (selectElevenVoiceEl.value === 'custom') ? 'block' : 'none';
+    if (sliderPitch) {
+        sliderPitch.addEventListener('input', () => {
+            document.getElementById('val-pitch').textContent = sliderPitch.value;
+            self.speech.pitch = parseFloat(sliderPitch.value);
         });
     }
 
     // Save settings form actions
+
     const btnSaveSettings = document.getElementById('btn-save-settings');
     btnSaveSettings.addEventListener('click', async () => {
         soundSynth.playClick();
