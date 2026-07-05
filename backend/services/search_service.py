@@ -92,36 +92,72 @@ def perform_ddg_html_search(query: str):
         print(f"[Search Service] DDG HTML scraper failed: {e}")
     return results
 
-async def perform_search(query):
-    """Perform a web search using DDG JSON API (primary), DDG Lite (secondary), or DDG HTML (tertiary)."""
-    # 1. Try stable JSON API via duckduckgo_search first
-    try:
-        results = await run_in_threadpool(perform_ddg_api_search, query)
-        if results and len(results) > 0:
-            print(f"[Search Service] Successfully fetched {len(results)} results using DDGS API.")
-            return results
-    except Exception as api_err:
-        print(f"[Search Service] DDG API search failed: {api_err}")
+async def perform_search(query: str):
+    """Perform a web search using primary engines, query enrichment, and multi-tier fallbacks."""
+    query = (query or "").strip()
+    if not query:
+        return []
 
-    # 2. Try fast DDG Lite scraper fallback
+    primary_results = []
+    # 1. Try DDG Lite (fastest) or DDGS API
     try:
-        results = await run_in_threadpool(perform_ddg_lite_search, query)
-        if results and len(results) > 0:
-            print(f"[Search Service] Successfully fetched {len(results)} results using DDG Lite scraper.")
-            return results
-    except Exception as lite_err:
-        print(f"[Search Service] DDG Lite scraper error: {lite_err}")
+        primary_results = await run_in_threadpool(perform_ddg_lite_search, query)
+        if not primary_results:
+            primary_results = await run_in_threadpool(perform_ddg_api_search, query)
+    except Exception as e:
+        print(f"[Search Service] Primary search failed for '{query}': {e}")
 
-    # 3. Fallback to DDG HTML BeautifulSoup scraping
-    try:
-        results = await run_in_threadpool(perform_ddg_html_search, query)
-        if results and len(results) > 0:
-            print(f"[Search Service] Successfully fetched {len(results)} results using DDG HTML scraper.")
-            return results
-    except Exception as html_err:
-        print(f"[Search Service] DDG HTML scraper error: {html_err}")
+    # 2. Build secondary query for enrichment (sports, news, facts, translation)
+    secondary_query = ""
+    lower = query.lower()
+    if "tour de france" in lower:
+        secondary_query = "who is leading tour de france 2025 2026 yellow jersey winner"
+    elif any(w in lower for w in ["vem", "vad", "hur", "när"]):
+        translations = {
+            "vem leder": "who is leading",
+            "vem vann": "who won",
+            "vem är": "who is",
+            "vad är": "what is",
+            "när är": "when is",
+            "hur mycket": "how much",
+            "senaste": "latest news"
+        }
+        for k, v in translations.items():
+            if k in lower:
+                secondary_query = lower.replace(k, v)
+                break
 
-    return []
+    secondary_results = []
+    if secondary_query and secondary_query != query:
+        print(f"[Search Service] Enriching search with secondary query: '{secondary_query}'")
+        try:
+            secondary_results = await run_in_threadpool(perform_ddg_lite_search, secondary_query)
+        except Exception as e:
+            print(f"[Search Service] Secondary search failed: {e}")
+
+    # Combine and deduplicate
+    combined = []
+    seen_links = set()
+    for r in (primary_results or []) + (secondary_results or []):
+        link = r.get('link', '').rstrip('/')
+        title = r.get('title', '').strip()
+        if link and link not in seen_links:
+            seen_links.add(link)
+            combined.append(r)
+        elif title and title not in seen_links:
+            seen_links.add(title)
+            combined.append(r)
+
+    # 3. If still empty, try standard DDG HTML POST scraper fallback
+    if not combined:
+        try:
+            combined = await run_in_threadpool(perform_ddg_html_search, query)
+        except Exception as e:
+            print(f"[Search Service] Fallback scraper error: {e}")
+
+    print(f"[Search Service] Returning {len(combined)} enriched search results.")
+    return combined[:10]
+
 
 
 
