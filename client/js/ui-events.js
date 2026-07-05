@@ -1262,6 +1262,16 @@ FrejaUIController.prototype.bindEvents = function() {
         self.speech.pitch = parseFloat(sliderPitch.value);
     });
 
+    // Toggle custom ElevenLabs voice input field dynamically when user changes preset dropdown
+    const selectElevenVoiceEl = document.getElementById('select-eleven-voice');
+    const groupElevenCustomEl = document.getElementById('group-eleven-custom');
+    if (selectElevenVoiceEl && groupElevenCustomEl) {
+        selectElevenVoiceEl.addEventListener('change', () => {
+            soundSynth.playClick();
+            groupElevenCustomEl.style.display = (selectElevenVoiceEl.value === 'custom') ? 'block' : 'none';
+        });
+    }
+
     // Save settings form actions
     const btnSaveSettings = document.getElementById('btn-save-settings');
     btnSaveSettings.addEventListener('click', async () => {
@@ -1282,6 +1292,7 @@ FrejaUIController.prototype.bindEvents = function() {
         const inputApiKeyEl = document.getElementById('input-api-key');
         const apiKey = inputApiKeyEl ? inputApiKeyEl.value.trim() : (localStorage.getItem("freja_gemini_apikey") || "");
         if (apiKey && apiKey !== "•••••••• (Konfigurerad på Backend)") {
+            localStorage.setItem("freja_gemini_apikey", apiKey);
             self.gemini.setApiKey(apiKey);
         }
         
@@ -1308,8 +1319,13 @@ FrejaUIController.prototype.bindEvents = function() {
         const elevenCustomVoiceEl = document.getElementById('input-eleven-custom-voice');
         const elevenCustomVoice = elevenCustomVoiceEl ? elevenCustomVoiceEl.value.trim() : "";
 
-        if (elevenKey) localStorage.setItem("freja_eleven_apikey", elevenKey);
-        self.speech.elevenApiKey = elevenKey;
+        if (elevenKey && elevenKey !== "•••••••• (Konfigurerad på Backend)") {
+            localStorage.setItem("freja_eleven_apikey", elevenKey);
+            self.speech.elevenApiKey = elevenKey;
+        } else if (!elevenKey) {
+            localStorage.removeItem("freja_eleven_apikey");
+            self.speech.elevenApiKey = "";
+        }
 
         localStorage.setItem("freja_eleven_voice", elevenVoice);
         self.speech.elevenVoice = elevenVoice;
@@ -1318,20 +1334,29 @@ FrejaUIController.prototype.bindEvents = function() {
         self.speech.elevenCustomVoice = elevenCustomVoice;
 
         // Save keys to secure SQLite database
-        await self.saveKeysToServer({
-            freja_access_token: accessTokenVal,
-            freja_gemini_apikey: apiKey,
-            freja_eleven_apikey: elevenKey
-        });
+        const keysToSave = {};
+        if (accessTokenVal) keysToSave.freja_access_token = accessTokenVal;
+        if (apiKey && apiKey !== "•••••••• (Konfigurerad på Backend)") keysToSave.freja_gemini_apikey = apiKey;
+        if (elevenKey && elevenKey !== "•••••••• (Konfigurerad på Backend)") keysToSave.freja_eleven_apikey = elevenKey;
+
+        try {
+            await self.saveKeysToServer(keysToSave);
+            self.writeLog("INTERFACE NETWORK CONFIGURATIONS SECURED & SAVED", "sys");
+            soundSynth.playNotify();
+        } catch (e) {
+            console.error("Failed to save settings to server:", e);
+            self.writeLog("SETTINGS SAVE ERROR: COULD NOT CONNECT TO BACKEND", "err");
+            soundSynth.playError();
+        }
 
         if (self.gemini && typeof self.gemini.loadApiKey === 'function') {
             await self.gemini.loadApiKey();
         }
 
-        modalSettings.classList.remove('active');
-        self.writeLog("INTERFACE NETWORK CONFIGURATIONS SECURED", "sys");
-        soundSynth.playNotify();
+        const modalSettings = document.getElementById('modal-settings');
+        if (modalSettings) modalSettings.classList.remove('active');
     });
+
 
     // Reset Settings button triggers
     const btnResetSettings = document.getElementById('btn-reset-settings');

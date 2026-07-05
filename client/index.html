@@ -326,9 +326,24 @@
                     <a href="http://localhost:8000/" target="_blank" class="hud-link" style="display: inline-block; margin-top: 6px; font-size: 11px;"><i class="fa-solid fa-server"></i> Öppna Backend Admin Portal (Server- & Integrationskonfiguration)</a>
                 </div>
 
+                <div class="settings-group">
+                    <label for="input-api-key">Gemini API-nyckel</label>
+                    <div class="input-password-container">
+                        <input type="password" id="input-api-key" placeholder="Klistra in din Gemini API-nyckel..." class="hud-input">
+                        <button type="button" id="btn-toggle-key" class="btn-toggle-input"><i class="fa-solid fa-eye"></i></button>
+                    </div>
+                </div>
 
+                <div class="settings-group">
+                    <label for="input-eleven-key">ElevenLabs API-nyckel (Neural Röst)</label>
+                    <div class="input-password-container">
+                        <input type="password" id="input-eleven-key" placeholder="Klistra in din ElevenLabs API-nyckel..." class="hud-input">
+                        <button type="button" id="btn-toggle-eleven-key" class="btn-toggle-input"><i class="fa-solid fa-eye"></i></button>
+                    </div>
+                    <p class="settings-help">Används för att syntetisera naturtrogna mänskliga röster från ElevenLabs.</p>
+                </div>
 
-                 <div class="settings-group">
+                <div class="settings-group">
                     <label for="select-voice">Voice Output Character (Native Browser)</label>
                     <div style="display: flex; gap: 8px;">
                         <select id="select-voice" class="hud-select" style="flex: 1;">
@@ -356,8 +371,9 @@
 
                 <div class="settings-group" id="group-eleven-custom" style="display: none;">
                     <label for="input-eleven-custom-voice">Eget ElevenLabs Voice ID</label>
-                    <input type="text" id="input-eleven-custom-voice" placeholder="Mata in voice_id..." class="hud-input">
+                    <input type="text" id="input-eleven-custom-voice" placeholder="Mata in voice_id (t.ex. 21m00Tcm4TlvDq8ikWAM)..." class="hud-input">
                 </div>
+
 
                 <div class="settings-group">
                     <div class="slider-row">
