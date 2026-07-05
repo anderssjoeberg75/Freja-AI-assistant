@@ -45,13 +45,18 @@ FrejaUIController.prototype.initializeUI = function() {
     this.speech.setLanguage(lang);
 
     // Load ElevenLabs API keys & voice configs
-    const elevenKey = localStorage.getItem("freja_eleven_apikey") || "e4984cf824dd4f39f489d3dd4ed6f22518700d4ad0f9a8077a7915a85b23b81d";
+    let elevenKey = localStorage.getItem("freja_eleven_apikey") || "";
+    if (elevenKey === "e4984cf824dd4f39f489d3dd4ed6f22518700d4ad0f9a8077a7915a85b23b81d") {
+        elevenKey = "";
+        localStorage.removeItem("freja_eleven_apikey");
+    }
     const elevenVoice = localStorage.getItem("freja_eleven_voice") || "21m00Tcm4TlvDq8ikWAM";
     const elevenCustomVoice = localStorage.getItem("freja_eleven_custom_voice") || "";
 
     const inputElevenKey = document.getElementById('input-eleven-key');
     if (inputElevenKey) inputElevenKey.value = elevenKey;
     this.speech.elevenApiKey = elevenKey;
+
 
     const selectElevenVoice = document.getElementById('select-eleven-voice');
     if (selectElevenVoice) selectElevenVoice.value = elevenVoice;

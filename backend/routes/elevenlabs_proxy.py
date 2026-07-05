@@ -40,8 +40,9 @@ async def proxy_elevenlabs_tts(voice_id: str, request: Request):
 
     # Retrieve API key from SQLite keys.db
     api_key = get_api_key('freja_eleven_apikey') or ""
-    if not api_key:
+    if not api_key or api_key == "e4984cf824dd4f39f489d3dd4ed6f22518700d4ad0f9a8077a7915a85b23b81d":
         raise HTTPException(status_code=400, detail="ElevenLabs API key is not configured on the server.")
+
 
     # Call official ElevenLabs API
     eleven_url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
