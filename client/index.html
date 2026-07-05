@@ -327,23 +327,6 @@
                 </div>
 
                 <div class="settings-group">
-                    <label for="input-api-key">Gemini API-nyckel</label>
-                    <div class="input-password-container">
-                        <input type="password" id="input-api-key" placeholder="Klistra in din Gemini API-nyckel..." class="hud-input">
-                        <button type="button" id="btn-toggle-key" class="btn-toggle-input"><i class="fa-solid fa-eye"></i></button>
-                    </div>
-                </div>
-
-                <div class="settings-group">
-                    <label for="input-eleven-key">ElevenLabs API-nyckel (Neural Röst)</label>
-                    <div class="input-password-container">
-                        <input type="password" id="input-eleven-key" placeholder="Klistra in din ElevenLabs API-nyckel..." class="hud-input">
-                        <button type="button" id="btn-toggle-eleven-key" class="btn-toggle-input"><i class="fa-solid fa-eye"></i></button>
-                    </div>
-                    <p class="settings-help">Används för att syntetisera naturtrogna mänskliga röster från ElevenLabs.</p>
-                </div>
-
-                <div class="settings-group">
                     <label for="select-voice">Voice Output Character (Native Browser)</label>
                     <div style="display: flex; gap: 8px;">
                         <select id="select-voice" class="hud-select" style="flex: 1;">
@@ -374,7 +357,6 @@
                     <input type="text" id="input-eleven-custom-voice" placeholder="Mata in voice_id (t.ex. 21m00Tcm4TlvDq8ikWAM)..." class="hud-input">
                 </div>
 
-
                 <div class="settings-group">
                     <div class="slider-row">
                         <label for="slider-rate">Voice Rate (Hastighet)</label>
@@ -393,8 +375,9 @@
 
                 <div class="settings-group">
                     <label for="textarea-persona">System Prompt (Jarvis Persona)</label>
-                    <textarea id="textarea-persona" rows="4" class="hud-textarea">Du är FREJA, en extremt intelligent, artig och kvick AI-assistent. Du pratar med "sir" eller "doktorn" på ett artigt, lojalt och sofistikerat sätt. Svara kortfattat och slagkraftigt, idealiskt för tal. Svara alltid på det språk som användaren pratar eller skriver (svenska eller engelska).</textarea>
+                    <textarea id="textarea-persona" rows="4" class="hud-textarea">Du är FREJA, en extremt intelligent, artig och kvick AI-assistent. Svara kortfattat och slagkraftigt, idealiskt för tal. Svara alltid på det språk som användaren pratar eller skriver (svenska eller engelska).</textarea>
                 </div>
+
             </div>
             <div class="modal-footer">
                 <button id="btn-reset-settings" class="hud-btn btn-secondary">ÅTERSTÄLL ALLT</button>

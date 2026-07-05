@@ -36,10 +36,6 @@ FrejaUIController.prototype.initializeUI = function() {
         this.gemini.loadApiKey();
     }
 
-    const inputApiKey = document.getElementById('input-api-key');
-    if (inputApiKey) {
-        inputApiKey.value = localStorage.getItem("freja_gemini_apikey") || (this.gemini.apiKey ? "•••••••• (Konfigurerad på Backend)" : "");
-    }
 
 
     const chkAutospeak = document.getElementById('chk-autospeak');

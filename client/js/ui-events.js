@@ -60,16 +60,17 @@ FrejaUIController.prototype.bindEvents = function() {
 
             if (self.hasLoadedHistory) {
                 const resumeMsg = sv
-                    ? "Välkommen tillbaka, sir. Chattsession återupptagen."
-                    : "Welcome back, sir. Chat session resumed.";
+                    ? "Välkommen tillbaka. Chattsession återupptagen."
+                    : "Welcome back. Chat session resumed.";
                 self.speech.speak(resumeMsg);
                 self.writeLog("SESSION RESUMED. CHAT HISTORY SYNCHRONIZED.", "sys");
                 return;
             }
 
             const startMsg = sv 
-                ? "System aktiverat. Alla nätverksprotokoll online. Hur kan jag hjälpa dig idag, sir?"
-                : "Systems fully engaged. AI diagnostic matrix secure. How may I assist you today, sir?";
+                ? "System aktiverat. Alla nätverksprotokoll online. Hur kan jag hjälpa dig idag?"
+                : "Systems fully engaged. AI diagnostic matrix secure. How may I assist you today?";
+
             
             self.appendChatMessage("assistant", startMsg);
             self.speech.speak(startMsg);
@@ -1289,13 +1290,6 @@ FrejaUIController.prototype.bindEvents = function() {
             localStorage.setItem("freja_access_token", accessTokenVal);
         }
 
-        const inputApiKeyEl = document.getElementById('input-api-key');
-        const apiKey = inputApiKeyEl ? inputApiKeyEl.value.trim() : (localStorage.getItem("freja_gemini_apikey") || "");
-        if (apiKey && apiKey !== "•••••••• (Konfigurerad på Backend)") {
-            localStorage.setItem("freja_gemini_apikey", apiKey);
-            self.gemini.setApiKey(apiKey);
-        }
-        
         const sliderRate = document.getElementById('slider-rate');
         const sliderPitch = document.getElementById('slider-pitch');
         if (sliderRate) localStorage.setItem("freja_speech_rate", sliderRate.value);
@@ -1312,20 +1306,10 @@ FrejaUIController.prototype.bindEvents = function() {
             localStorage.setItem("freja_speech_voiceidx", selectVoice.value);
         }
 
-        const inputElevenKey = document.getElementById('input-eleven-key');
-        const elevenKey = inputElevenKey ? inputElevenKey.value.trim() : (localStorage.getItem("freja_eleven_apikey") || "");
         const elevenVoiceEl = document.getElementById('select-eleven-voice');
         const elevenVoice = elevenVoiceEl ? elevenVoiceEl.value : "21m00Tcm4TlvDq8ikWAM";
         const elevenCustomVoiceEl = document.getElementById('input-eleven-custom-voice');
         const elevenCustomVoice = elevenCustomVoiceEl ? elevenCustomVoiceEl.value.trim() : "";
-
-        if (elevenKey && elevenKey !== "•••••••• (Konfigurerad på Backend)") {
-            localStorage.setItem("freja_eleven_apikey", elevenKey);
-            self.speech.elevenApiKey = elevenKey;
-        } else if (!elevenKey) {
-            localStorage.removeItem("freja_eleven_apikey");
-            self.speech.elevenApiKey = "";
-        }
 
         localStorage.setItem("freja_eleven_voice", elevenVoice);
         self.speech.elevenVoice = elevenVoice;
@@ -1333,29 +1317,22 @@ FrejaUIController.prototype.bindEvents = function() {
         localStorage.setItem("freja_eleven_custom_voice", elevenCustomVoice);
         self.speech.elevenCustomVoice = elevenCustomVoice;
 
-        // Save keys to secure SQLite database
-        const keysToSave = {};
-        if (accessTokenVal) keysToSave.freja_access_token = accessTokenVal;
-        if (apiKey && apiKey !== "•••••••• (Konfigurerad på Backend)") keysToSave.freja_gemini_apikey = apiKey;
-        if (elevenKey && elevenKey !== "•••••••• (Konfigurerad på Backend)") keysToSave.freja_eleven_apikey = elevenKey;
-
-        try {
-            await self.saveKeysToServer(keysToSave);
-            self.writeLog("INTERFACE NETWORK CONFIGURATIONS SECURED & SAVED", "sys");
-            soundSynth.playNotify();
-        } catch (e) {
-            console.error("Failed to save settings to server:", e);
-            self.writeLog("SETTINGS SAVE ERROR: COULD NOT CONNECT TO BACKEND", "err");
-            soundSynth.playError();
+        // Save access token to secure SQLite database if provided
+        if (accessTokenVal) {
+            try {
+                await self.saveKeysToServer({ freja_access_token: accessTokenVal });
+            } catch (e) {
+                console.error("Failed to save token to server:", e);
+            }
         }
 
-        if (self.gemini && typeof self.gemini.loadApiKey === 'function') {
-            await self.gemini.loadApiKey();
-        }
+        self.writeLog("INTERFACE CONFIGURATIONS SECURED & SAVED", "sys");
+        soundSynth.playNotify();
 
         const modalSettings = document.getElementById('modal-settings');
         if (modalSettings) modalSettings.classList.remove('active');
     });
+
 
 
     // Reset Settings button triggers
