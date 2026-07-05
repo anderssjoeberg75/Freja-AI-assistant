@@ -150,6 +150,52 @@ class FrejaSpeechEngine {
     }
 
     /**
+     * Cleans raw model text for voice synthesis: strips HTML tags, markdown links/symbols,
+     * raw HTTP/HTTPS URLs, and system directive tags for smooth spoken output.
+     */
+    cleanTextForSpeech(text) {
+        if (!text) return "";
+        let clean = text;
+
+        // 1. Remove HTML tags
+        clean = clean.replace(/<[^>]*>/g, '');
+
+        // 2. Convert markdown links [Label](url) to just Label
+        clean = clean.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
+
+        // 3. Remove raw HTTP/HTTPS URLs
+        clean = clean.replace(/https?:\/\/\S+/gi, '');
+
+        // 4. Remove bracketed directive/system tags e.g. [DIRECTIVE:...], [NEURAL MEMORY...]
+        clean = clean.replace(/\[[A-Z0-9_\s:]+\]/gi, '');
+
+        // 5. Remove leftover empty parentheses/brackets e.g. ( ), (Källa: ), Källa:
+        clean = clean.replace(/\(\s*(Källa:?)?\s*\)/gi, '');
+        clean = clean.replace(/\bKälla:\s*(?=$|\.|\n)/gi, '');
+
+        // 6. Remove Markdown formatting symbols (*, _, `, #, ~, >, |)
+        clean = clean.replace(/[*_`#~>|]/g, '');
+
+        // 7. Pronunciation helpers for Swedish speech:
+        // m/s -> meter per sekund
+        clean = clean.replace(/(\b|(?<=\d))m\s*\/\s*s\b/gi, 'meter per sekund');
+
+        // Decimal numbers e.g. 25.5 -> 25 komma 5
+        clean = clean.replace(/\b(\d+)\.(\d+)\b/g, '$1 komma $2');
+
+        // °C -> grader celsius
+        clean = clean.replace(/\s*°\s*C\b/gi, ' grader celsius');
+
+        // km/h -> kilometer i timmen
+        clean = clean.replace(/(\b|(?<=\d))km\s*\/\s*h\b/gi, 'kilometer i timmen');
+
+        // 8. Collapse consecutive spaces and newlines
+        clean = clean.replace(/\s+/g, ' ').trim();
+
+        return clean;
+    }
+
+    /**
      * Master speak trigger. Chooses ElevenLabs if credentialed, or falls back to SpeechSynthesis natively.
      */
     speak(text) {
@@ -176,17 +222,10 @@ class FrejaSpeechEngine {
             this.synth.cancel();
         }
 
-        // Strip formatting characters from prompt text
-        let cleanText = text.replace(/[*_`#]/g, '');
-        
-        // Translate "m/s" to "meter per sekund" for proper spoken pronunciation
-        cleanText = cleanText.replace(/(\b|(?<=\d))m\s*\/\s*s\b/gi, 'meter per sekund');
-
-        // Translate decimal numbers (e.g. 25.5 -> 25 komma 5) for natural Swedish speech
-        cleanText = cleanText.replace(/\b(\d+)\.(\d+)\b/g, '$1 komma $2');
-
-        // Translate "°C" to "grader celsius" for proper spoken pronunciation
-        cleanText = cleanText.replace(/\s*°\s*C\b/gi, ' grader celsius');
+        const cleanText = this.cleanTextForSpeech(text);
+        if (!cleanText) {
+            return Promise.resolve();
+        }
 
         if (this.elevenApiKey) {
             return this.speakElevenLabs(cleanText, wasListening);
@@ -194,6 +233,7 @@ class FrejaSpeechEngine {
 
         return this.speakNative(cleanText, wasListening);
     }
+
 
     /**
      * Fetches and feeds raw multi-lingual neural voice buffers from ElevenLabs.
