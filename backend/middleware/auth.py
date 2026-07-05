@@ -81,7 +81,12 @@ class FrejaAuthMiddleware(BaseHTTPMiddleware):
                 headers={"Retry-After": str(LOCKOUT_SECONDS)}
             )
 
-        # 3. Check X-Freja-Token header against the token stored in SQLite.
+        # 3. Allow local loopback requests (127.0.0.1 / ::1 / localhost) without requiring header.
+        if ip in ("127.0.0.1", "::1", "localhost"):
+            _record_success(ip)
+            return await call_next(request)
+
+        # 4. Check X-Freja-Token header against the token stored in SQLite for remote clients.
         token = request.headers.get("X-Freja-Token")
 
         try:
@@ -99,3 +104,4 @@ class FrejaAuthMiddleware(BaseHTTPMiddleware):
 
         _record_success(ip)
         return await call_next(request)
+

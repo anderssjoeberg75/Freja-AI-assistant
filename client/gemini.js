@@ -251,8 +251,12 @@ class GeminiClient {
 
         // Run mock offline generator if API key is empty
         if (!this.apiKey) {
-            return this.generateMockOfflineResponse(userMessage);
+            await this.loadApiKey();
+            if (!this.apiKey) {
+                return this.generateMockOfflineResponse(userMessage);
+            }
         }
+
 
         // Retrieve semantic memories and inject them into F.R.E.J.A.'s prompt directives
         let dynamicSystemPrompt = this.systemPrompt;
