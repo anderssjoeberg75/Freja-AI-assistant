@@ -229,7 +229,13 @@ async def delete_garmin_log(date: str = Query(..., description="Date to delete")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.get("/api/garmin/credentials")
+async def get_garmin_credentials():
+    email = get_api_key('freja_garmin_email') or ""
+    return {"email": email}
+
 @router.post("/api/garmin/data")
+@router.post("/api/garmin/save")
 async def post_garmin_data(request: Request):
     try:
         data = await request.json()
@@ -268,4 +274,5 @@ async def post_garmin_data(request: Request):
         return {'status': 'success', 'message': 'Garmin-logg sparad.'}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
 

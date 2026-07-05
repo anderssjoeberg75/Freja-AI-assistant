@@ -552,7 +552,19 @@ async def get_strava_athlete_stats():
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Kunde inte hämta atlet-statistik: {str(e)}")
 
+@router.get("/api/strava/credentials")
+async def get_strava_credentials():
+    client_id = get_api_key('freja_strava_client_id') or ""
+    client_secret = get_api_key('freja_strava_client_secret') or ""
+    refresh_token = get_api_key('freja_strava_refresh_token') or ""
+    return {
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "refresh_token": refresh_token
+    }
+
 @router.post("/api/strava/data")
+@router.post("/api/strava/save")
 async def post_strava_data(request: Request):
     try:
         data = await request.json()
@@ -581,4 +593,5 @@ async def post_strava_data(request: Request):
         return {'status': 'success', 'message': 'Strava-aktivitet sparad.'}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
 
