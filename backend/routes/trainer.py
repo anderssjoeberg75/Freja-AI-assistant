@@ -430,6 +430,221 @@ async def update_trainer_plan(request: Request):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.post("/api/trainer/checkin")
+async def trainer_daily_checkin(request: Request):
+    """Daily morning check-in (COACH AI): reads last night's Garmin/Withings data,
+    checks today's calendar workout, verifies if yesterday's session was completed on
+    Strava, weighs in the weather, and returns a short coaching briefing in Swedish."""
+    try:
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        location = (body.get("location") or "Stockholm").strip() or "Stockholm"
+
+        today = datetime.date.today()
+        today_str = today.strftime('%Y-%m-%d')
+        yesterday_str = (today - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
+
+        # 1. Latest Garmin snapshot (most recent night)
+        garmin_snapshot = "Ingen Garmin-data tillgänglig."
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT date, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status
+                FROM garmin_health
+                ORDER BY date DESC
+                LIMIT 1
+            ''')
+            g = cursor.fetchone()
+        if g:
+            garmin_snapshot = (
+                f"Datum: {g[0]}, Steg: {g[1]}, Sömn: {g[2]}h, Vilopuls: {g[3]}, Kalorier: {g[4]}kcal, "
+                f"Träning: {g[5]} ({g[6]} min), Body Battery: {g[7]}, HRV: {g[8]}ms, "
+                f"Återhämtningstid: {g[9]}h, Status: {g[10]}"
+            )
+
+        # 2. Latest Withings snapshot (fallback for sleep/RHR + body composition)
+        withings_snapshot = "Ingen Withings-data tillgänglig."
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT date, weight, fat_ratio, bone_mass, heart_pulse, sleep_duration, steps, calories, sleep_score
+                FROM withings_measurements
+                ORDER BY date DESC
+                LIMIT 1
+            ''')
+            w = cursor.fetchone()
+        if w:
+            sleep_h = round(w[5] / 3600.0, 1) if w[5] else 0
+            withings_snapshot = (
+                f"Datum: {w[0]}, Vikt: {w[1]} kg, Fettprocent: {w[2]}%, Puls: {w[4]} BPM, "
+                f"Sömn: {sleep_h}h (Score: {w[8]}), Steg: {w[6]}, Kalorier: {w[7]}kcal"
+            )
+
+        # 3. Did yesterday's workout get completed? (Strava)
+        completed_summary = "Inget registrerat träningspass igår på Strava."
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT name, type, distance, moving_time, average_heartrate
+                FROM strava_activities
+                WHERE SUBSTR(date, 1, 10) = ?
+                ORDER BY date DESC
+            ''', (yesterday_str,))
+            strava_rows = cursor.fetchall()
+        if strava_rows:
+            parts = []
+            for r in strava_rows:
+                dist_km = round(r[2] / 1000.0, 2) if r[2] else 0
+                dur_min = round(r[3] / 60.0, 1) if r[3] else 0
+                parts.append(f"{r[0]} ({r[1]}, {dist_km} km, {dur_min} min, snittpuls {r[4]})")
+            completed_summary = "Genomfört igår: " + "; ".join(parts)
+
+        # 4. Today's calendar: separate planned workouts from other commitments
+        from backend.routes.google_calendar import core_get_calendar_data
+        todays_events = [e for e in core_get_calendar_data(days=1) if (e.get("start_time") or "")[:10] == today_str]
+
+        def _is_workout(ev):
+            summary = (ev.get("summary") or "")
+            location_val = (ev.get("location") or "")
+            return ("F.R.E.J.A. PT" in location_val) or any(
+                marker in summary for marker in ("💪", "🏃", "🚶")
+            )
+
+        workout_events = [e for e in todays_events if _is_workout(e)]
+        other_events = [e for e in todays_events if not _is_workout(e)]
+
+        if workout_events:
+            todays_plan_str = "\n".join(
+                f"- {e.get('summary', '')} ({(e.get('start_time') or '')[11:16]}–{(e.get('end_time') or '')[11:16]}): {e.get('description', '')}"
+                for e in workout_events
+            )
+        else:
+            todays_plan_str = "Inget träningspass är inbokat i kalendern för idag."
+
+        other_events_str = "\n".join(
+            f"- {e.get('summary', '')} ({(e.get('start_time') or '')[11:16]}–{(e.get('end_time') or '')[11:16]})"
+            for e in other_events
+        ) if other_events else "Inga andra åtaganden i kalendern idag."
+
+        # 5. Calculated RHR/HRV trends (reuses the same logic as plan generation)
+        trends = calculate_trends()
+        trend_summary = []
+        if trends["rhr_recent_avg"] is not None:
+            recent_str = f"{trends['rhr_recent_avg']:.1f}"
+            baseline_str = f"{trends['rhr_baseline_avg']:.1f}" if trends["rhr_baseline_avg"] is not None else "N/A"
+            change_str = f"{trends['rhr_change_pct']:.1f}%" if trends["rhr_change_pct"] is not None else "N/A"
+            trend_summary.append(f"Vilopuls (RHR): Senaste 7 dgr snitt: {recent_str} BPM, Baslinje (föregående 14 dgr): {baseline_str} BPM (Förändring: {change_str})")
+        if trends["hrv_recent_avg"] is not None:
+            recent_str = f"{trends['hrv_recent_avg']:.1f}"
+            baseline_str = f"{trends['hrv_baseline_avg']:.1f}" if trends["hrv_baseline_avg"] is not None else "N/A"
+            change_str = f"{trends['hrv_change_pct']:.1f}%" if trends["hrv_change_pct"] is not None else "N/A"
+            trend_summary.append(f"HRV: Senaste 7 dgr snitt: {recent_str} ms, Baslinje (föregående 14 dgr): {baseline_str} ms (Förändring: {change_str})")
+        trends_data_str = "\n".join(trend_summary) if trend_summary else "Inga tillräckliga trenddata (RHR/HRV) tillgängliga."
+
+        # 6. Fetch Gemini API key (fail fast before any external weather call)
+        api_key = get_api_key('freja_gemini_apikey') or ""
+        if not api_key:
+            raise HTTPException(status_code=400, detail="Gemini API-nyckel är inte konfigurerad på servern.")
+
+        # 7. Today's weather (first line of the 7-day forecast is today)
+        weather_forecast = await fetch_7day_weather_forecast(location)
+
+        # 8. Compile the check-in prompt (follows docs/FREJA_PT_COACH.md)
+        prompt_content = f"""
+Du är F.R.E.J.A.:s personliga tränare (COACH AI). Det är morgon och användaren gör sin dagliga incheckning.
+Ge en KORT, varm och handfast morgonbriefing på svenska enligt coach-modellen. Dumpa inte rådata – tolka den.
+
+DAGENS DATUM: {today_str}
+
+[SENASTE GARMIN-DATA (i natt / senaste dygnet)]:
+{garmin_snapshot}
+
+[SENASTE WITHINGS-DATA (fallback för sömn/vilopuls samt kroppssammansättning)]:
+{withings_snapshot}
+
+[BERÄKNADE HÄLSOTRENDER (RHR & HRV)]:
+{trends_data_str}
+
+[GENOMFÖRT PASS IGÅR (Strava)]:
+{completed_summary}
+
+[DAGENS PLANERADE TRÄNINGSPASS (Google Calendar)]:
+{todays_plan_str}
+
+[ANDRA ÅTAGANDEN I KALENDERN IDAG]:
+{other_events_str}
+
+[VÄDERPROGNOS (första raden = idag)]:
+{weather_forecast}
+
+Regler för briefingen:
+- Prioritera Garmin för sömn/vilopuls/HRV/body battery; använd Withings som komplement/fallback.
+- Bedöm återhämtningen: om vilopulsen ökat markant (>5%) eller HRV sjunkit markant (<-10%), eller om sömnen var kort/dålig eller Body Battery lågt – rekommendera lägre intensitet eller aktiv vila och förklara kort varför.
+- Vid god återhämtning: peppa och behåll (eller utöka lätt) dagens plan.
+- Om gårdagens pass INTE genomfördes: ingen skuld – föreslå att flytta fram naturligt om det behövs.
+- Om det finns dagens pass utomhus och dåligt väder (kraftigt regn, snö, åska, storm) väntas: föreslå inomhus eller vila.
+- Väg in andra kalenderåtaganden som kan påverka energi/tid idag.
+- Avsluta ALLTID med en tydlig fråga eller åtgärd. Var artig men extremt kunnig (F.R.E.J.A.-stil).
+- Fältet 'briefing' ska vara en färdig, kort text i markdown som kan visas direkt för användaren (använd gärna emojis 📊 📅 💬 ✅ som i coach-modellen).
+"""
+
+        # 9. Call Gemini with a structured schema
+        google_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+        payload = {
+            "contents": [{"parts": [{"text": prompt_content}]}],
+            "generationConfig": {
+                "temperature": 0.3,
+                "maxOutputTokens": 1200,
+                "responseMimeType": "application/json",
+                "responseSchema": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "sleep_summary": {"type": "STRING", "description": "Kort sammanfattning av nattens sömn."},
+                        "recovery_summary": {"type": "STRING", "description": "Bedömning av vilopuls, HRV och Body Battery/återhämtning."},
+                        "yesterday_status": {"type": "STRING", "description": "Om gårdagens pass genomfördes eller missades, utan skuldbeläggning."},
+                        "todays_plan": {"type": "STRING", "description": "Dagens planerade träningspass i klartext."},
+                        "recommendation": {"type": "STRING", "description": "Coachens rekommendation: behåll, sänk eller höj intensitet, med kort motivering."},
+                        "adjust_workout": {"type": "BOOLEAN", "description": "true om dagens pass bör justeras jämfört med det som ligger i kalendern."},
+                        "weather_note": {"type": "STRING", "description": "Kort väderkommentar relevant för dagens pass (tom sträng om inte relevant)."},
+                        "closing_question": {"type": "STRING", "description": "En tydlig avslutande fråga eller åtgärd till användaren."},
+                        "briefing": {"type": "STRING", "description": "Färdig kort briefing i markdown, redo att visas direkt för användaren."}
+                    },
+                    "required": ["sleep_summary", "recovery_summary", "yesterday_status", "todays_plan", "recommendation", "adjust_workout", "closing_question", "briefing"]
+                }
+            }
+        }
+
+        async with httpx.AsyncClient() as client:
+            response = await client.post(google_url, json=payload, timeout=30.0)
+            response.raise_for_status()
+            res_json = response.json()
+
+        briefing_text = res_json.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+        if not briefing_text:
+            raise HTTPException(status_code=500, detail="Kunde inte generera incheckning från Gemini.")
+
+        try:
+            briefing_data = json.loads(briefing_text)
+        except Exception:
+            briefing_data = {"briefing": briefing_text}
+
+        return {
+            "status": "success",
+            "date": today_str,
+            "checkin": briefing_data,
+            "has_workout_today": bool(workout_events),
+            "workout_completed_yesterday": bool(strava_rows)
+        }
+
+    except HTTPException:
+        raise
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"Gemini API fel: {e.response.text}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.post("/api/trainer/plans/book")
 async def book_trainer_plan(request: Request):
     try:
