@@ -1035,6 +1035,15 @@
                 <button class="modal-close" id="btn-close-trainer">&times;</button>
             </div>
             <div class="modal-body" style="display: flex; flex-direction: column; gap: 15px;">
+                <!-- Daily Check-in -->
+                <div class="trainer-checkin" style="display: flex; flex-direction: column; gap: 8px; background: rgba(0, 242, 254, 0.05); border: 1px solid rgba(0, 242, 254, 0.15); border-radius: 4px; padding: 12px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span style="font-size: 11px; color: var(--color-primary); font-family: var(--font-display); letter-spacing: 0.5px;"><i class="fa-solid fa-sun"></i> DAGLIG INCHECKNING</span>
+                        <button id="btn-trainer-checkin" class="hud-btn btn-primary" style="height: 30px; font-family: var(--font-display); font-size: 10px; padding: 0 12px; display: flex; align-items: center; gap: 5px;"><i class="fa-solid fa-heart-pulse"></i> CHECKA IN</button>
+                    </div>
+                    <div id="trainer-checkin-output" style="display: none; background: rgba(0, 0, 0, 0.4); border: 1px solid var(--color-border); border-radius: 4px; padding: 12px; font-family: var(--font-sans); font-size: 13px; line-height: 1.5; color: var(--color-text); max-height: 320px; overflow-y: auto;"></div>
+                </div>
+
                 <!-- Configuration Form -->
                 <div class="trainer-form" style="display: flex; flex-direction: column; gap: 10px; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--color-border); border-radius: 4px; padding: 12px;">
                     <div style="display: flex; flex-direction: column; gap: 4px;">

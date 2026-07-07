@@ -1663,6 +1663,15 @@ FrejaUIController.prototype.bindEvents = function() {
         });
     }
 
+    // Daily Trainer Check-in
+    const btnTrainerCheckin = document.getElementById('btn-trainer-checkin');
+    if (btnTrainerCheckin) {
+        btnTrainerCheckin.addEventListener('click', () => {
+            soundSynth.playClick();
+            self.runTrainerCheckin();
+        });
+    }
+
     const btnSaveTelegram = document.getElementById('btn-save-telegram');
     if (btnSaveTelegram) {
         btnSaveTelegram.addEventListener('click', async () => {
