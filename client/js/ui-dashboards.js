@@ -231,6 +231,69 @@ FrejaUIController.prototype.loadTrainerDashboardUI = async function() {
     }
 };
 
+FrejaUIController.prototype.runTrainerCheckin = async function() {
+    const btn = document.getElementById('btn-trainer-checkin');
+    const out = document.getElementById('trainer-checkin-output');
+    if (!out) return;
+
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> CHECKAR IN...';
+    }
+    out.style.display = 'block';
+    out.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 16px;">Läser nattens hälsodata (Garmin / Withings)...</div>';
+    this.writeLog("RUNNING DAILY TRAINER CHECK-IN...", "sys");
+
+    try {
+        const res = await fetch('/api/trainer/checkin', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({})
+        });
+
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || `HTTP ${res.status}`);
+        }
+
+        const data = await res.json();
+        const checkin = data.checkin || {};
+        const briefing = checkin.briefing || 'Ingen briefing genererades.';
+        const adh = data.adherence || {};
+
+        const badgeStyle = "font-size: 10px; font-family: var(--font-mono); background: rgba(0,242,254,0.1); border: 1px solid rgba(0,242,254,0.2); color: var(--color-primary); border-radius: 3px; padding: 3px 8px;";
+        let badges = '';
+        if (data.calendar_updated) {
+            badges += `<span style="${badgeStyle}">✅ Kalendern uppdaterad</span>`;
+        }
+        if (adh.adherence_pct !== null && adh.adherence_pct !== undefined) {
+            badges += `<span style="${badgeStyle}">📊 Följsamhet ${adh.adherence_pct}% (${adh.completed}/${adh.planned})</span>`;
+        }
+
+        out.innerHTML = `
+            <div class="trainer-briefing">${window.FrejaMarkdown.parseMarkdown(briefing)}</div>
+            ${badges ? `<div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px;">${badges}</div>` : ''}
+        `;
+
+        soundSynth.playNotify();
+        this.writeLog("DAILY CHECK-IN COMPLETE", "sys");
+
+        // If the coach re-timed today's workout, refresh the history/plan view.
+        if (data.calendar_updated) {
+            this.loadTrainerDashboardUI();
+        }
+    } catch (e) {
+        out.innerHTML = `<div style="color: #ff3b30; font-family: var(--font-mono); font-size: 11px; padding: 12px;">[INCHECKNING MISSLYCKADES] ${e.message}</div>`;
+        soundSynth.playError();
+        this.writeLog(`CHECK-IN ERROR: ${e.message}`, "err");
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fa-solid fa-heart-pulse"></i> CHECKA IN';
+        }
+    }
+};
+
 FrejaUIController.prototype.renderTrainerPlanDetails = function(planId, adviceText) {
     const outputContainer = document.getElementById('trainer-plan-output-container');
     const outputDiv = document.getElementById('trainer-plan-output');
