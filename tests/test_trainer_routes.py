@@ -205,9 +205,14 @@ def test_trainer_adherence_endpoint(auth_headers):
 
 
 def _insert_workout_event(summary, start_time, end_time, google_event_id):
-    """Insert a workout calendar event and return its DB id."""
+    """Insert a workout calendar event and return its DB id.
+
+    The test DB persists between runs, so clear any prior row with the same
+    google_event_id first to keep the insert idempotent (UNIQUE constraint).
+    """
     with get_db_connection() as conn:
         cursor = conn.cursor()
+        cursor.execute("DELETE FROM google_calendar_events WHERE google_event_id = ?", (google_event_id,))
         cursor.execute(
             '''INSERT INTO google_calendar_events
                (google_event_id, summary, description, start_time, end_time, location)
