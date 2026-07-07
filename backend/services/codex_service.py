@@ -17,16 +17,42 @@ import uuid
 from backend.config import PROJECT_ROOT
 from backend.database import get_api_key
 
+# Model used for all codex Gemini calls (kept in one place instead of inline strings).
+GEMINI_MODEL = "gemini-2.5-flash"
+
 # Ignored patterns for codebase auditing
 IGNORED_DIRS = {
     '.git', '__pycache__', 'venv', 'node_modules', 'backend/cache',
-    'freja_io_temp', '.garminconnect', '.pytest_cache', 'htmlcov'
+    'freja_io_temp', '.garminconnect', '.pytest_cache', 'htmlcov', '.claude'
 }
 ALLOWED_EXTENSIONS = {'.py', '.js', '.html', '.css', '.json', '.md', '.sh', '.txt'}
 # facebook_state.json holds live Playwright session cookies/localStorage (see
 # save_session.py / facebook_service.py) and must never be shipped to the external
 # Gemini API as part of a codebase dump.
 IGNORED_FILES = {'keys.db', 'freja.db', '.telegram_bot.lock', 'package-lock.json', 'facebook_state.json'}
+
+# Files whose contents must never be shipped to the external Gemini API during an
+# audit, matched case-insensitively as substrings of the filename. Defence in depth
+# on top of IGNORED_FILES / the extension allowlist, since a secret can live in any
+# allowed-extension file (e.g. a *.local.json or a token dump).
+SENSITIVE_FILENAME_MARKERS = ('secret', 'token', 'credential', 'password', '.env', '.local.json', 'apikey', 'api_key')
+
+# Patterns whose captured secret value is redacted before any file content leaves the
+# host for the audit. Keeps key=... / "token": "..." style assignments from leaking.
+SECRET_REDACTION_PATTERN = re.compile(
+    r'(?i)(api[_-]?key|secret|password|passwd|refresh[_-]?token|access[_-]?token|client[_-]?secret|authorization|bearer|token)'
+    r'(\s*[:=]\s*)'
+    r'(["\']?)([^\s"\',;]{6,})(\3)'
+)
+
+# Only these file types may be overwritten by codex_run_and_fix. Prevents the auto-fixer
+# from writing arbitrary model output to executables, binaries, or unexpected paths.
+ALLOWED_FIX_EXTENSIONS = {'.py', '.js', '.html', '.css', '.json', '.md', '.txt', '.sh'}
+
+
+def redact_secrets(text: str) -> str:
+    """Masks obvious secret assignments (key=..., token: "...") in a text blob."""
+    return SECRET_REDACTION_PATTERN.sub(r'\1\2\3***REDACTED***\5', text)
 
 
 import ast
@@ -74,8 +100,11 @@ def verify_safe_python_code(code: str):
         elif isinstance(node, ast.Constant):
             if isinstance(node.value, str):
                 val = node.value.strip()
-                if '__' in val:
-                    raise ValueError(f"Säkerhetsfel: Textsträng innehåller dunder-mönster ('__') vilket är blockerat.")
+                # Block dunder tokens (e.g. '__class__', '__import__') used in getattr
+                # reflection escapes, but allow benign double-underscore identifiers like
+                # 'my__var' that don't form a full dunder — far fewer false rejections.
+                if re.search(r'__\w+__', val) or '__import__' in val:
+                    raise ValueError("Säkerhetsfel: Textsträng innehåller dunder-mönster vilket är blockerat.")
                 if val in blocked_modules or val in blocked_calls:
                     raise ValueError(f"Säkerhetsfel: Textsträng innehåller blockerat ord '{val}' vilket är blockerat.")
 
@@ -102,6 +131,15 @@ BLOCKED_SHELL_COMMANDS = {
     'cut', 'tr', 'wc', 'diff', 'cmp', 'file', 'stat', 'readlink', 'ln', 'tee',
     'type', 'more.com', 'findstr', 'rev', 'fold', 'comm', 'join', 'column',
     'expand', 'unexpand',
+    # Windows cmd.exe builtins / utilities. The shell is cmd.exe on the Windows
+    # deployment target, so the POSIX-centric names above (rm/mv/cp) are not enough:
+    # these mutate, exfiltrate, or reconfigure the host and must be blocked too.
+    'del', 'erase', 'rd', 'rmdir', 'md', 'mkdir', 'move', 'ren', 'rename',
+    'copy', 'xcopy', 'robocopy', 'format', 'fc', 'comp', 'attrib', 'cacls',
+    'icacls', 'takeown', 'net', 'net1', 'sc', 'shutdown', 'at', 'schtasks',
+    'wmic', 'vssadmin', 'bcdedit', 'diskpart', 'cipher', 'mklink', 'subst',
+    'assoc', 'ftype', 'setx', 'start', 'call', 'reg', 'runas', 'msg', 'clip',
+    'fsutil', 'label', 'recover', 'replace',
 }
 
 # Matches python / python3 / python3.11 / py etc. so version-suffixed interpreter
@@ -204,6 +242,16 @@ def verify_safe_shell_command(cmd_str: str):
     if '..' in cmd_str:
         raise ValueError("Säkerhetsfel: Katalog-traversal ('..') är blockerad.")
 
+    # cmd.exe expands %VAR%; this can smuggle absolute paths / secrets past the
+    # sandbox working directory (e.g. del %USERPROFILE%\...). Block it outright.
+    if '%' in cmd_str:
+        raise ValueError("Säkerhetsfel: Miljövariabel-expansion ('%') är blockerad.")
+
+    # Block absolute paths (Windows drive letters, UNC shares, POSIX root, ~ home) so
+    # a command can't escape the sandbox cwd even without '..'.
+    if re.search(r'(^|[\s"\'=;|&])([A-Za-z]:[\\/]|\\\\|/|~)', cmd_str):
+        raise ValueError("Säkerhetsfel: Absoluta sökvägar är blockerade.")
+
     lowered_cmd = cmd_str.lower()
     for marker in SENSITIVE_PATH_MARKERS:
         if marker in lowered_cmd:
@@ -220,13 +268,42 @@ def verify_safe_shell_command(cmd_str: str):
             raise ValueError(f"Säkerhetsfel: Kommandot eller operatorn '{token}' är blockerad.")
 
 
+def _subprocess_creation_kwargs() -> dict:
+    """On Windows, place the child in its own process group so the entire process tree
+    can be terminated on timeout. A no-op on POSIX (handled via preexec_fn instead)."""
+    if os.name == "nt":
+        return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+    return {}
+
+
+async def _kill_process_tree(proc):
+    """Kills a subprocess and all of its children. On Windows plain proc.kill() only
+    terminates the top-level shell and orphans spawned children, so use taskkill /T to
+    take down the whole tree. taskkill is invoked directly (not via the sandbox)."""
+    if os.name == "nt":
+        try:
+            killer = await asyncio.create_subprocess_exec(
+                "taskkill", "/F", "/T", "/PID", str(proc.pid),
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            await killer.communicate()
+        except Exception:
+            pass
+    try:
+        proc.kill()
+    except Exception:
+        pass
+
+
 async def _wait_with_timeout(proc, timeout: int):
-    """Waits for a subprocess to finish, killing it and raising TimeoutError if it hangs."""
+    """Waits for a subprocess to finish, killing it (and its children) and raising
+    TimeoutError if it hangs."""
     try:
         return await asyncio.wait_for(proc.communicate(), timeout=timeout)
     except asyncio.TimeoutError:
+        await _kill_process_tree(proc)
         try:
-            proc.kill()
             await proc.communicate()
         except Exception:
             pass
@@ -242,7 +319,8 @@ async def run_subprocess_command(cmd_str: str, cwd: str = PROJECT_ROOT, timeout:
             stderr=asyncio.subprocess.PIPE,
             cwd=cwd,
             env=build_sandbox_env(),
-            **_sandbox_subprocess_kwargs()
+            **_sandbox_subprocess_kwargs(),
+            **_subprocess_creation_kwargs()
         )
         stdout, stderr = await _wait_with_timeout(proc, timeout)
         exit_code = proc.returncode
@@ -274,7 +352,8 @@ async def run_subprocess_exec(args_list, cwd: str = PROJECT_ROOT, timeout: int =
             stderr=asyncio.subprocess.PIPE,
             cwd=cwd,
             env=build_sandbox_env(extra_env),
-            **_sandbox_subprocess_kwargs()
+            **_sandbox_subprocess_kwargs(),
+            **_subprocess_creation_kwargs()
         )
         stdout, stderr = await _wait_with_timeout(proc, timeout)
         exit_code = proc.returncode
@@ -332,8 +411,9 @@ async def execute_codex_code_impl(args: dict) -> dict:
 
             # Execute python script from the isolated sandbox dir, not PROJECT_ROOT,
             # so relative-path filesystem access can't reach keys.db/.env by accident.
-            cmd = f"{sys.executable} {temp_file}"
-            res = await run_subprocess_command(cmd, cwd=SHELL_SANDBOX_DIR)
+            # Use exec (argv list) rather than a shell string so an interpreter path
+            # containing spaces (e.g. "C:\Program Files\Python\python.exe") can't misparse.
+            res = await run_subprocess_exec([sys.executable, temp_file], cwd=SHELL_SANDBOX_DIR)
             return {
                 "message": "Körde Python-kod lokalt på värdmaskinen.",
                 "exit_code": res["exit_code"],
@@ -440,7 +520,7 @@ async def call_gemini_api(prompt: str, system_instruction: str = "") -> str:
     if not api_key:
         raise Exception("Gemini API-nyckel saknas i databasen.")
         
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={api_key}"
     
     contents = []
     if system_instruction:
@@ -477,15 +557,25 @@ async def codex_audit_codebase_impl(args: dict = None) -> dict:
         
         for file in files:
             ext = os.path.splitext(file)[1]
-            if ext in ALLOWED_EXTENSIONS and file not in IGNORED_FILES:
-                file_path = os.path.join(root, file)
-                rel_path = os.path.relpath(file_path, PROJECT_ROOT)
-                try:
-                    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                        code_content += f"\n--- FIL: {rel_path} ---\n{f.read()}\n"
-                        file_count += 1
-                except Exception as e:
-                    print(f"[CODEX AUDIT] Kunde inte läsa {rel_path}: {e}")
+            if ext not in ALLOWED_EXTENSIONS or file in IGNORED_FILES:
+                continue
+            # Skip files whose name suggests they hold secrets, even if the extension
+            # is allowlisted (e.g. settings.local.json, a *.token file).
+            lower_name = file.lower()
+            if any(marker in lower_name for marker in SENSITIVE_FILENAME_MARKERS):
+                print(f"[CODEX AUDIT] Hoppar över potentiell hemlighetsfil: {file}")
+                continue
+
+            file_path = os.path.join(root, file)
+            rel_path = os.path.relpath(file_path, PROJECT_ROOT)
+            try:
+                with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                    # Redact obvious inline secrets before the content leaves the host.
+                    safe_content = redact_secrets(f.read())
+                    code_content += f"\n--- FIL: {rel_path} ---\n{safe_content}\n"
+                    file_count += 1
+            except Exception as e:
+                print(f"[CODEX AUDIT] Kunde inte läsa {rel_path}: {e}")
                     
     if file_count == 0:
         return {"error": "Inga filer hittades att granska."}
@@ -560,7 +650,23 @@ async def codex_run_and_fix_impl(args: dict) -> dict:
         return {"error": str(val_err)}
     if not os.path.exists(abs_file_path):
         return {"error": f"Målfilen hittades inte på: {abs_file_path}"}
-        
+
+    # Only allow the auto-fixer to overwrite known code/text file types, so a fix can't
+    # be steered into writing arbitrary model output to an executable, binary, or an
+    # unexpected path within the project.
+    fix_ext = os.path.splitext(abs_file_path)[1].lower()
+    if fix_ext not in ALLOWED_FIX_EXTENSIONS:
+        return {"error": f"Säkerhetsfel: Auto-fix stöds inte för filtypen '{fix_ext or 'okänd'}'. Tillåtna: {', '.join(sorted(ALLOWED_FIX_EXTENSIONS))}."}
+
+    # Back up the original once so a bad fix (especially a non-.py file that can't be
+    # AST-verified before writing) can always be rolled back from the .bak copy.
+    backup_path = abs_file_path + ".bak"
+    try:
+        with open(abs_file_path, "r", encoding="utf-8") as _orig, open(backup_path, "w", encoding="utf-8") as _bak:
+            _bak.write(_orig.read())
+    except Exception as backup_err:
+        return {"error": f"Kunde inte skapa säkerhetskopia före auto-fix: {str(backup_err)}"}
+
     history = []
     
     for attempt in range(max_retries + 1):
