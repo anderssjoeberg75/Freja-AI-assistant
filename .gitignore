@@ -31,3 +31,11 @@ backend/cache/
 facebook_state.json
 downloads/
 .freja_secret.key
+.env
+.env.*
+
+# Auto-generated codex audit reports (may embed code/secret excerpts)
+docs/code_audit_*.md
+
+# codex_run_and_fix backups
+*.bak

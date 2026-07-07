@@ -5,6 +5,7 @@ Used by both the web frontend (via API) and the Telegram bot.
 """
 
 import datetime
+import json
 import urllib.parse
 import httpx
 from starlette.concurrency import run_in_threadpool
@@ -248,7 +249,7 @@ TOOL_DECLARATIONS = [
             "properties": {
                 "command": {
                     "type": "STRING",
-                    "description": "Kommandot som ska köras, t.ex. 'pytest tests/test_file.py' eller 'python3 script.py'."
+                    "description": "Testkommandot som ska köras, t.ex. 'pytest tests/test_file.py'. Av säkerhetsskäl är direkta python-/skalinterpreter-anrop (python, python3, py) blockerade i denna kanal – använd en testrunner som pytest."
                 },
                 "file_path": {
                     "type": "STRING",
