@@ -9,7 +9,67 @@ from backend.database import get_db_connection, get_api_key
 
 router = APIRouter()
 
-async def fetch_7day_weather_forecast(location: str = "Stockholm") -> str:
+# --- Configuration constants -------------------------------------------------
+GEMINI_MODEL = "gemini-2.5-flash"
+DEFAULT_LOCATION = "Stockholm"
+RHR_ALERT_PCT = 5.0        # Resting HR increase that warrants an "ease off" nudge
+HRV_ALERT_PCT = -10.0      # HRV drop that warrants an "ease off" nudge
+DEFAULT_WORKOUT_HOUR = 8   # Preferred workout start hour (local time)
+DAY_END_HOUR = 21          # Latest a workout may be auto-scheduled to end
+MAX_WORKOUT_MINUTES = 180  # Sanity cap for a single booked session
+MAX_INPUT_LEN = 2000       # Cap on free-text goal/limitations sent to the LLM
+
+try:
+    from zoneinfo import ZoneInfo
+    LOCAL_TZ = ZoneInfo("Europe/Stockholm")
+except Exception:  # pragma: no cover - tzdata may be missing on some hosts
+    LOCAL_TZ = None
+
+
+def today_local() -> datetime.date:
+    """Today's date in the app's configured timezone (falls back to server time)."""
+    if LOCAL_TZ is not None:
+        return datetime.datetime.now(LOCAL_TZ).date()
+    return datetime.date.today()
+
+
+def _dict_row(cursor, row):
+    """sqlite row factory returning a plain dict."""
+    return {col[0]: row[idx] for idx, col in enumerate(cursor.description)}
+
+
+def get_trainer_profile() -> dict:
+    """Returns the single training profile row as a dict, or {} if none is set."""
+    with get_db_connection() as conn:
+        conn.row_factory = _dict_row
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT * FROM trainer_profile WHERE id = 1")
+            row = cursor.fetchone()
+        except Exception:
+            row = None
+    return dict(row) if row else {}
+
+
+# In-memory weather cache keyed by (location, date) so repeated check-ins/plan
+# generations on the same day don't re-hit the forecast API.
+_weather_cache: dict = {}
+
+
+async def fetch_7day_weather_forecast(location: str = DEFAULT_LOCATION) -> str:
+    """Cached wrapper around the 7-day forecast (cache lives for the current day)."""
+    key = ((location or DEFAULT_LOCATION).strip().lower(), today_local().isoformat())
+    cached = _weather_cache.get(key)
+    if cached is not None:
+        return cached
+    result = await _fetch_7day_weather_forecast_raw(location)
+    # Only cache successful lookups so a transient error can be retried.
+    if result and not result.startswith("Misslyckades") and not result.startswith("Kunde inte hitta"):
+        _weather_cache[key] = result
+    return result
+
+
+async def _fetch_7day_weather_forecast_raw(location: str = DEFAULT_LOCATION) -> str:
     try:
         geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={urllib.parse.quote(location)}&count=1&language=sv&format=json"
         async with httpx.AsyncClient() as client:
@@ -87,58 +147,62 @@ async def fetch_7day_weather_forecast(location: str = "Stockholm") -> str:
         return f"Misslyckades att hämta väderprognos för {location}: {str(e)}"
 
 def calculate_trends():
-    garmin_rows = []
-    try:
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                SELECT resting_hr, hrv 
-                FROM garmin_health 
-                ORDER BY date DESC 
-                LIMIT 21
-            ''')
-            garmin_rows = cursor.fetchall()
-    except Exception as e:
-        print(f"Error fetching Garmin health data for trends: {e}")
+    """Compares the last 7 days vs the preceding 14 days for resting HR and HRV.
 
+    Resting HR is read from a single consistent source (Garmin preferred, Withings
+    fallback) so the recent and baseline averages are never mixed across devices,
+    which would otherwise make the percentage change meaningless. HRV is Garmin-only.
+    """
+    garmin_rows = []
     withings_rows = []
-    try:
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                SELECT heart_pulse 
-                FROM withings_measurements 
-                ORDER BY date DESC 
-                LIMIT 21
-            ''')
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute('SELECT resting_hr, hrv FROM garmin_health ORDER BY date DESC LIMIT 21')
+            garmin_rows = cursor.fetchall()
+        except Exception as e:
+            print(f"Error fetching Garmin health data for trends: {e}")
+        try:
+            cursor.execute('SELECT heart_pulse FROM withings_measurements ORDER BY date DESC LIMIT 21')
             withings_rows = cursor.fetchall()
-    except Exception as e:
-        print(f"Error fetching Withings measurements for trends: {e}")
-        
-    recent_rhrs = [r[0] for r in garmin_rows[:7] if r[0] is not None]
-    baseline_rhrs = [r[0] for r in garmin_rows[7:] if r[0] is not None]
-    
+        except Exception as e:
+            print(f"Error fetching Withings measurements for trends: {e}")
+
+    def _avg(vals):
+        return sum(vals) / len(vals) if vals else None
+
+    # Resting HR: pick one source that has BOTH a recent and a baseline window.
+    g_recent_rhr = [r[0] for r in garmin_rows[:7] if r[0] is not None]
+    g_base_rhr = [r[0] for r in garmin_rows[7:] if r[0] is not None]
+    w_recent_rhr = [r[0] for r in withings_rows[:7] if r[0] is not None]
+    w_base_rhr = [r[0] for r in withings_rows[7:] if r[0] is not None]
+
+    if g_recent_rhr and g_base_rhr:
+        recent_rhrs, baseline_rhrs = g_recent_rhr, g_base_rhr
+    elif w_recent_rhr and w_base_rhr:
+        recent_rhrs, baseline_rhrs = w_recent_rhr, w_base_rhr
+    else:
+        # Not enough for a valid comparison from a single source; expose what exists.
+        recent_rhrs = g_recent_rhr or w_recent_rhr
+        baseline_rhrs = g_base_rhr or w_base_rhr
+
+    # HRV: Garmin only (Withings does not provide it).
     recent_hrvs = [r[1] for r in garmin_rows[:7] if r[1] is not None]
     baseline_hrvs = [r[1] for r in garmin_rows[7:] if r[1] is not None]
 
-    if not recent_rhrs:
-        recent_rhrs = [r[0] for r in withings_rows[:7] if r[0] is not None]
-    if not baseline_rhrs:
-        baseline_rhrs = [r[0] for r in withings_rows[7:] if r[0] is not None]
-    
-    rhr_recent_avg = sum(recent_rhrs) / len(recent_rhrs) if recent_rhrs else None
-    rhr_baseline_avg = sum(baseline_rhrs) / len(baseline_rhrs) if baseline_rhrs else None
-    hrv_recent_avg = sum(recent_hrvs) / len(recent_hrvs) if recent_hrvs else None
-    hrv_baseline_avg = sum(baseline_hrvs) / len(baseline_hrvs) if baseline_hrvs else None
-    
+    rhr_recent_avg = _avg(recent_rhrs)
+    rhr_baseline_avg = _avg(baseline_rhrs)
+    hrv_recent_avg = _avg(recent_hrvs)
+    hrv_baseline_avg = _avg(baseline_hrvs)
+
     rhr_change_pct = None
     if rhr_recent_avg and rhr_baseline_avg:
         rhr_change_pct = ((rhr_recent_avg - rhr_baseline_avg) / rhr_baseline_avg) * 100
-        
+
     hrv_change_pct = None
     if hrv_recent_avg and hrv_baseline_avg:
         hrv_change_pct = ((hrv_recent_avg - hrv_baseline_avg) / hrv_baseline_avg) * 100
-        
+
     return {
         "rhr_recent_avg": rhr_recent_avg,
         "rhr_baseline_avg": rhr_baseline_avg,
@@ -147,6 +211,129 @@ def calculate_trends():
         "hrv_baseline_avg": hrv_baseline_avg,
         "hrv_change_pct": hrv_change_pct
     }
+
+
+def format_trends_summary(trends: dict) -> str:
+    """Renders the RHR/HRV trend dict as the Swedish summary used in LLM prompts."""
+    lines = []
+    if trends["rhr_recent_avg"] is not None:
+        recent_str = f"{trends['rhr_recent_avg']:.1f}"
+        baseline_str = f"{trends['rhr_baseline_avg']:.1f}" if trends["rhr_baseline_avg"] is not None else "N/A"
+        change_str = f"{trends['rhr_change_pct']:.1f}%" if trends["rhr_change_pct"] is not None else "N/A"
+        lines.append(f"Vilopuls (RHR): Senaste 7 dgr snitt: {recent_str} BPM, Baslinje (föregående 14 dgr): {baseline_str} BPM (Förändring: {change_str})")
+    if trends["hrv_recent_avg"] is not None:
+        recent_str = f"{trends['hrv_recent_avg']:.1f}"
+        baseline_str = f"{trends['hrv_baseline_avg']:.1f}" if trends["hrv_baseline_avg"] is not None else "N/A"
+        change_str = f"{trends['hrv_change_pct']:.1f}%" if trends["hrv_change_pct"] is not None else "N/A"
+        lines.append(f"HRV: Senaste 7 dgr snitt: {recent_str} ms, Baslinje (föregående 14 dgr): {baseline_str} ms (Förändring: {change_str})")
+    return "\n".join(lines) if lines else "Inga tillräckliga trenddata (RHR/HRV) tillgängliga."
+
+
+def compute_adherence(days: int = 14) -> dict:
+    """Compares booked workout dates against completed Strava activity dates."""
+    today = today_local()
+    start_str = (today - datetime.timedelta(days=days)).strftime('%Y-%m-%d')
+    today_str = today.strftime('%Y-%m-%d')
+
+    planned_dates = set()
+    completed_dates = set()
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                'SELECT DISTINCT workout_date FROM trainer_bookings WHERE workout_date >= ? AND workout_date <= ?',
+                (start_str, today_str)
+            )
+            planned_dates = {r[0] for r in cursor.fetchall() if r[0]}
+        except Exception as e:
+            print(f"Error fetching bookings for adherence: {e}")
+        try:
+            cursor.execute(
+                'SELECT DISTINCT SUBSTR(date, 1, 10) FROM strava_activities WHERE SUBSTR(date, 1, 10) >= ? AND SUBSTR(date, 1, 10) <= ?',
+                (start_str, today_str)
+            )
+            completed_dates = {r[0] for r in cursor.fetchall() if r[0]}
+        except Exception as e:
+            print(f"Error fetching activities for adherence: {e}")
+
+    planned = len(planned_dates)
+    completed = len(planned_dates & completed_dates)
+    missed = sorted(planned_dates - completed_dates)
+    adherence_pct = round(completed / planned * 100, 1) if planned else None
+    return {
+        "window_days": days,
+        "planned": planned,
+        "completed": completed,
+        "adherence_pct": adherence_pct,
+        "planned_dates": sorted(planned_dates),
+        "missed_dates": missed
+    }
+
+
+@router.get("/api/trainer/profile")
+async def get_trainer_profile_endpoint():
+    """Returns the stored training profile (empty object if not yet set)."""
+    try:
+        return get_trainer_profile()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/api/trainer/profile")
+async def put_trainer_profile(request: Request):
+    """Creates or updates the single training profile row."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    fields = [
+        "event", "event_date", "fitness_level", "availability", "goals",
+        "limitations", "location", "baseline_resting_hr", "baseline_sleep_hours",
+        "baseline_hrv"
+    ]
+    text_fields = {"event", "event_date", "fitness_level", "availability", "goals", "limitations", "location"}
+
+    values = {}
+    for f in fields:
+        if f in body and body[f] is not None:
+            val = body[f]
+            if f in text_fields:
+                val = str(val).strip()[:MAX_INPUT_LEN]
+            values[f] = val
+
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM trainer_profile WHERE id = 1")
+            exists = cursor.fetchone() is not None
+            now_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+            if exists:
+                if values:
+                    set_clause = ", ".join(f"{k} = ?" for k in values)
+                    params = list(values.values()) + [now_str]
+                    cursor.execute(f"UPDATE trainer_profile SET {set_clause}, updated_at = ? WHERE id = 1", params)
+                else:
+                    cursor.execute("UPDATE trainer_profile SET updated_at = ? WHERE id = 1", (now_str,))
+            else:
+                cols = ["id"] + list(values.keys()) + ["updated_at"]
+                placeholders = ", ".join("?" for _ in cols)
+                params = [1] + list(values.values()) + [now_str]
+                cursor.execute(f"INSERT INTO trainer_profile ({', '.join(cols)}) VALUES ({placeholders})", params)
+            conn.commit()
+        return {"status": "success", "message": "Träningsprofil sparad.", "profile": get_trainer_profile()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/api/trainer/adherence")
+async def get_trainer_adherence(days: int = Query(14, description="Lookback window in days")):
+    """Returns planned vs completed workout adherence over the given window."""
+    try:
+        return compute_adherence(days)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/api/trainer/plans")
 async def get_trainer_plans(limit: int = Query(20, description="Number of plans to retrieve")):
@@ -189,57 +376,56 @@ async def delete_trainer_plan(plan_id: int = Query(..., description="ID of the p
 async def generate_trainer_plan(request: Request):
     try:
         body = await request.json()
-        goal = body.get("goal", "").strip()
-        limitations = body.get("limitations", "").strip()
+        goal = body.get("goal", "").strip()[:MAX_INPUT_LEN]
+        limitations = body.get("limitations", "").strip()[:MAX_INPUT_LEN]
         if not goal:
             raise HTTPException(status_code=400, detail="Mål saknas.")
-            
-        # 1. Fetch Garmin health logs
+
+        # Fall back to the stored training profile for limitations/location.
+        profile = get_trainer_profile()
+        if not limitations and profile.get("limitations"):
+            limitations = str(profile["limitations"]).strip()[:MAX_INPUT_LEN]
+        location = (body.get("location") or profile.get("location") or DEFAULT_LOCATION)
+        location = str(location).strip() or DEFAULT_LOCATION
+
+        # 1-3. Fetch Garmin / Strava / Withings logs (single connection).
         garmin_summary = []
+        strava_summary = []
+        withings_summary = []
         with get_db_connection() as conn:
             cursor = conn.cursor()
+
             cursor.execute('''
                 SELECT date, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status
                 FROM garmin_health
                 ORDER BY date DESC
                 LIMIT 7
             ''')
-            garmin_rows = cursor.fetchall()
-            for r in garmin_rows:
+            for r in cursor.fetchall():
                 garmin_summary.append(
                     f"Datum: {r[0]}, Steg: {r[1]}, Sömn: {r[2]}h, Vilopuls: {r[3]}, Kalorier: {r[4]}kcal, Träning: {r[5]} ({r[6]} min), Body Battery: {r[7]}, HRV: {r[8]}ms, Återhämtningstid: {r[9]}h, Status: {r[10]}"
                 )
 
-        # 2. Fetch Strava activities
-        strava_summary = []
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
             cursor.execute('''
                 SELECT name, type, date, distance, moving_time, total_elevation_gain, average_heartrate, max_heartrate, calories
                 FROM strava_activities
                 ORDER BY date DESC
                 LIMIT 7
             ''')
-            strava_rows = cursor.fetchall()
-            for r in strava_rows:
+            for r in cursor.fetchall():
                 dist_km = round(r[3] / 1000.0, 2) if r[3] else 0
                 dur_min = round(r[4] / 60.0, 1) if r[4] else 0
                 strava_summary.append(
                     f"Aktivitet: {r[0]}, Typ: {r[1]}, Datum: {r[2]}, Distans: {dist_km} km, Tid: {dur_min} min, Höjdmeter: {r[5]}m, Snittpuls: {r[6]}, Maxpuls: {r[7]}, Kalorier: {r[8]}kcal"
                 )
 
-        # 3. Fetch Withings measurements
-        withings_summary = []
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
             cursor.execute('''
                 SELECT date, weight, fat_ratio, bone_mass, heart_pulse, sleep_duration, steps, calories, sleep_score
                 FROM withings_measurements
                 ORDER BY date DESC
                 LIMIT 7
             ''')
-            withings_rows = cursor.fetchall()
-            for r in withings_rows:
+            for r in cursor.fetchall():
                 sleep_h = round(r[5] / 3600.0, 1) if r[5] else 0
                 withings_summary.append(
                     f"Datum: {r[0]}, Vikt: {r[1]} kg, Fettprocent: {r[2]}%, Benmassa: {r[3]} kg, Puls: {r[4]} BPM, Sömn: {sleep_h}h (Score: {r[8]}), Steg: {r[6]}, Kalorier: {r[7]}kcal"
@@ -252,22 +438,10 @@ async def generate_trainer_plan(request: Request):
 
         # 5. Calculate trends
         trends = calculate_trends()
-        trend_summary = []
-        if trends["rhr_recent_avg"] is not None:
-            recent_str = f"{trends['rhr_recent_avg']:.1f}"
-            baseline_str = f"{trends['rhr_baseline_avg']:.1f}" if trends["rhr_baseline_avg"] is not None else "N/A"
-            change_str = f"{trends['rhr_change_pct']:.1f}%" if trends["rhr_change_pct"] is not None else "N/A"
-            trend_summary.append(f"Vilopuls (RHR): Senaste 7 dgr snitt: {recent_str} BPM, Baslinje (föregående 14 dgr): {baseline_str} BPM (Förändring: {change_str})")
-        if trends["hrv_recent_avg"] is not None:
-            recent_str = f"{trends['hrv_recent_avg']:.1f}"
-            baseline_str = f"{trends['hrv_baseline_avg']:.1f}" if trends["hrv_baseline_avg"] is not None else "N/A"
-            change_str = f"{trends['hrv_change_pct']:.1f}%" if trends["hrv_change_pct"] is not None else "N/A"
-            trend_summary.append(f"HRV: Senaste 7 dgr snitt: {recent_str} ms, Baslinje (föregående 14 dgr): {baseline_str} ms (Förändring: {change_str})")
-            
-        trends_data_str = "\n".join(trend_summary) if trend_summary else "Inga tillräckliga trenddata (RHR/HRV) tillgängliga."
+        trends_data_str = format_trends_summary(trends)
 
-        # 5.5 Fetch 7-day weather forecast
-        weather_forecast = await fetch_7day_weather_forecast("Stockholm")
+        # 5.5 Fetch 7-day weather forecast (for the profile's location)
+        weather_forecast = await fetch_7day_weather_forecast(location)
 
         # 6. Compile Prompt
         garmin_data_str = "\n".join(garmin_summary) if garmin_summary else "Ingen Garmin-data tillgänglig."
@@ -309,7 +483,7 @@ Instruktioner för svaret:
 """
 
         # 7. Call Gemini
-        google_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+        google_url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={api_key}"
         payload = {
             "contents": [
                 {
@@ -384,7 +558,7 @@ Instruktioner för svaret:
             raise HTTPException(status_code=500, detail="Kunde inte generera svar från Gemini.")
 
         # 8. Save to database
-        today_str = datetime.date.today().strftime('%Y-%m-%d')
+        today_str = today_local().strftime('%Y-%m-%d')
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
@@ -440,9 +614,11 @@ async def trainer_daily_checkin(request: Request):
             body = await request.json()
         except Exception:
             body = {}
-        location = (body.get("location") or "Stockholm").strip() or "Stockholm"
+        profile = get_trainer_profile()
+        location = (body.get("location") or profile.get("location") or DEFAULT_LOCATION)
+        location = str(location).strip() or DEFAULT_LOCATION
 
-        today = datetime.date.today()
+        today = today_local()
         today_str = today.strftime('%Y-%m-%d')
         yesterday_str = (today - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
 
@@ -528,20 +704,18 @@ async def trainer_daily_checkin(request: Request):
             for e in other_events
         ) if other_events else "Inga andra åtaganden i kalendern idag."
 
-        # 5. Calculated RHR/HRV trends (reuses the same logic as plan generation)
+        # 5. Calculated RHR/HRV trends + adherence (reuses plan-generation logic)
         trends = calculate_trends()
-        trend_summary = []
-        if trends["rhr_recent_avg"] is not None:
-            recent_str = f"{trends['rhr_recent_avg']:.1f}"
-            baseline_str = f"{trends['rhr_baseline_avg']:.1f}" if trends["rhr_baseline_avg"] is not None else "N/A"
-            change_str = f"{trends['rhr_change_pct']:.1f}%" if trends["rhr_change_pct"] is not None else "N/A"
-            trend_summary.append(f"Vilopuls (RHR): Senaste 7 dgr snitt: {recent_str} BPM, Baslinje (föregående 14 dgr): {baseline_str} BPM (Förändring: {change_str})")
-        if trends["hrv_recent_avg"] is not None:
-            recent_str = f"{trends['hrv_recent_avg']:.1f}"
-            baseline_str = f"{trends['hrv_baseline_avg']:.1f}" if trends["hrv_baseline_avg"] is not None else "N/A"
-            change_str = f"{trends['hrv_change_pct']:.1f}%" if trends["hrv_change_pct"] is not None else "N/A"
-            trend_summary.append(f"HRV: Senaste 7 dgr snitt: {recent_str} ms, Baslinje (föregående 14 dgr): {baseline_str} ms (Förändring: {change_str})")
-        trends_data_str = "\n".join(trend_summary) if trend_summary else "Inga tillräckliga trenddata (RHR/HRV) tillgängliga."
+        trends_data_str = format_trends_summary(trends)
+
+        adherence = compute_adherence(14)
+        if adherence["adherence_pct"] is not None:
+            adherence_str = (
+                f"Senaste {adherence['window_days']} dgr: {adherence['completed']} av "
+                f"{adherence['planned']} inbokade pass genomförda ({adherence['adherence_pct']}%)."
+            )
+        else:
+            adherence_str = "Ingen bokad passhistorik att jämföra mot ännu."
 
         # 6. Fetch Gemini API key (fail fast before any external weather call)
         api_key = get_api_key('freja_gemini_apikey') or ""
@@ -567,6 +741,9 @@ DAGENS DATUM: {today_str}
 [BERÄKNADE HÄLSOTRENDER (RHR & HRV)]:
 {trends_data_str}
 
+[TRÄNINGSFÖLJSAMHET]:
+{adherence_str}
+
 [GENOMFÖRT PASS IGÅR (Strava)]:
 {completed_summary}
 
@@ -581,17 +758,18 @@ DAGENS DATUM: {today_str}
 
 Regler för briefingen:
 - Prioritera Garmin för sömn/vilopuls/HRV/body battery; använd Withings som komplement/fallback.
-- Bedöm återhämtningen: om vilopulsen ökat markant (>5%) eller HRV sjunkit markant (<-10%), eller om sömnen var kort/dålig eller Body Battery lågt – rekommendera lägre intensitet eller aktiv vila och förklara kort varför.
+- Bedöm återhämtningen: om vilopulsen ökat markant (>{RHR_ALERT_PCT:.0f}%) eller HRV sjunkit markant (<{HRV_ALERT_PCT:.0f}%), eller om sömnen var kort/dålig eller Body Battery lågt – rekommendera lägre intensitet eller aktiv vila och förklara kort varför.
 - Vid god återhämtning: peppa och behåll (eller utöka lätt) dagens plan.
 - Om gårdagens pass INTE genomfördes: ingen skuld – föreslå att flytta fram naturligt om det behövs.
 - Om det finns dagens pass utomhus och dåligt väder (kraftigt regn, snö, åska, storm) väntas: föreslå inomhus eller vila.
 - Väg in andra kalenderåtaganden som kan påverka energi/tid idag.
+- Om du sätter adjust_workout=true OCH det finns ett inbokat pass idag: ange 'adjusted_duration_minutes' till den nya längden i minuter (heltal, 0 = vila). F.R.E.J.A. bokar då om dagens kalenderpass automatiskt.
 - Avsluta ALLTID med en tydlig fråga eller åtgärd. Var artig men extremt kunnig (F.R.E.J.A.-stil).
 - Fältet 'briefing' ska vara en färdig, kort text i markdown som kan visas direkt för användaren (använd gärna emojis 📊 📅 💬 ✅ som i coach-modellen).
 """
 
         # 9. Call Gemini with a structured schema
-        google_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+        google_url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={api_key}"
         payload = {
             "contents": [{"parts": [{"text": prompt_content}]}],
             "generationConfig": {
@@ -607,6 +785,7 @@ Regler för briefingen:
                         "todays_plan": {"type": "STRING", "description": "Dagens planerade träningspass i klartext."},
                         "recommendation": {"type": "STRING", "description": "Coachens rekommendation: behåll, sänk eller höj intensitet, med kort motivering."},
                         "adjust_workout": {"type": "BOOLEAN", "description": "true om dagens pass bör justeras jämfört med det som ligger i kalendern."},
+                        "adjusted_duration_minutes": {"type": "INTEGER", "description": "Ny längd i minuter för dagens pass om adjust_workout=true (0 = vila). Utelämnas/0 om ingen justering."},
                         "weather_note": {"type": "STRING", "description": "Kort väderkommentar relevant för dagens pass (tom sträng om inte relevant)."},
                         "closing_question": {"type": "STRING", "description": "En tydlig avslutande fråga eller åtgärd till användaren."},
                         "briefing": {"type": "STRING", "description": "Färdig kort briefing i markdown, redo att visas direkt för användaren."}
@@ -630,12 +809,43 @@ Regler för briefingen:
         except Exception:
             briefing_data = {"briefing": briefing_text}
 
+        # 10. Act on the recommendation: if the coach wants to adjust today's session
+        #     and there is a workout event in the calendar, re-time it automatically.
+        calendar_updated = False
+        if briefing_data.get("adjust_workout") and workout_events:
+            try:
+                new_dur = int(briefing_data.get("adjusted_duration_minutes") or 0)
+            except (TypeError, ValueError):
+                new_dur = 0
+            if 0 < new_dur <= MAX_WORKOUT_MINUTES:
+                ev = workout_events[0]
+                start_time = (ev.get("start_time") or "")[:16]  # YYYY-MM-DDTHH:MM
+                try:
+                    start_dt = datetime.datetime.strptime(start_time, "%Y-%m-%dT%H:%M")
+                    end_time = (start_dt + datetime.timedelta(minutes=new_dur)).strftime("%Y-%m-%dT%H:%M")
+                    from backend.routes.google_calendar import core_save_calendar_event
+                    base_desc = (ev.get("description") or "").split("\n\n[COACH AI")[0]
+                    new_desc = f"{base_desc}\n\n[COACH AI justerade passet till {new_dur} min baserat på din återhämtning ({today_str}).]"
+                    await core_save_calendar_event(
+                        summary=ev.get("summary", "Träningspass"),
+                        start_time=start_time,
+                        end_time=end_time,
+                        description=new_desc,
+                        location=ev.get("location", ""),
+                        db_id=ev.get("id")
+                    )
+                    calendar_updated = True
+                except Exception as adj_err:
+                    print(f"[TRAINER CHECKIN] Kunde inte justera kalenderpass: {adj_err}")
+
         return {
             "status": "success",
             "date": today_str,
             "checkin": briefing_data,
             "has_workout_today": bool(workout_events),
-            "workout_completed_yesterday": bool(strava_rows)
+            "workout_completed_yesterday": bool(strava_rows),
+            "adherence": adherence,
+            "calendar_updated": calendar_updated
         }
 
     except HTTPException:
@@ -645,84 +855,166 @@ Regler för briefingen:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+def _find_free_slot(workout_date: datetime.date, duration: int, day_events: list) -> datetime.datetime:
+    """Finds a start time on workout_date that doesn't overlap existing events.
+
+    Starts at the preferred hour and, on a clash, jumps to the end of the
+    conflicting event, retrying until the day-end limit. Falls back to the
+    preferred hour if no free slot fits.
+    """
+    dur = datetime.timedelta(minutes=duration)
+    start = datetime.datetime.combine(workout_date, datetime.time(DEFAULT_WORKOUT_HOUR, 0))
+    end_limit = datetime.datetime.combine(workout_date, datetime.time(DAY_END_HOUR, 0))
+
+    intervals = []
+    for e in day_events:
+        try:
+            s = datetime.datetime.strptime((e.get("start_time") or "")[:16], "%Y-%m-%dT%H:%M")
+            en = datetime.datetime.strptime((e.get("end_time") or "")[:16], "%Y-%m-%dT%H:%M")
+            intervals.append((s, en))
+        except Exception:
+            continue  # all-day / malformed events don't block scheduling
+    intervals.sort()
+
+    while start + dur <= end_limit:
+        candidate_end = start + dur
+        conflict_end = None
+        for (s, en) in intervals:
+            if start < en and candidate_end > s:  # overlap
+                conflict_end = en
+                break
+        if conflict_end is None:
+            return start
+        start = conflict_end
+
+    return datetime.datetime.combine(workout_date, datetime.time(DEFAULT_WORKOUT_HOUR, 0))
+
+
 @router.post("/api/trainer/plans/book")
 async def book_trainer_plan(request: Request):
     try:
         body = await request.json()
         plan_id = body.get("plan_id")
         start_date_str = body.get("start_date")
-        
+
         if not plan_id or not start_date_str:
             raise HTTPException(status_code=400, detail="Plan-ID och startdatum krävs.")
-            
+
         try:
             start_date = datetime.datetime.strptime(start_date_str, "%Y-%m-%d").date()
         except ValueError:
             raise HTTPException(status_code=400, detail="Felaktigt startdatumformat (använd ÅÅÅÅ-MM-DD).")
-            
+
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT advice_text FROM trainer_plans WHERE id = ?", (plan_id,))
             row = cursor.fetchone()
-            
+
         if not row:
             raise HTTPException(status_code=404, detail="Träningsprogrammet hittades inte.")
-            
+
         try:
             plan_data = json.loads(row[0])
         except Exception:
             raise HTTPException(status_code=400, detail="Detta träningsprogram saknar strukturerad data och kan inte bokas i kalendern.")
-            
+
         workouts = plan_data.get("workouts", [])
         if not workouts:
             return {"status": "success", "message": "Inga träningspass att boka."}
-            
+
         day_offsets = {
-            "måndag": 0,
-            "tisdag": 1,
-            "onsdag": 2,
-            "torsdag": 3,
-            "fredag": 4,
-            "lördag": 5,
-            "söndag": 6
+            "måndag": 0, "tisdag": 1, "onsdag": 2, "torsdag": 3,
+            "fredag": 4, "lördag": 5, "söndag": 6
         }
-        
-        from backend.routes.google_calendar import core_save_calendar_event
-        
+
+        from backend.routes.google_calendar import (
+            core_save_calendar_event, core_delete_calendar_event, core_get_calendar_data
+        )
+
+        # --- Idempotency: remove any events previously booked for THIS plan so
+        #     re-booking updates instead of creating duplicates. ---
+        rebooked = 0
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id, event_id FROM trainer_bookings WHERE plan_id = ?", (plan_id,))
+            prior = cursor.fetchall()
+        for booking_id, event_id in prior:
+            if event_id:
+                try:
+                    await core_delete_calendar_event(event_id)
+                    rebooked += 1
+                except Exception as del_err:
+                    print(f"[TRAINER BOOK] Kunde inte ta bort tidigare event {event_id}: {del_err}")
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM trainer_bookings WHERE plan_id = ?", (plan_id,))
+            conn.commit()
+
+        # Existing calendar events used for conflict avoidance (mutated as we book).
+        all_events = core_get_calendar_data(days=60)
+
         booked_count = 0
         for w in workouts:
-            day_name = w.get("day", "").lower()
+            day_name = str(w.get("day", "")).lower()
             offset = day_offsets.get(day_name)
             if offset is None:
                 continue
-                
-            duration = w.get("duration_minutes", 0)
+
+            try:
+                duration = int(w.get("duration_minutes", 0) or 0)
+            except (TypeError, ValueError):
+                duration = 0
             if duration <= 0:
-                continue # Skip rest day
-                
-            workout_date = start_date + datetime.timedelta(days=offset)
-            
-            # Start workout at 08:00 AM local time
-            start_dt = f"{workout_date}T08:00:00"
-            end_dt_obj = datetime.datetime.combine(workout_date, datetime.time(8, 0)) + datetime.timedelta(minutes=duration)
-            end_dt = end_dt_obj.strftime("%Y-%m-%dT%H:%M:%S")
-            
+                continue  # Skip rest day
+            duration = min(duration, MAX_WORKOUT_MINUTES)  # Sanity cap
+
+            try:
+                week = max(0, min(51, int(w.get("week", 0) or 0)))
+            except (TypeError, ValueError):
+                week = 0
+
+            workout_date = start_date + datetime.timedelta(days=offset + week * 7)
+
+            # Find a non-conflicting slot; format at minute precision so the
+            # Google push (which appends ":00") produces a valid RFC3339 time.
+            day_events = [e for e in all_events if (e.get("start_time") or "")[:10] == workout_date.isoformat()]
+            slot_start = _find_free_slot(workout_date, duration, day_events)
+            slot_end = slot_start + datetime.timedelta(minutes=duration)
+            start_dt = slot_start.strftime("%Y-%m-%dT%H:%M")
+            end_dt = slot_end.strftime("%Y-%m-%dT%H:%M")
+
             summary = f"💪 {w.get('activity_type', 'Träning')}: {w.get('title', 'Pass')}"
-            
-            # Description containing detail instruction
             description = f"Träningspass genererat av COACH AI.\n\nBeskrivning:\n{w.get('description', '')}\n\nTid: {duration} minuter."
             location = "F.R.E.J.A. PT"
-            
-            await core_save_calendar_event(
+
+            result = await core_save_calendar_event(
                 summary=summary,
                 start_time=start_dt,
                 end_time=end_dt,
                 description=description,
                 location=location
             )
+            event_id = (result.get("event") or {}).get("id")
+
+            # Record the booking so it can be de-duplicated / adjusted later.
+            with get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "INSERT INTO trainer_bookings (plan_id, event_id, workout_date, week) VALUES (?, ?, ?, ?)",
+                    (plan_id, event_id, workout_date.isoformat(), week)
+                )
+                conn.commit()
+
+            # Make this new event visible to the next same-day workout.
+            all_events.append({"start_time": f"{start_dt}:00", "end_time": f"{end_dt}:00"})
             booked_count += 1
-            
-        return {"status": "success", "message": f"Bokade framgångsrikt {booked_count} träningspass i din kalender."}
-        
+
+        msg = f"Bokade framgångsrikt {booked_count} träningspass i din kalender."
+        if rebooked:
+            msg += f" ({rebooked} tidigare bokade pass ersattes.)"
+        return {"status": "success", "message": msg, "booked_count": booked_count, "replaced_count": rebooked}
+
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

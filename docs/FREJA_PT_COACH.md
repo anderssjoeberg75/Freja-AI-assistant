@@ -108,9 +108,13 @@ Utlöses när användaren säger något i stil med *"god morgon", "incheckning",
 
 > **Implementation:** detta flöde backas av `POST /api/trainer/checkin` i
 > [`backend/routes/trainer.py`](../backend/routes/trainer.py). Endpointen läser senaste Garmin- och
-> Withings-mätningen, beräknar RHR/HRV-trender, kontrollerar om gårdagens pass finns på Strava,
-> hämtar dagens kalenderpass och väderprognos, och returnerar en färdig briefing (`checkin.briefing`)
-> plus strukturerade fält (`recommendation`, `adjust_workout`, `closing_question` m.fl.).
+> Withings-mätningen, beräknar RHR/HRV-trender, mäter träningsföljsamhet (`compute_adherence`),
+> kontrollerar om gårdagens pass finns på Strava, hämtar dagens kalenderpass och väderprognos, och
+> returnerar en färdig briefing (`checkin.briefing`) plus strukturerade fält (`recommendation`,
+> `adjust_workout`, `adjusted_duration_minutes`, `closing_question` m.fl.).
+>
+> Sätter modellen `adjust_workout=true` och anger `adjusted_duration_minutes`, **bokar endpointen
+> automatiskt om dagens kalenderpass** till den nya längden och sätter `calendar_updated=true` i svaret.
 
 ### Steg 1 — Läs nattens hälsodata (senaste 24h)
 Från **Garmin** (primärt), **Withings** (fallback):
@@ -211,12 +215,16 @@ Var alltid coachen som står i deras hörn — inte en fitness-algoritm.
 
 ## MINNE — HÅLL ALLTID UPPDATERAT
 
-- Målevent och datum
-- Nuvarande form
-- Tillgänglighet per vecka (dagar + längd)
-- Mål och motivation
-- Skador / sjukdomar / begränsningar
-- Baslinje-hälsostatistik (vilopuls, snittsömn, HRV-spann) — uppdatera veckovis
+Profilen persisteras i tabellen `trainer_profile` via `GET/PUT /api/trainer/profile`.
+Både `generate` och `checkin` läser den (för begränsningar och väderplats).
+
+- Målevent och datum (`event`, `event_date`)
+- Nuvarande form (`fitness_level`)
+- Tillgänglighet per vecka (`availability`)
+- Mål och motivation (`goals`)
+- Skador / sjukdomar / begränsningar (`limitations`)
+- Hemort för väderprognos (`location`)
+- Baslinje-hälsostatistik (`baseline_resting_hr`, `baseline_sleep_hours`, `baseline_hrv`) — uppdatera veckovis
 
 ---
 

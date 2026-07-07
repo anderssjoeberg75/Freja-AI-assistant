@@ -114,3 +114,128 @@ def test_trainer_checkin_success(auth_headers, monkeypatch):
     assert data.get("status") == "success"
     assert data.get("checkin", {}).get("briefing")
     assert data.get("checkin", {}).get("adjust_workout") is False
+    assert data.get("calendar_updated") is False
+    assert "adherence" in data
+
+
+def _make_fake_gemini_client(payload_obj):
+    """Returns a fake httpx.AsyncClient class that always answers with payload_obj
+    wrapped in Gemini's candidates/parts envelope."""
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+        def json(self):
+            return {"candidates": [{"content": {"parts": [{"text": json.dumps(payload_obj)}]}}]}
+
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *args):
+            return False
+        async def post(self, url, **kwargs):
+            return FakeResponse()
+
+    return FakeAsyncClient
+
+
+def test_trainer_profile_put_and_get(auth_headers):
+    client = TestClient(app)
+    payload = {
+        "event": "Göteborgsvarvet halvmara",
+        "event_date": "2026-05-16",
+        "fitness_level": "Motionär",
+        "availability": "3 dagar/vecka, 45 min",
+        "goals": "Klara loppet under 2 timmar",
+        "limitations": "Ansträngningsastma",
+        "location": "Göteborg",
+        "baseline_resting_hr": 54
+    }
+    put_res = client.put("/api/trainer/profile", json=payload, headers=auth_headers)
+    assert put_res.status_code == 200
+    assert put_res.json().get("status") == "success"
+
+    get_res = client.get("/api/trainer/profile", headers=auth_headers)
+    assert get_res.status_code == 200
+    profile = get_res.json()
+    assert profile.get("location") == "Göteborg"
+    assert profile.get("limitations") == "Ansträngningsastma"
+
+
+def test_trainer_generate_success(auth_headers, monkeypatch):
+    monkeypatch.setattr(trainer_module, "get_api_key", lambda name: "MOCK_GEMINI_KEY")
+
+    async def fake_weather(location="Stockholm"):
+        return f"Väderprognos för {location}: idag mulet, 12°C."
+    monkeypatch.setattr(trainer_module, "fetch_7day_weather_forecast", fake_weather)
+
+    plan_obj = {
+        "summary": "Stabil grund, god återhämtning.",
+        "resting_hr_trend": "Stabil.",
+        "hrv_trend": "God.",
+        "weekly_focus": "Bygg uthållighet lugnt.",
+        "workouts": [
+            {"day": "Måndag", "activity_type": "Löpning", "title": "Lugnt pass",
+             "description": "30 min i samtalstempo.", "duration_minutes": 30}
+        ]
+    }
+    monkeypatch.setattr(trainer_module.httpx, "AsyncClient", _make_fake_gemini_client(plan_obj))
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/trainer/generate",
+        json={"goal": "Bygg löpvana", "limitations": ""},
+        headers=auth_headers
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data.get("status") == "success"
+    assert data.get("plan_id")
+    assert "workouts" in data.get("advice_text", "")
+
+
+def test_trainer_adherence_endpoint(auth_headers):
+    client = TestClient(app)
+    response = client.get("/api/trainer/adherence?days=14", headers=auth_headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert data.get("window_days") == 14
+    assert "planned" in data and "completed" in data
+
+
+def test_trainer_booking_is_idempotent(auth_headers):
+    client = TestClient(app)
+    plan_json = json.dumps({"workouts": [
+        {"day": "Tisdag", "activity_type": "Löpning", "title": "Intervaller",
+         "description": "Spring snabbt", "duration_minutes": 30},
+        {"day": "Torsdag", "activity_type": "Styrketräning", "title": "Ben",
+         "description": "Knäböj", "duration_minutes": 40}
+    ]})
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO trainer_plans (date, goal, advice_text, limitations) VALUES (?, ?, ?, ?)",
+            ("2026-07-06", "Idempotens-test", plan_json, "Inga")
+        )
+        conn.commit()
+        plan_id = cursor.lastrowid
+
+    payload = {"plan_id": plan_id, "start_date": "2026-07-06"}
+
+    first = client.post("/api/trainer/plans/book", json=payload, headers=auth_headers)
+    assert first.status_code == 200
+    assert first.json().get("booked_count") == 2
+    assert first.json().get("replaced_count") == 0
+
+    second = client.post("/api/trainer/plans/book", json=payload, headers=auth_headers)
+    assert second.status_code == 200
+    assert second.json().get("booked_count") == 2
+    # The second booking must replace the first, not stack duplicates.
+    assert second.json().get("replaced_count") == 2
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM trainer_bookings WHERE plan_id = ?", (plan_id,))
+        booking_count = cursor.fetchone()[0]
+    assert booking_count == 2

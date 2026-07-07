@@ -89,6 +89,31 @@ def init_db():
         cursor.execute('ALTER TABLE trainer_plans ADD COLUMN limitations TEXT')
     except sqlite3.OperationalError:
         pass
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS trainer_profile (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            event TEXT,
+            event_date TEXT,
+            fitness_level TEXT,
+            availability TEXT,
+            goals TEXT,
+            limitations TEXT,
+            location TEXT,
+            baseline_resting_hr REAL,
+            baseline_sleep_hours REAL,
+            baseline_hrv REAL,
+            updated_at TEXT
+        )
+    ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS trainer_bookings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            plan_id INTEGER,
+            event_id INTEGER,
+            workout_date TEXT,
+            week INTEGER DEFAULT 0
+        )
+    ''')
     try:
         cursor.execute('ALTER TABLE garmin_health ADD COLUMN body_battery INTEGER')
     except sqlite3.OperationalError:
