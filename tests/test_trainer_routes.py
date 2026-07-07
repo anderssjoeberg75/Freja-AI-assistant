@@ -204,6 +204,100 @@ def test_trainer_adherence_endpoint(auth_headers):
     assert "planned" in data and "completed" in data
 
 
+def _insert_workout_event(summary, start_time, end_time, google_event_id):
+    """Insert a workout calendar event and return its DB id."""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            '''INSERT INTO google_calendar_events
+               (google_event_id, summary, description, start_time, end_time, location)
+               VALUES (?, ?, ?, ?, ?, ?)''',
+            (google_event_id, summary, "Ursprunglig beskrivning", start_time, end_time, "F.R.E.J.A. PT")
+        )
+        conn.commit()
+        return cursor.lastrowid
+
+
+def test_trainer_optimize_requires_gemini_key(auth_headers, monkeypatch):
+    import datetime
+    monkeypatch.setattr(trainer_module, "get_api_key", lambda name: "")
+    today = datetime.date.today().strftime('%Y-%m-%d')
+    _insert_workout_event("💪 Löpning: Tempo", f"{today}T08:00", f"{today}T09:00", "evt-optim-nokey")
+
+    client = TestClient(app)
+    response = client.post("/api/trainer/optimize", json={}, headers=auth_headers)
+    assert response.status_code == 400
+    assert "Gemini" in response.json().get("detail", "")
+
+
+def test_trainer_optimize_reduces_upcoming_workout(auth_headers, monkeypatch):
+    import datetime
+    monkeypatch.setattr(trainer_module, "get_api_key", lambda name: "MOCK_GEMINI_KEY")
+
+    today = datetime.date.today().strftime('%Y-%m-%d')
+    event_id = _insert_workout_event(
+        "💪 Löpning: Intervaller", f"{today}T08:00", f"{today}T09:00", "evt-optim-reduce"
+    )
+
+    opt_obj = {
+        "assessment": "Låg HRV och kort sömn – kroppen behöver avlastning.",
+        "briefing": "**Justerat:** Jag kortade intervallpasset då din HRV sjunkit.",
+        "adjustments": [
+            {"event_id": event_id, "action": "reduce", "new_duration_minutes": 20,
+             "new_title": "", "reason": "Låg HRV, sänkt belastning."}
+        ]
+    }
+    monkeypatch.setattr(trainer_module.httpx, "AsyncClient", _make_fake_gemini_client(opt_obj))
+
+    client = TestClient(app)
+    response = client.post("/api/trainer/optimize", json={}, headers=auth_headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert data.get("status") == "success"
+    assert data.get("changes_count") == 1
+    assert data.get("considered") >= 1
+
+    # The stored event should now end 20 minutes after it starts.
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT end_time FROM google_calendar_events WHERE id = ?", (event_id,))
+        end_time = cursor.fetchone()[0]
+    assert end_time.startswith(f"{today}T08:20")
+
+
+def test_trainer_optimize_keeps_when_recovered(auth_headers, monkeypatch):
+    import datetime
+    monkeypatch.setattr(trainer_module, "get_api_key", lambda name: "MOCK_GEMINI_KEY")
+
+    today = datetime.date.today().strftime('%Y-%m-%d')
+    event_id = _insert_workout_event(
+        "🏃 Löpning: Lugnt pass", f"{today}T08:00", f"{today}T08:40", "evt-optim-keep"
+    )
+
+    opt_obj = {
+        "assessment": "God återhämtning – kör planen.",
+        "briefing": "**Allt ser bra ut** – passen får stå kvar oförändrade.",
+        "adjustments": [
+            {"event_id": event_id, "action": "keep", "new_duration_minutes": 40,
+             "new_title": "", "reason": "God återhämtning."}
+        ]
+    }
+    monkeypatch.setattr(trainer_module.httpx, "AsyncClient", _make_fake_gemini_client(opt_obj))
+
+    client = TestClient(app)
+    response = client.post("/api/trainer/optimize", json={}, headers=auth_headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert data.get("status") == "success"
+    assert data.get("changes_count") == 0
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT end_time FROM google_calendar_events WHERE id = ?", (event_id,))
+        end_time = cursor.fetchone()[0]
+    assert end_time.startswith(f"{today}T08:40")  # unchanged
+
+
 def test_trainer_booking_is_idempotent(auth_headers):
     client = TestClient(app)
     plan_json = json.dumps({"workouts": [

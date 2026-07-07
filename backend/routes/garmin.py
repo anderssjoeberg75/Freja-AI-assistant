@@ -189,9 +189,36 @@ def run_garmin_sync_task(email, password, days):
                 
             conn.commit()
         set_sync_state("garmin", "success")
+        # Fresh recovery data just landed — let COACH AI re-tune upcoming workouts.
+        try:
+            _auto_optimize_workouts_after_sync()
+        except Exception as opt_err:
+            print(f"[GARMIN SYNC] Auto-optimering av träningspass hoppades över: {opt_err}")
     except Exception as e:
         print(f"[GARMIN SYNC TASK ERROR]: {e}")
         set_sync_state("garmin", "error", str(e))
+
+
+def _auto_optimize_workouts_after_sync():
+    """After a Garmin sync, let COACH AI adjust the upcoming calendar workouts to
+    the user's latest recovery — unless auto-adjust is disabled or no training
+    goal is set. Runs the async optimizer in a private event loop (we're in a
+    background worker thread) and never raises back into the sync task."""
+    import asyncio
+    from backend.routes.trainer import get_trainer_profile, core_optimize_upcoming_workouts
+
+    profile = get_trainer_profile()
+    if not profile:
+        return
+    # Default ON: only an explicit 0/false disables automatic adjustment.
+    if str(profile.get("auto_adjust", 1)).strip().lower() in ("0", "false"):
+        return
+    if not (profile.get("goals") or profile.get("event")):
+        return  # No training goal yet — nothing meaningful to optimize toward.
+
+    result = asyncio.run(core_optimize_upcoming_workouts(trigger="garmin_sync"))
+    if isinstance(result, dict) and result.get("changes_count"):
+        print(f"[GARMIN SYNC] COACH AI justerade {result['changes_count']} kommande pass efter ny Garmin-data.")
 
 @router.get("/api/garmin/sync")
 async def get_garmin_sync(

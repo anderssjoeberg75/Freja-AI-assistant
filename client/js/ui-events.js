@@ -1659,6 +1659,24 @@ FrejaUIController.prototype.bindEvents = function() {
         });
     }
 
+    // Optimize upcoming workouts from recovery data (manual trigger)
+    const btnTrainerOptimize = document.getElementById('btn-trainer-optimize');
+    if (btnTrainerOptimize) {
+        btnTrainerOptimize.addEventListener('click', () => {
+            soundSynth.playClick();
+            self.runTrainerOptimize();
+        });
+    }
+
+    // Toggle automatic recovery-driven adjustment
+    const chkTrainerAutoAdjust = document.getElementById('chk-trainer-auto-adjust');
+    if (chkTrainerAutoAdjust) {
+        chkTrainerAutoAdjust.addEventListener('change', () => {
+            soundSynth.playClick();
+            self.saveTrainerAutoAdjust(chkTrainerAutoAdjust.checked);
+        });
+    }
+
     const btnSaveTelegram = document.getElementById('btn-save-telegram');
     if (btnSaveTelegram) {
         btnSaveTelegram.addEventListener('click', async () => {

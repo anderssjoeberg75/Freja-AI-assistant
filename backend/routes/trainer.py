@@ -290,7 +290,7 @@ async def put_trainer_profile(request: Request):
     fields = [
         "event", "event_date", "fitness_level", "availability", "goals",
         "limitations", "location", "baseline_resting_hr", "baseline_sleep_hours",
-        "baseline_hrv"
+        "baseline_hrv", "auto_adjust"
     ]
     text_fields = {"event", "event_date", "fitness_level", "availability", "goals", "limitations", "location"}
 
@@ -300,6 +300,8 @@ async def put_trainer_profile(request: Request):
             val = body[f]
             if f in text_fields:
                 val = str(val).strip()[:MAX_INPUT_LEN]
+            elif f == "auto_adjust":
+                val = 1 if val in (True, 1, "1", "true", "True", "on") else 0
             values[f] = val
 
     try:
@@ -604,6 +606,32 @@ async def update_trainer_plan(request: Request):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# --- Shared workout-event helpers -------------------------------------------
+# Markers that identify an auto-scheduled F.R.E.J.A. PT session in the calendar,
+# so recovery-driven adjustments only ever touch training events (never meetings).
+WORKOUT_LOCATION_MARKER = "F.R.E.J.A. PT"
+WORKOUT_SUMMARY_MARKERS = ("💪", "🏃", "🚶", "🚴", "🧘", "🏊")
+
+
+def is_workout_event(ev: dict) -> bool:
+    """True if a calendar event looks like a F.R.E.J.A. PT training session."""
+    summary = ev.get("summary") or ""
+    location_val = ev.get("location") or ""
+    return (WORKOUT_LOCATION_MARKER in location_val) or any(
+        marker in summary for marker in WORKOUT_SUMMARY_MARKERS
+    )
+
+
+def _event_duration_minutes(ev: dict) -> int:
+    """Minutes between an event's start and end (0 if unparseable / all-day)."""
+    try:
+        s = datetime.datetime.strptime((ev.get("start_time") or "")[:16], "%Y-%m-%dT%H:%M")
+        e = datetime.datetime.strptime((ev.get("end_time") or "")[:16], "%Y-%m-%dT%H:%M")
+        return max(0, int((e - s).total_seconds() // 60))
+    except Exception:
+        return 0
+
+
 @router.post("/api/trainer/checkin")
 async def trainer_daily_checkin(request: Request):
     """Daily morning check-in (COACH AI): reads last night's Garmin/Withings data,
@@ -681,15 +709,8 @@ async def trainer_daily_checkin(request: Request):
         from backend.routes.google_calendar import core_get_calendar_data
         todays_events = [e for e in core_get_calendar_data(days=1) if (e.get("start_time") or "")[:10] == today_str]
 
-        def _is_workout(ev):
-            summary = (ev.get("summary") or "")
-            location_val = (ev.get("location") or "")
-            return ("F.R.E.J.A. PT" in location_val) or any(
-                marker in summary for marker in ("💪", "🏃", "🚶")
-            )
-
-        workout_events = [e for e in todays_events if _is_workout(e)]
-        other_events = [e for e in todays_events if not _is_workout(e)]
+        workout_events = [e for e in todays_events if is_workout_event(e)]
+        other_events = [e for e in todays_events if not is_workout_event(e)]
 
         if workout_events:
             todays_plan_str = "\n".join(
@@ -854,6 +875,271 @@ Regler för briefingen:
         raise HTTPException(status_code=e.response.status_code, detail=f"Gemini API fel: {e.response.text}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+async def core_optimize_upcoming_workouts(
+    location: str = None, days_ahead: int = 7, trigger: str = "manual"
+) -> dict:
+    """Re-tunes the upcoming F.R.E.J.A. PT sessions in the calendar to the user's
+    latest recovery data.
+
+    Reads the most recent Garmin snapshot plus the RHR/HRV trends, pulls every
+    workout event from today through ``days_ahead`` days out, and asks COACH AI
+    whether each one is appropriate given sleep/HRV/recovery and the user's goal.
+    Sessions that would risk injury or over-training are shortened, de-loaded, or
+    turned into active rest — directly in Google Calendar. Good recovery leaves
+    the plan untouched. Returns a summary of what changed (empty if nothing did).
+    """
+    profile = get_trainer_profile()
+    goal = str(profile.get("goals") or profile.get("event") or "").strip()[:MAX_INPUT_LEN]
+    limitations = str(profile.get("limitations") or "").strip()[:MAX_INPUT_LEN]
+
+    today = today_local()
+    today_str = today.strftime("%Y-%m-%d")
+    horizon_str = (today + datetime.timedelta(days=days_ahead)).strftime("%Y-%m-%d")
+
+    # Upcoming workouts (today .. horizon) that F.R.E.J.A. booked.
+    from backend.routes.google_calendar import core_get_calendar_data, core_save_calendar_event
+    all_events = core_get_calendar_data(days=max(days_ahead, 1))
+    upcoming = [
+        e for e in all_events
+        if is_workout_event(e) and today_str <= (e.get("start_time") or "")[:10] <= horizon_str
+    ]
+    upcoming.sort(key=lambda e: (e.get("start_time") or ""))
+
+    if not upcoming:
+        return {
+            "status": "no_workouts",
+            "trigger": trigger,
+            "assessment": "",
+            "briefing": "Inga inbokade träningspass hittades för den kommande perioden, så inget behövde justeras.",
+            "changes": [],
+            "changes_count": 0,
+            "considered": 0,
+        }
+
+    # Latest Garmin recovery snapshot + calculated trends.
+    garmin_snapshot = "Ingen Garmin-data tillgänglig."
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT date, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status
+            FROM garmin_health
+            ORDER BY date DESC
+            LIMIT 1
+        ''')
+        g = cursor.fetchone()
+    if g:
+        garmin_snapshot = (
+            f"Datum: {g[0]}, Steg: {g[1]}, Sömn: {g[2]}h, Vilopuls: {g[3]}, Kalorier: {g[4]}kcal, "
+            f"Träning: {g[5]} ({g[6]} min), Body Battery: {g[7]}, HRV: {g[8]}ms, "
+            f"Återhämtningstid: {g[9]}h, Status: {g[10]}"
+        )
+
+    trends = calculate_trends()
+    trends_data_str = format_trends_summary(trends)
+
+    api_key = get_api_key('freja_gemini_apikey') or ""
+    if not api_key:
+        raise HTTPException(status_code=400, detail="Gemini API-nyckel är inte konfigurerad på servern.")
+
+    # Compile the upcoming workouts for the prompt (id lets us map adjustments back).
+    workout_lines = []
+    for e in upcoming:
+        dur = _event_duration_minutes(e)
+        first_desc_line = ""
+        if e.get("description"):
+            first_desc_line = (e.get("description") or "").splitlines()[0][:120]
+        workout_lines.append(
+            f"- id={e.get('id')} | {(e.get('start_time') or '')[:10]} kl {(e.get('start_time') or '')[11:16]} | "
+            f"\"{e.get('summary', '')}\" | {dur} min | {first_desc_line}"
+        )
+    workouts_str = "\n".join(workout_lines)
+
+    limitations_prompt = (
+        f'\nSKADOR / SJUKDOMAR / BEGRÄNSNINGAR: "{limitations}"\n'
+        "Ta särskild hänsyn till dessa vid val av intensitet och pass."
+        if limitations else ""
+    )
+    goal_str = goal or "Inget specifikt mål angivet – prioritera hälsa och hållbar progression."
+
+    prompt_content = f"""
+Du är F.R.E.J.A.:s personliga tränare (COACH AI). Din uppgift nu är att granska användarens
+INBOKADE kommande träningspass mot deras SENASTE återhämtningsdata och avgöra om något behöver
+justeras för att undvika skada eller överträning – samtidigt som passen fortsatt leder mot målet.
+
+MÅL: "{goal_str}"{limitations_prompt}
+
+[SENASTE GARMIN-DATA (senaste dygnet)]:
+{garmin_snapshot}
+
+[BERÄKNADE HÄLSOTRENDER (RHR & HRV)]:
+{trends_data_str}
+
+[INBOKADE KOMMANDE TRÄNINGSPASS (idag t.o.m. {horizon_str})]:
+{workouts_str}
+
+Regler:
+- Bedöm återhämtningen utifrån sömn, vilopuls (RHR), HRV, Body Battery, återhämtningstid och training status.
+- Om återhämtningen är DÅLIG (t.ex. RHR ökat markant >{RHR_ALERT_PCT:.0f}%, HRV sjunkit markant <{HRV_ALERT_PCT:.0f}%,
+  kort/dålig sömn, lågt Body Battery, lång återhämtningstid, status Övertränad/Ansträngd):
+  sänk längd och/eller intensitet på de närmaste passen, eller gör om ett hårt pass till aktiv vila.
+- Om återhämtningen är GOD: behåll passen som de är (action="keep"). Sänk ALDRIG i onödan.
+- Öka aldrig ett enskilt pass mer än ~10–15%. Prioritera hälsa framför att pressa målet.
+- För VARJE inbokat pass ovan, returnera en post i "adjustments" med exakt samma event_id (heltal).
+- action: "keep" (ingen ändring), "reduce" (kortare/lugnare pass), eller "rest" (gör om till aktiv vila/lätt rörlighet).
+- new_duration_minutes: passets nya längd i minuter (för "keep" = nuvarande längd; för "rest" = kort lätt pass, t.ex. 15–25).
+- new_title: valfri ny titel (t.ex. "🧘 Aktiv vila: rörlighet" vid rest, eller "🏃 Lugn löptur" vid nedtrappning). Lämna tom för att behålla.
+- reason: en kort svensk mening om varför (visas i kalendern).
+- briefing: en färdig KORT sammanfattning i markdown på svenska som visas direkt för användaren – vad du ändrade och varför (eller att allt får stå kvar).
+"""
+
+    google_url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={api_key}"
+    payload = {
+        "contents": [{"parts": [{"text": prompt_content}]}],
+        "generationConfig": {
+            "temperature": 0.2,
+            "maxOutputTokens": 1500,
+            "responseMimeType": "application/json",
+            "responseSchema": {
+                "type": "OBJECT",
+                "properties": {
+                    "assessment": {"type": "STRING", "description": "Kort bedömning av återhämtningsstatus."},
+                    "briefing": {"type": "STRING", "description": "Färdig kort briefing i markdown, redo att visas för användaren."},
+                    "adjustments": {
+                        "type": "ARRAY",
+                        "items": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "event_id": {"type": "INTEGER", "description": "Kalender-id för passet (från listan)."},
+                                "action": {"type": "STRING", "description": "keep, reduce eller rest."},
+                                "new_duration_minutes": {"type": "INTEGER", "description": "Passets nya längd i minuter."},
+                                "new_title": {"type": "STRING", "description": "Valfri ny titel (tom = behåll)."},
+                                "reason": {"type": "STRING", "description": "Kort motivering på svenska."}
+                            },
+                            "required": ["event_id", "action", "new_duration_minutes", "reason"]
+                        }
+                    }
+                },
+                "required": ["assessment", "briefing", "adjustments"]
+            }
+        }
+    }
+
+    async with httpx.AsyncClient() as client:
+        response = await client.post(google_url, json=payload, timeout=30.0)
+        response.raise_for_status()
+        res_json = response.json()
+
+    opt_text = res_json.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+    if not opt_text:
+        raise HTTPException(status_code=500, detail="Kunde inte generera optimering från Gemini.")
+
+    try:
+        opt_data = json.loads(opt_text)
+    except Exception:
+        opt_data = {"assessment": "", "briefing": opt_text, "adjustments": []}
+
+    by_id = {e.get("id"): e for e in upcoming}
+    changes = []
+    for adj in (opt_data.get("adjustments") or []):
+        try:
+            eid = int(adj.get("event_id"))
+        except (TypeError, ValueError):
+            continue
+        ev = by_id.get(eid)
+        if not ev:
+            continue
+
+        action = str(adj.get("action") or "keep").strip().lower()
+        if action == "keep":
+            continue
+
+        current_dur = _event_duration_minutes(ev)
+        try:
+            new_dur = int(adj.get("new_duration_minutes") or 0)
+        except (TypeError, ValueError):
+            new_dur = 0
+        if action == "rest" and new_dur <= 0:
+            new_dur = 20  # light active-recovery default
+        new_dur = max(1, min(new_dur, MAX_WORKOUT_MINUTES))
+        if action != "rest" and new_dur == current_dur:
+            continue  # nothing to actually change
+
+        start_time = (ev.get("start_time") or "")[:16]
+        try:
+            start_dt = datetime.datetime.strptime(start_time, "%Y-%m-%dT%H:%M")
+        except ValueError:
+            continue
+        end_time = (start_dt + datetime.timedelta(minutes=new_dur)).strftime("%Y-%m-%dT%H:%M")
+
+        orig_summary = ev.get("summary", "") or "Träningspass"
+        new_title = str(adj.get("new_title") or "").strip()
+        if action == "rest":
+            summary = new_title or f"🧘 Aktiv vila (tidigare: {orig_summary})"
+        else:
+            summary = new_title or orig_summary
+        reason = str(adj.get("reason") or "").strip()
+
+        base_desc = (ev.get("description") or "").split("\n\n[COACH AI optimerade")[0]
+        new_desc = (
+            f"{base_desc}\n\n[COACH AI optimerade passet {current_dur}→{new_dur} min "
+            f"({today_str}): {reason}]"
+        )
+
+        try:
+            await core_save_calendar_event(
+                summary=summary,
+                start_time=start_time,
+                end_time=end_time,
+                description=new_desc,
+                location=ev.get("location", ""),
+                db_id=ev.get("id"),
+            )
+            changes.append({
+                "event_id": eid,
+                "date": start_time[:10],
+                "action": action,
+                "from_minutes": current_dur,
+                "to_minutes": new_dur,
+                "title": summary,
+                "reason": reason,
+            })
+        except Exception as save_err:
+            print(f"[TRAINER OPTIMIZE] Kunde inte uppdatera event {eid}: {save_err}")
+
+    return {
+        "status": "success",
+        "trigger": trigger,
+        "assessment": opt_data.get("assessment", ""),
+        "briefing": opt_data.get("briefing", ""),
+        "changes": changes,
+        "changes_count": len(changes),
+        "considered": len(upcoming),
+    }
+
+
+@router.post("/api/trainer/optimize")
+async def optimize_trainer_workouts(request: Request):
+    """Manually trigger COACH AI's recovery-driven re-tuning of upcoming workouts."""
+    try:
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        location = body.get("location")
+        try:
+            days_ahead = int(body.get("days_ahead") or 7)
+        except (TypeError, ValueError):
+            days_ahead = 7
+        days_ahead = max(1, min(days_ahead, 28))
+        return await core_optimize_upcoming_workouts(location=location, days_ahead=days_ahead, trigger="manual")
+    except HTTPException:
+        raise
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"Gemini API fel: {e.response.text}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 def _find_free_slot(workout_date: datetime.date, duration: int, day_events: list) -> datetime.datetime:
     """Finds a start time on workout_date that doesn't overlap existing events.

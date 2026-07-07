@@ -148,6 +148,10 @@ def init_db():
         )
     ''')
     try:
+        cursor.execute('ALTER TABLE trainer_profile ADD COLUMN auto_adjust INTEGER DEFAULT 1')
+    except sqlite3.OperationalError:
+        pass
+    try:
         cursor.execute('ALTER TABLE garmin_health ADD COLUMN body_battery INTEGER')
     except sqlite3.OperationalError:
         pass

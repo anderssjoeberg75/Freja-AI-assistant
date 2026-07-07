@@ -946,7 +946,19 @@
                     </div>
                     <button id="btn-generate-trainer-plan" class="hud-btn btn-primary" style="height: 34px; font-family: var(--font-display); font-size: 11px; margin-top: 8px;"><i class="fa-solid fa-wand-magic-sparkles"></i> GENERERA TRÄNINGSPROGRAM</button>
                 </div>
-                
+
+                <!-- PT Settings -->
+                <div class="trainer-settings" style="display: flex; flex-direction: column; gap: 10px; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--color-border); border-radius: 4px; padding: 12px;">
+                    <span style="font-size: 11px; color: var(--color-primary); font-family: var(--font-display); letter-spacing: 0.5px;"><i class="fa-solid fa-sliders"></i> PT-INSTÄLLNINGAR</span>
+                    <label style="display: flex; align-items: flex-start; gap: 8px; font-size: 12px; color: var(--color-text); cursor: pointer;">
+                        <input type="checkbox" id="chk-trainer-auto-adjust" checked style="margin-top: 2px;">
+                        <span>Justera kommande pass automatiskt efter ny Garmin-data (sömn, HRV och återhämtning)</span>
+                    </label>
+                    <p style="font-size: 10px; color: var(--color-text-muted); margin: 0; line-height: 1.4;">F.R.E.J.A. läser din senaste återhämtningsdata och sänker längd/intensitet eller lägger in aktiv vila när kroppen behöver det – så att passen matchar ditt mål utan att du övertränar eller skadar dig.</p>
+                    <button id="btn-trainer-optimize" class="hud-btn btn-primary" style="height: 34px; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-wand-sparkles"></i> OPTIMERA KOMMANDE PASS NU</button>
+                    <div id="trainer-optimize-output" style="display: none; background: rgba(0, 0, 0, 0.4); border: 1px solid var(--color-border); border-radius: 4px; padding: 12px; font-family: var(--font-sans); font-size: 13px; line-height: 1.5; color: var(--color-text); max-height: 300px; overflow-y: auto;"></div>
+                </div>
+
                 <!-- Output section for generated program -->
                 <div id="trainer-plan-output-container" style="display: none; flex-direction: column; gap: 5px;">
                     <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); letter-spacing: 1px;">SENAST GENERERADE PROGRAM</h3>

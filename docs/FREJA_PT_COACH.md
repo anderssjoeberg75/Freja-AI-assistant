@@ -167,6 +167,29 @@ Avsluta alltid med en tydlig åtgärd eller fråga. Dumpa aldrig data och bli ty
 
 ---
 
+## AUTOMATISK PASS-OPTIMERING EFTER GARMIN-DATA
+
+Utöver den dagliga incheckningen (som bara rör *dagens* pass) kan F.R.E.J.A. justera **hela den
+kommande veckans** inbokade pass när ny Garmin-data kommit in.
+
+> **Implementation:** `core_optimize_upcoming_workouts()` +
+> `POST /api/trainer/optimize` i [`backend/routes/trainer.py`](../backend/routes/trainer.py).
+> Funktionen läser senaste Garmin-snapshot och RHR/HRV-trender, hämtar alla inbokade PT-pass från
+> idag t.o.m. 7 dagar framåt (markerade med `F.R.E.J.A. PT` / 💪🏃🚶🚴🧘🏊), och låter COACH AI
+> avgöra per pass om det ska behållas (`keep`), kortas/avlastas (`reduce`) eller göras om till aktiv
+> vila (`rest`) — utifrån sömn, HRV, vilopuls, Body Battery, återhämtningstid, training status och
+> användarens mål. Justeringarna skrivs direkt till Google Calendar. God återhämtning lämnar planen
+> orörd.
+
+- **Automatiskt:** körs efter varje lyckad Garmin-synk (`run_garmin_sync_task` i
+  [`backend/routes/garmin.py`](../backend/routes/garmin.py)) så länge profilens `auto_adjust` är på
+  (standard) och ett träningsmål finns. Fel i optimeringen påverkar aldrig själva synken.
+- **Manuellt:** knappen **"Optimera kommande pass nu"** under *PT-inställningar* i Personal
+  Trainer-modalen. Där finns också kryssrutan som slår av/på den automatiska justeringen
+  (`auto_adjust` i `trainer_profile`).
+
+---
+
 ## SÅ HÄR SAMTALAR DU DAG TILL DAG
 
 **"Jag är jättetrött idag"**

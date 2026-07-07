@@ -144,9 +144,12 @@ FrejaUIController.prototype.loadTelegramDashboardUI = async function() {
 };
 
 FrejaUIController.prototype.loadTrainerDashboardUI = async function() {
+    // Reflect the persisted auto-adjust preference in the settings toggle.
+    this.loadTrainerSettings();
+
     const trainerList = document.getElementById('trainer-list');
     if (!trainerList) return;
-    
+
     trainerList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Laddar historik...</div>';
     
     try {
@@ -290,6 +293,94 @@ FrejaUIController.prototype.runTrainerCheckin = async function() {
         if (btn) {
             btn.disabled = false;
             btn.innerHTML = '<i class="fa-solid fa-heart-pulse"></i> CHECKA IN';
+        }
+    }
+};
+
+FrejaUIController.prototype.loadTrainerSettings = async function() {
+    const chk = document.getElementById('chk-trainer-auto-adjust');
+    if (!chk) return;
+    try {
+        const res = await fetch('/api/trainer/profile');
+        if (!res.ok) return;
+        const profile = await res.json();
+        // Default ON: only an explicit 0/false disables automatic adjustment.
+        const val = profile.auto_adjust;
+        chk.checked = !(val === 0 || val === '0' || val === false);
+    } catch (e) {
+        console.error('[TRAINER] Failed to load settings:', e);
+    }
+};
+
+FrejaUIController.prototype.saveTrainerAutoAdjust = async function(enabled) {
+    try {
+        await fetch('/api/trainer/profile', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ auto_adjust: enabled ? 1 : 0 })
+        });
+        this.writeLog(`PT AUTO-ADJUST ${enabled ? 'ENABLED' : 'DISABLED'}`, "sys");
+    } catch (e) {
+        this.writeLog(`PT SETTINGS ERROR: ${e.message}`, "err");
+    }
+};
+
+FrejaUIController.prototype.runTrainerOptimize = async function() {
+    const btn = document.getElementById('btn-trainer-optimize');
+    const out = document.getElementById('trainer-optimize-output');
+    if (!out) return;
+
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> OPTIMERAR...';
+    }
+    out.style.display = 'block';
+    out.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 16px;">Läser återhämtningsdata och granskar kommande pass...</div>';
+    this.writeLog("OPTIMIZING UPCOMING WORKOUTS FROM RECOVERY DATA...", "sys");
+
+    try {
+        const res = await fetch('/api/trainer/optimize', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({})
+        });
+
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || `HTTP ${res.status}`);
+        }
+
+        const data = await res.json();
+        const briefing = data.briefing || 'Ingen sammanfattning genererades.';
+        const changes = data.changes || [];
+
+        const badgeStyle = "font-size: 10px; font-family: var(--font-mono); background: rgba(0,242,254,0.1); border: 1px solid rgba(0,242,254,0.2); color: var(--color-primary); border-radius: 3px; padding: 3px 8px;";
+        let badges = `<span style="${badgeStyle}">🔍 ${data.considered || 0} pass granskade</span>`;
+        badges += `<span style="${badgeStyle}">${data.changes_count ? '✅' : '➖'} ${data.changes_count || 0} justerade</span>`;
+
+        let changeList = '';
+        if (changes.length) {
+            changeList = '<ul style="margin: 10px 0 0; padding-left: 18px; font-size: 12px; color: var(--color-text-muted);">' +
+                changes.map(c => `<li><strong>${c.date}</strong>: ${c.from_minutes}→${c.to_minutes} min – ${c.reason || c.title}</li>`).join('') +
+                '</ul>';
+        }
+
+        out.innerHTML = `
+            <div class="trainer-briefing">${window.FrejaMarkdown.parseMarkdown(briefing)}</div>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px;">${badges}</div>
+            ${changeList}
+        `;
+
+        soundSynth.playNotify();
+        this.writeLog(`WORKOUT OPTIMIZATION COMPLETE (${data.changes_count || 0} adjusted)`, "sys");
+    } catch (e) {
+        out.innerHTML = `<div style="color: #ff3b30; font-family: var(--font-mono); font-size: 11px; padding: 12px;">[OPTIMERING MISSLYCKADES] ${e.message}</div>`;
+        soundSynth.playError();
+        this.writeLog(`OPTIMIZATION ERROR: ${e.message}`, "err");
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fa-solid fa-wand-sparkles"></i> OPTIMERA KOMMANDE PASS NU';
         }
     }
 };
