@@ -192,6 +192,9 @@ To unlock F.R.E.J.A.'s full cognitive capabilities, configure your credentials i
 * 🏃 **Health & Fitness Dashboards**: Synchronize Garmin Fit metrics, Strava activity logs, Withings measurements, and Google Calendar events into an AI-powered Personal Trainer dashboard.
 * 🎨 **Accent Themes**: Swap between multiple cyberpunk neon color themes in real-time.
 * 🎛️ **Terminal Console Log**: Displays diagnostic startup indicators, network transaction payloads, and audio/webcam links in a live feed terminal at the bottom-right.
+* 📡 **Remote GitHub Updates**: Tell F.R.E.J.A. to "uppdatera dig" (or send it via Telegram) to pull the latest changes from GitHub and automatically restart.
+* 🛠️ **Codex Self-Analysis**: Request a codebase review ("analysera din kod") to trigger codebase auditing, display summary findings, and generate a downloadable Markdown report.
+* 🔒 **Encrypted & Masked Credentials**: Sensitive credentials (API keys, passwords, and tokens) are encrypted at rest in SQLite and masked (`••••••••`) when populated on the UI, preventing local plain-text leakage in browser `localStorage`.
 
 ---
 
