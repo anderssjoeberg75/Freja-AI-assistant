@@ -195,6 +195,8 @@ To unlock F.R.E.J.A.'s full cognitive capabilities, configure your credentials i
 * 📡 **Remote GitHub Updates**: Tell F.R.E.J.A. to "uppdatera dig" (or send it via Telegram) to pull the latest changes from GitHub and automatically restart.
 * 🛠️ **Codex Self-Analysis**: Request a codebase review ("analysera din kod") to trigger codebase auditing, display summary findings, and generate a downloadable Markdown report.
 * 🔒 **Encrypted & Masked Credentials**: Sensitive credentials (API keys, passwords, and tokens) are encrypted at rest in SQLite and masked (`••••••••`) when populated on the UI, preventing local plain-text leakage in browser `localStorage`.
+* 💻 **Windows OS Automation**: Control the host computer natively (launch apps, open folders, launch URLs, run safe cmd/PowerShell commands) using the `run_windows_command` tool.
+* 📡 **Client Activity Heartbeat**: Detects if the browser HUD client is active. You can ask the Telegram bot which computer the client is currently running on.
 
 ---
 
