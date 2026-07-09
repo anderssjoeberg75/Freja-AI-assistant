@@ -90,6 +90,16 @@ FrejaUIController.prototype.handleToolCall = async function(call) {
             name: "get_learned_knowledge",
             displayName: "Sök i Kunskapsbank",
             permissionKey: "freja_tool_get_learned_knowledge_allowed"
+        },
+        "system_update": {
+            name: "system_update",
+            displayName: "Systemuppdatering från GitHub",
+            permissionKey: "freja_tool_system_update_allowed"
+        },
+        "read_project_file": {
+            name: "read_project_file",
+            displayName: "Läs Projektfil",
+            permissionKey: "freja_tool_read_project_file_allowed"
         }
     };
     

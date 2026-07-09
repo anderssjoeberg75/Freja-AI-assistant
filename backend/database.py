@@ -80,12 +80,35 @@ def set_api_key(key_name: str, value: str):
 
 
 def get_all_api_keys() -> dict:
-    """Returns every stored key, decrypted, keyed by key_name (used by the settings endpoint)."""
+    """Returns every stored key, keyed by key_name (used by the settings endpoint).
+    Sensitive values (API keys, client secrets, passwords, and refresh tokens) are masked.
+    """
+    sensitive_keys = {
+        'telegram_bot_token', 'freja_telegram_bot_token',
+        'gemini_api_key', 'freja_gemini_apikey',
+        'elevenlabs_api_key', 'freja_eleven_apikey',
+        'mem0_api_key', 'freja_mem0_apikey',
+        'garmin_password', 'freja_garmin_password',
+        'strava_client_secret', 'freja_strava_client_secret',
+        'strava_refresh_token', 'freja_strava_refresh_token',
+        'withings_client_secret', 'freja_withings_client_secret',
+        'withings_refresh_token', 'freja_withings_refresh_token',
+        'google_calendar_client_secret', 'freja_google_calendar_client_secret',
+        'google_calendar_refresh_token', 'freja_google_calendar_refresh_token'
+    }
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT key_name, key_value FROM api_keys")
         rows = cursor.fetchall()
-    return {name: (decrypt_value(value).strip() if value else "") for name, value in rows}
+    
+    result = {}
+    for name, value in rows:
+        decrypted = decrypt_value(value).strip() if value else ""
+        if decrypted and name in sensitive_keys:
+            result[name] = "••••••••"
+        else:
+            result[name] = decrypted
+    return result
 
 
 def init_db():

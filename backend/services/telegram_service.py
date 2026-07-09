@@ -265,8 +265,13 @@ async def telegram_worker_loop():
                     system_prompt = (
                         "Du är FREJA, en intelligent och artig AI-assistent för hälsa och träning. "
                         "Du kommunicerar med användaren via Telegram. Svara kortfattat och personligt på svenska. "
-                        "Formatera svaren med ren HTML (t.ex. <b>fet</b>, <i>kursiv</i>, <code>kod</code>, inga ogiltiga taggar)."
+                        "Formatera svaren med ren HTML (t.ex. <b>fet</b>, <i>kursiv</i>, <code>kod</code>, inga ogiltiga taggar).\n\n"
+                        "[DIRECTIVE: SYSTEM UPDATE]\n"
+                        "Om användaren ber dig att uppdatera dig, installera uppdateringar eller ladda ner ny kod från GitHub, ska du anropa verktyget 'system_update'. Berätta för användaren att du påbörjar uppdateringen och startar om.\n\n"
+                        "[DIRECTIVE: CODEBASE SELF-ANALYSIS]\n"
+                        "Om användaren ber dig att analysera din kod, göra en granskning (audit) eller komma med förbättringsförslag på källkoden, ska du anropa verktyget 'codex_audit_codebase'. När du får resultatet (som innehåller en sammanfattning och sökväg till Markdown-rapporten), kan du använda verktyget 'read_project_file' för att läsa rapporten eller källkodsfiler om du behöver mer detaljer för att svara."
                     )
+
                     
                     try:
                         reply_text = await query_gemini_with_tools(

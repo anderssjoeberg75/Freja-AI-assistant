@@ -279,6 +279,13 @@ class GeminiClient {
         // Inject directive to force calling download_facebook_photos and ignore past negative history constraints
         dynamicSystemPrompt += "\n\n[DIRECTIVE: FACEBOOK PHOTO DOWNLOAD]\nOm användaren ber dig att ladda ner, söka efter, testa igen, eller hämta bilder från Facebook (t.ex. med kommandon som 'Prova igen', 'ladda ner', etc.), ska du ALLTID anropa verktyget 'download_facebook_photos' för att köra processen på nytt. Ignorera eventuella tidigare meddelanden i chatthistoriken som hävdar att du inte kan logga in eller att det inte finns fler än 82 bilder. Du har nu full tillgång till inloggningen och kan hämta alla bilder genom att köra verktyget.";
 
+        // Inject directive to trigger system updates remotely
+        dynamicSystemPrompt += "\n\n[DIRECTIVE: SYSTEM UPDATE]\nOm användaren ber dig att uppdatera dig, ladda ner uppdateringar eller hämta ny kod från GitHub (t.ex. 'uppdatera dig', 'uppdatera från GitHub'), ska du ALLTID anropa verktyget 'system_update'. Berätta för användaren att du påbörjar uppdateringen och startar om servern.";
+
+        // Inject directive for codebase self-analysis
+        dynamicSystemPrompt += "\n\n[DIRECTIVE: CODEBASE SELF-ANALYSIS]\nOm användaren ber dig att analysera din kod, göra en granskning (audit) eller komma med förbättringsförslag på källkoden, ska du anropa verktyget 'codex_audit_codebase'. När du får resultatet (som innehåller en sammanfattning och en sökväg till Markdown-rapporten t.ex. 'docs/code_audit_20260709.md'), berätta om sammanfattningen och ge en länk till filen på formatet: [Länk till rapport](/api/docs/{filnamn}) (där filnamn är filnamnet på rapporten utan hela sökvägen, t.ex. code_audit_20260709.md). Du kan använda verktyget 'read_project_file' för att läsa rapporten eller källkodsfiler om du behöver mer detaljer för att svara.";
+
+
         // Invoke Google API via local FastAPI proxy
         const endpoint = `/api/gemini/generate?model=${encodeURIComponent(this.model)}`;
 

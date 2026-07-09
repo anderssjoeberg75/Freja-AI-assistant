@@ -8,6 +8,7 @@ import os
 import sys
 import subprocess
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import FileResponse
 
 from backend.config import PROJECT_ROOT
 from backend.database import get_all_api_keys, set_api_key
@@ -118,3 +119,18 @@ async def clear_system_logs():
     SYSTEM_LOGS.clear()
     add_system_log("INFO", "Logghistorik rensad.")
     return {"status": "success"}
+
+
+@router.get("/api/docs/{filename}")
+async def serve_doc_report(filename: str):
+    """Securely serves generated codebase audit reports from the docs directory."""
+    # Prevent directory traversal attacks
+    if ".." in filename or filename.startswith("/") or filename.startswith("\\"):
+        raise HTTPException(status_code=400, detail="Ogiltigt filnamn.")
+
+    report_path = os.path.join(PROJECT_ROOT, "docs", filename)
+    if not os.path.exists(report_path):
+        raise HTTPException(status_code=404, detail="Dokumentet hittades inte.")
+
+    return FileResponse(report_path, media_type="text/markdown")
+

@@ -31,6 +31,7 @@ from backend.services.codex_service import (
     codex_git_ops_impl,
     codex_audit_codebase_impl,
     codex_run_and_fix_impl,
+    run_subprocess_exec,
 )
 from backend.services.facebook_service import download_facebook_photos_impl
 
@@ -325,6 +326,28 @@ TOOL_DECLARATIONS = [
                 }
             }
         }
+    },
+    {
+        "name": "system_update",
+        "description": "Laddar ner den senaste koden från GitHub (git pull) och startar om F.R.E.J.A. för att tillämpa uppdateringarna.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {}
+        }
+    },
+    {
+        "name": "read_project_file",
+        "description": "Läser innehållet i en källkodsfil eller granskningsrapport inom projektet (t.ex. 'docs/code_audit_20260709.md' eller 'backend/routes/settings.py'). Blockeras för filer som innehåller känslig data som databaser eller .env-filer.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "file_path": {
+                    "type": "STRING",
+                    "description": "Relativ sökväg till filen inom projektkatalogen."
+                }
+            },
+            "required": ["file_path"]
+        }
     }
 ]
 
@@ -348,6 +371,8 @@ TOOL_PERMISSION_KEYS = {
     "get_personal_trainer_advice": "freja_tool_get_personal_trainer_advice_allowed",
     "learn_topic": "freja_tool_learn_topic_allowed",
     "get_learned_knowledge": "freja_tool_get_learned_knowledge_allowed",
+    "system_update": "freja_tool_system_update_allowed",
+    "read_project_file": "freja_tool_read_project_file_allowed",
 }
 
 # 2. TOOL EXECUTORS IMPLEMENTATION
@@ -887,6 +912,79 @@ async def exec_get_learned_knowledge(args):
     except Exception as e:
         return {"error": f"Misslyckades att hämta inlärd kunskap: {str(e)}"}
 
+
+async def exec_system_update(args):
+    """Executes git pull from GitHub and schedules a process exit/restart."""
+    import os
+    import asyncio
+    from backend.config import PROJECT_ROOT
+
+    print("[SYSTEM UPDATE] Initiating remote codebase update via git pull...")
+    res = await run_subprocess_exec(["git", "pull"], cwd=str(PROJECT_ROOT))
+
+    output = res.get("stdout", "").strip()
+    errors = res.get("stderr", "").strip()
+    full_log = output + ("\n" + errors if errors else "")
+
+    if res.get("exit_code", -1) != 0:
+        return {"error": f"Git pull misslyckades (felkod {res.get('exit_code')}): {full_log}"}
+
+    print("[SYSTEM UPDATE] Git pull successful. Scheduling uvicorn process restart.")
+
+    async def _delayed_restart():
+        await asyncio.sleep(1.5)
+        os._exit(0)
+
+    asyncio.create_task(_delayed_restart())
+    return {
+        "status": "success",
+        "message": "Uppdatering hämtad från GitHub! F.R.E.J.A. startar om för att tillämpa ändringarna...",
+        "log": full_log
+    }
+
+
+async def exec_read_project_file(args):
+    """Safely reads the contents of a non-sensitive codebase or audit file."""
+    import os
+    from backend.config import PROJECT_ROOT
+    from backend.services.codex_service import (
+        resolve_within_project,
+        redact_secrets,
+        SENSITIVE_FILENAME_MARKERS
+    )
+
+    file_path = args.get("file_path", "").strip()
+    if not file_path:
+        return {"error": "Filnamn/sökväg saknas."}
+
+    lower_path = file_path.lower()
+    # Check suffix/prefix security blockers
+    if (
+        any(marker in lower_path for marker in SENSITIVE_FILENAME_MARKERS) or
+        lower_path.endswith(('.db', '.db-wal', '.db-shm', '.key', '.env'))
+    ):
+        return {"error": "Säkerhetsfel: Åtkomst till denna fil är blockerad av säkerhetsskäl."}
+
+    try:
+        abs_path = resolve_within_project(file_path)
+        if not os.path.exists(abs_path):
+            return {"error": f"Filen '{file_path}' hittades inte."}
+        if os.path.isdir(abs_path):
+            return {"error": f"Sökvägen '{file_path}' är en katalog, inte en fil."}
+
+        with open(abs_path, "r", encoding="utf-8", errors="ignore") as f:
+            content = f.read()
+
+        # Mask secrets dynamically just in case
+        safe_content = redact_secrets(content)
+        return {
+            "file_path": file_path,
+            "content": safe_content
+        }
+    except Exception as e:
+        return {"error": f"Misslyckades att läsa filen: {str(e)}"}
+
+
 # 3. DISPATCH EXECUTOR MAP
 EXECUTOR_MAP = {
     "get_weather": exec_weather,
@@ -907,6 +1005,8 @@ EXECUTOR_MAP = {
     "get_personal_trainer_advice": exec_trainer_advice,
     "learn_topic": exec_learn_topic,
     "get_learned_knowledge": exec_get_learned_knowledge,
+    "system_update": exec_system_update,
+    "read_project_file": exec_read_project_file,
 }
 
 async def execute_tool(name: str, args: dict, progress_callback=None) -> dict:
