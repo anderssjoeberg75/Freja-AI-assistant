@@ -7,6 +7,7 @@ import logging
 import os
 import sys
 import subprocess
+import json
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 
@@ -15,19 +16,46 @@ from backend.database import get_all_api_keys, set_api_key
 
 router = APIRouter()
 
+# Persistent log file path
+LOG_FILE = os.path.join(PROJECT_ROOT, "backend", "cache", "freja_security.log")
+
+# Create cache directory if it doesn't exist
+os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
+
 # In-memory circular log buffer (up to 150 entries)
 SYSTEM_LOGS = collections.deque(maxlen=150)
 
 def add_system_log(level: str, message: str):
-    """Helper to record a log entry to the in-memory system log queue."""
-    SYSTEM_LOGS.append({
-        "time": datetime.datetime.now().strftime("%H:%M:%S"),
+    """Helper to record a log entry to the in-memory system log queue and append to persistent file."""
+    entry = {
+        "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "level": level.upper(),
         "message": message
-    })
+    }
+    SYSTEM_LOGS.append(entry)
+    try:
+        with open(LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry) + "\n")
+    except Exception:
+        pass
 
-# Add initial boot log
-add_system_log("INFO", "F.R.E.J.A. System Log Monitor Initialized.")
+# Load existing persistent logs on boot
+if os.path.exists(LOG_FILE):
+    try:
+        with open(LOG_FILE, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        SYSTEM_LOGS.append(json.loads(line))
+                    except Exception:
+                        pass
+    except Exception:
+        pass
+
+# Add initial boot log if empty
+if not SYSTEM_LOGS:
+    add_system_log("INFO", "F.R.E.J.A. System Log Monitor Initialized.")
 
 class MemoryLogHandler(logging.Handler):
     def emit(self, record):
@@ -115,8 +143,13 @@ async def get_system_logs():
 
 @router.delete("/api/system/logs")
 async def clear_system_logs():
-    """Clears system log history."""
+    """Clears system log history and deletes the log file."""
     SYSTEM_LOGS.clear()
+    if os.path.exists(LOG_FILE):
+        try:
+            os.remove(LOG_FILE)
+        except Exception:
+            pass
     add_system_log("INFO", "Logghistorik rensad.")
     return {"status": "success"}
 

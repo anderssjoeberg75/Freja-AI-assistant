@@ -73,3 +73,60 @@ def test_serve_doc_report_blocked_traversal(db_token):
     response = client.get("/api/docs/../keys.db", headers=headers)
     assert response.status_code in (400, 404)
 
+
+def test_persistent_logging(db_token):
+    from backend.routes.settings import add_system_log, LOG_FILE, SYSTEM_LOGS
+    import json
+    
+    # Backup original log buffer size/items if needed
+    original_logs = list(SYSTEM_LOGS)
+    
+    try:
+        # Clear log file and queue
+        SYSTEM_LOGS.clear()
+        if os.path.exists(LOG_FILE):
+            os.remove(LOG_FILE)
+            
+        # Log a test message
+        add_system_log("TEST_INFO", "Pytest persistent log message")
+        
+        # Verify it was added to queue
+        assert len(SYSTEM_LOGS) == 1
+        assert SYSTEM_LOGS[0]["message"] == "Pytest persistent log message"
+        
+        # Verify it was written to file
+        assert os.path.exists(LOG_FILE)
+        with open(LOG_FILE, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+            assert len(lines) == 1
+            data = json.loads(lines[0])
+            assert data["level"] == "TEST_INFO"
+            assert data["message"] == "Pytest persistent log message"
+            
+        # Verify API logs GET endpoint returns it
+        client = TestClient(app)
+        headers = {"X-Freja-Token": db_token}
+        response = client.get("/api/system/logs", headers=headers)
+        assert response.status_code == 200
+        logs = response.json()["logs"]
+        assert len(logs) >= 1
+        assert logs[-1]["message"] == "Pytest persistent log message"
+        
+        # Verify API logs DELETE endpoint clears both queue and file (recreating it only for the clearing confirmation log)
+        response = client.delete("/api/system/logs", headers=headers)
+        assert response.status_code == 200
+        assert os.path.exists(LOG_FILE)
+        with open(LOG_FILE, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+            assert len(lines) == 1
+            data = json.loads(lines[0])
+            assert data["message"] == "Logghistorik rensad."
+        assert len(SYSTEM_LOGS) == 1  # Contains "Logghistorik rensad."
+        assert SYSTEM_LOGS[0]["message"] == "Logghistorik rensad."
+
+    finally:
+        # Restore original logs state
+        SYSTEM_LOGS.clear()
+        SYSTEM_LOGS.extend(original_logs)
+
+
