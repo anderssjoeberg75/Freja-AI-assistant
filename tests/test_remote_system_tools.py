@@ -130,3 +130,63 @@ def test_persistent_logging(db_token):
         SYSTEM_LOGS.extend(original_logs)
 
 
+@pytest.mark.anyio
+async def test_run_windows_command_open_url_valid():
+    # Valid HTTP URL
+    result = await execute_tool("run_windows_command", {
+        "action_type": "open_url",
+        "target": "https://www.google.com"
+    })
+    if os.name == "nt":
+        assert "error" not in result
+        assert result["status"] == "success"
+    else:
+        assert "error" in result
+
+@pytest.mark.anyio
+async def test_run_windows_command_open_url_invalid():
+    # Unsafe file:// URL
+    result = await execute_tool("run_windows_command", {
+        "action_type": "open_url",
+        "target": "file:///C:/Windows/System32/cmd.exe"
+    })
+    assert "error" in result
+    assert "Säkerhetsfel" in result["error"]
+
+@pytest.mark.anyio
+async def test_run_windows_command_open_folder_invalid():
+    # Folder does not exist
+    result = await execute_tool("run_windows_command", {
+        "action_type": "open_folder",
+        "target": "C:\\MappSomInteFinnsPytest123"
+    })
+    if os.name == "nt":
+        assert "error" in result
+        assert "hittades inte" in result["error"]
+
+@pytest.mark.anyio
+async def test_run_windows_command_run_cmd_benign():
+    # Run echo command
+    result = await execute_tool("run_windows_command", {
+        "action_type": "run_cmd",
+        "target": "echo Hello_Pytest"
+    })
+    if os.name == "nt":
+        assert "error" not in result
+        assert result["status"] == "success"
+        assert "Hello_Pytest" in result["stdout"]
+
+@pytest.mark.anyio
+async def test_run_windows_command_run_cmd_blocked():
+    # Blocked del/format keywords
+    for blocked_cmd in ["del files.txt", "format C:", "rmdir /S /Q C:\\test"]:
+        result = await execute_tool("run_windows_command", {
+            "action_type": "run_cmd",
+            "target": blocked_cmd
+        })
+        if os.name == "nt":
+            assert "error" in result
+            assert "Säkerhetsfel" in result["error"]
+
+
+

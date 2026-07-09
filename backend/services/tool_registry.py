@@ -348,6 +348,25 @@ TOOL_DECLARATIONS = [
             },
             "required": ["file_path"]
         }
+    },
+    {
+        "name": "run_windows_command",
+        "description": "Utför systemåtgärder på användarens Windows-dator, såsom att öppna program (open_app), webbadresser (open_url), mappar i Utforskaren (open_folder) eller köra Windows-kommandon (run_cmd).",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "action_type": {
+                    "type": "STRING",
+                    "description": "Typ av åtgärd att utföra.",
+                    "enum": ["open_app", "open_url", "open_folder", "run_cmd"]
+                },
+                "target": {
+                    "type": "STRING",
+                    "description": "Målet för åtgärden (t.ex. 'notepad.exe', 'https://google.com', 'C:\\Bilder', eller 'ipconfig')."
+                }
+            },
+            "required": ["action_type", "target"]
+        }
     }
 ]
 
@@ -373,6 +392,7 @@ TOOL_PERMISSION_KEYS = {
     "get_learned_knowledge": "freja_tool_get_learned_knowledge_allowed",
     "system_update": "freja_tool_system_update_allowed",
     "read_project_file": "freja_tool_read_project_file_allowed",
+    "run_windows_command": "freja_tool_run_windows_command_allowed",
 }
 
 # 2. TOOL EXECUTORS IMPLEMENTATION
@@ -985,6 +1005,93 @@ async def exec_read_project_file(args):
         return {"error": f"Misslyckades att läsa filen: {str(e)}"}
 
 
+async def exec_run_windows_command(args):
+    """Executes actions on the user's host Windows machine safely."""
+    import os
+    import re
+    import webbrowser
+    import subprocess
+    import asyncio
+
+    if os.name != "nt":
+        return {"error": "Detta verktyg är för närvarande endast tillgängligt på Windows-system."}
+
+    action_type = args.get("action_type", "").strip()
+    target = args.get("target", "").strip()
+
+    if not action_type or not target:
+        return {"error": "Parametrarna 'action_type' och 'target' krävs."}
+
+    if action_type == "open_app":
+        # Launch app natively on Windows
+        try:
+            # os.startfile runs files, executables, or register handlers
+            os.startfile(target)
+            return {"status": "success", "message": f"Startade programmet '{target}'."}
+        except Exception as e:
+            return {"error": f"Kunde inte starta programmet '{target}': {str(e)}"}
+
+    elif action_type == "open_url":
+        # Launch URL in default browser safely
+        target_lower = target.lower()
+        if not (target_lower.startswith("http://") or target_lower.startswith("https://") or target_lower.startswith("mailto:")):
+            return {"error": "Säkerhetsfel: Endast http://, https:// och mailto: adresser är tillåtna."}
+        try:
+            webbrowser.open(target)
+            return {"status": "success", "message": f"Öppnade webbadressen '{target}'."}
+        except Exception as e:
+            return {"error": f"Kunde inte öppna webbadressen '{target}': {str(e)}"}
+
+    elif action_type == "open_folder":
+        # Open directory path in Windows Explorer
+        if not os.path.exists(target):
+            return {"error": f"Sökvägen '{target}' hittades inte."}
+        if not os.path.isdir(target):
+            return {"error": f"Sökvägen '{target}' är inte en mapp/katalog."}
+        try:
+            os.startfile(target)
+            return {"status": "success", "message": f"Öppnade mappen '{target}' i Utforskaren."}
+        except Exception as e:
+            return {"error": f"Kunde inte öppna mappen '{target}': {str(e)}"}
+
+    elif action_type == "run_cmd":
+        # Execute PowerShell/CMD command safely
+        FORBIDDEN_KEYWORDS = {
+            "format", "del", "rmdir", "rd", "erase", "mkfs", "dd",
+            "shutdown", "restart", "logoff", "abort",
+            "net user", "net localgroup", "net share",
+            "reg delete", "reg add", "reg import",
+            "attrib", "cacls", "takeown", "icacls", "rm -rf"
+        }
+        cmd_lower = target.lower()
+        for forbidden in FORBIDDEN_KEYWORDS:
+            if forbidden in cmd_lower:
+                return {"error": f"Säkerhetsfel: Kommandot innehåller blockerat sökord '{forbidden}'."}
+
+        try:
+            proc = await asyncio.create_subprocess_shell(
+                target,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await proc.communicate()
+            out_str = stdout.decode('utf-8', errors='ignore').strip()
+            err_str = stderr.decode('utf-8', errors='ignore').strip()
+
+            return {
+                "status": "success" if proc.returncode == 0 else "error",
+                "exit_code": proc.returncode,
+                "stdout": out_str,
+                "stderr": err_str
+            }
+        except Exception as e:
+            return {"error": f"Kunde inte köra kommandot: {str(e)}"}
+
+    else:
+        return {"error": f"Okänd åtgärdstyp '{action_type}'."}
+
+
+
 # 3. DISPATCH EXECUTOR MAP
 EXECUTOR_MAP = {
     "get_weather": exec_weather,
@@ -1007,7 +1114,9 @@ EXECUTOR_MAP = {
     "get_learned_knowledge": exec_get_learned_knowledge,
     "system_update": exec_system_update,
     "read_project_file": exec_read_project_file,
+    "run_windows_command": exec_run_windows_command,
 }
+
 
 async def execute_tool(name: str, args: dict, progress_callback=None) -> dict:
     """Invokes the appropriate executor function for the given tool name."""

@@ -269,8 +269,11 @@ async def telegram_worker_loop():
                         "[DIRECTIVE: SYSTEM UPDATE]\n"
                         "Om användaren ber dig att uppdatera dig, installera uppdateringar eller ladda ner ny kod från GitHub, ska du anropa verktyget 'system_update'. Berätta för användaren att du påbörjar uppdateringen och startar om.\n\n"
                         "[DIRECTIVE: CODEBASE SELF-ANALYSIS]\n"
-                        "Om användaren ber dig att analysera din kod, göra en granskning (audit) eller komma med förbättringsförslag på källkoden, ska du anropa verktyget 'codex_audit_codebase'. När du får resultatet (som innehåller en sammanfattning och sökväg till Markdown-rapporten), kan du använda verktyget 'read_project_file' för att läsa rapporten eller källkodsfiler om du behöver mer detaljer för att svara."
+                        "Om användaren ber dig att analysera din kod, göra en granskning (audit) eller komma med förbättringsförslag på källkoden, ska du anropa verktyget 'codex_audit_codebase'. När du får resultatet (som innehåller en sammanfattning och sökväg till Markdown-rapporten), kan du använda verktyget 'read_project_file' för att läsa rapporten eller källkodsfiler om du behöver mer detaljer för att svara.\n\n"
+                        "[DIRECTIVE: WINDOWS OS AUTOMATION]\n"
+                        "Om användaren ber dig att utföra saker på sin Windows-dator (t.ex. starta ett program som Notepad eller kalkylatorn, öppna en webbadress, utforska en mapp eller köra cmd-kommandon), ska du använda verktyget 'run_windows_command' med lämpliga argument (open_app, open_url, open_folder eller run_cmd)."
                     )
+
 
                     
                     try:

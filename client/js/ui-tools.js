@@ -100,6 +100,11 @@ FrejaUIController.prototype.handleToolCall = async function(call) {
             name: "read_project_file",
             displayName: "Läs Projektfil",
             permissionKey: "freja_tool_read_project_file_allowed"
+        },
+        "run_windows_command": {
+            name: "run_windows_command",
+            displayName: "Windows Automatisering",
+            permissionKey: "freja_tool_run_windows_command_allowed"
         }
     };
     
