@@ -189,4 +189,28 @@ async def test_run_windows_command_run_cmd_blocked():
             assert "Säkerhetsfel" in result["error"]
 
 
+def test_client_heartbeat_flow(db_token):
+    from backend.routes.settings import get_client_status
+    
+    client = TestClient(app)
+    
+    # 1. Initially it should be inactive (no heartbeat received in tests yet)
+    status = get_client_status()
+    assert status["active"] is False
+    assert status["hostname"] is not None
+    
+    # 2. Trigger the heartbeat endpoint with authenticated token
+    headers = {"X-Freja-Token": db_token, "User-Agent": "Pytest-Agent"}
+    response = client.post("/api/client/heartbeat", headers=headers)
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+    
+    # 3. Check client status again, it must be active now
+    status = get_client_status()
+    assert status["active"] is True
+    assert status["client_info"] == "Pytest-Agent"
+    assert status["hostname"] is not None
+
+
+
 

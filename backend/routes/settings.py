@@ -167,3 +167,34 @@ async def serve_doc_report(filename: str):
 
     return FileResponse(report_path, media_type="text/markdown")
 
+
+LAST_HEARTBEAT_TIME = 0.0
+LAST_HEARTBEAT_INFO = ""
+
+
+@router.post("/api/client/heartbeat")
+async def client_heartbeat(request: Request):
+    """Periodic endpoint called by the Web HUD client to report activity."""
+    global LAST_HEARTBEAT_TIME, LAST_HEARTBEAT_INFO
+    import time
+    LAST_HEARTBEAT_TIME = time.time()
+    LAST_HEARTBEAT_INFO = request.headers.get("user-agent", "Okänd webbläsare")
+    return {"status": "ok"}
+
+
+def get_client_status():
+    """Helper to retrieve active status of the client and the host computer name."""
+    import time
+    import socket
+    import platform
+    active = (time.time() - LAST_HEARTBEAT_TIME) < 30.0
+    return {
+        "active": active,
+        "hostname": socket.gethostname(),
+        "system": platform.system(),
+        "release": platform.release(),
+        "seconds_since_last": time.time() - LAST_HEARTBEAT_TIME if LAST_HEARTBEAT_TIME > 0 else None,
+        "client_info": LAST_HEARTBEAT_INFO
+    }
+
+

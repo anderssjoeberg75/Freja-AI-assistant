@@ -107,6 +107,7 @@ class FrejaUIController {
 
     async initAsync() {
         await this.loadKeysFromServer();
+        this.startHeartbeatLoop();
         this.initializeUI();
         this.bindEvents();
         await this.loadChatHistory();
@@ -477,6 +478,32 @@ class FrejaUIController {
      */
     startDiagnosticSimulation() {
         window.FrejaDiagnostics.startDiagnosticSimulation();
+    }
+
+    /**
+     * Periodically reports client HUD activity to the backend server.
+     */
+    startHeartbeatLoop() {
+        const sendHeartbeat = async () => {
+            try {
+                const token = localStorage.getItem("freja_access_token") || "";
+                const headers = { "Content-Type": "application/json" };
+                if (token) {
+                    headers["X-Freja-Token"] = token;
+                }
+                
+                await fetch("/api/client/heartbeat", {
+                    method: "POST",
+                    headers: headers
+                });
+            } catch (e) {
+                // Fail silently
+            }
+        };
+        // Initial trigger
+        sendHeartbeat();
+        // Send heartbeat every 15 seconds
+        setInterval(sendHeartbeat, 15000);
     }
 }
 

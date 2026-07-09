@@ -275,7 +275,27 @@ async def telegram_worker_loop():
                     )
 
 
+                    from backend.routes.settings import get_client_status
+                    client_status = get_client_status()
                     
+                    if client_status["active"]:
+                        status_directive = (
+                            f"\n\n[CLIENT HUD STATUS]\n"
+                            f"- Webbklienten (HUD) är för närvarande AKTIV på datorn '{client_status['hostname']}' "
+                            f"({client_status['system']} {client_status['release']}). Webbklienten skickade senast en heartbeat "
+                            f"för {client_status['seconds_since_last']:.1f} sekunder sedan. Användaren kan ställa frågor här i Telegram "
+                            f"med vetskapen om att klienten är aktiv på den datorn."
+                        )
+                    else:
+                        seconds_str = f"{client_status['seconds_since_last']:.1f} sekunder sedan" if client_status['seconds_since_last'] else "aldrig"
+                        status_directive = (
+                            f"\n\n[CLIENT HUD STATUS]\n"
+                            f"- Webbklienten (HUD) är för närvarande INAKTIV. Ingen ansluten webbläsarsession upptäcktes nyligen "
+                            f"(senaste heartbeat var {seconds_str}). Den körs inte aktivt på någon dator för tillfället."
+                        )
+                    
+                    system_prompt += status_directive
+
                     try:
                         reply_text = await query_gemini_with_tools(
                             chat_histories[chat_id],
