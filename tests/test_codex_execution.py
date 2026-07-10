@@ -35,7 +35,7 @@ def test_python_alias_import_bypasses_blocked():
     for code in unsafe_codes:
         with pytest.raises(ValueError) as excinfo:
             verify_safe_python_code(code)
-        assert "Säkerhetsfel" in str(excinfo.value)
+        assert "Security error" in str(excinfo.value)
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX-only shell assumptions")

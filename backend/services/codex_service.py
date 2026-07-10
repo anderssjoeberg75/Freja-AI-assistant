@@ -34,6 +34,29 @@ IGNORED_FILES = {
     'facebook_state.json',
 }
 
+# Files whose contents must never be shipped to the external Gemini API during an
+# audit, matched case-insensitively as substrings of the filename. Defence in depth
+# on top of IGNORED_FILES / the extension allowlist, since a secret can live in any
+# allowed-extension file (e.g. a *.local.json or a token dump).
+SENSITIVE_FILENAME_MARKERS = ('secret', 'token', 'credential', 'password', '.env', '.local.json', 'apikey', 'api_key')
+
+# Patterns whose captured secret value is redacted before any file content leaves the
+# host for the audit. Keeps key=... / "token": "..." style assignments from leaking.
+SECRET_REDACTION_PATTERN = re.compile(
+    r'(?i)(api[_-]?key|secret|password|passwd|refresh[_-]?token|access[_-]?token|client[_-]?secret|authorization|bearer|token)'
+    r'(\s*[:=]\s*)'
+    r'(["\']?)([^\s"\',;]{6,})(\3)'
+)
+
+# Only these file types may be overwritten by codex_run_and_fix. Prevents the auto-fixer
+# from writing arbitrary model output to executables, binaries, or unexpected paths.
+ALLOWED_FIX_EXTENSIONS = {'.py', '.js', '.html', '.css', '.json', '.md', '.txt', '.sh'}
+
+
+def redact_secrets(text: str) -> str:
+    """Masks obvious secret assignments (key=..., token: "...") in a text blob."""
+    return SECRET_REDACTION_PATTERN.sub(r'\1\2\3***REDACTED***\5', text)
+
 
 import ast
 
@@ -94,7 +117,7 @@ def verify_safe_python_code(code: str):
         elif isinstance(node, ast.Constant):
             if isinstance(node.value, str):
                 val = node.value.strip()
-                if '__' in val:
+                if re.search(r'__\w+__', val) or '__import__' in val:
                     raise ValueError(f"Security error: The string contains a dunder pattern, which is blocked.")
                 if val in blocked_modules or val in blocked_calls:
                     raise ValueError(f"Security error: The string contains the blocked word '{val}'.")
@@ -122,6 +145,15 @@ BLOCKED_SHELL_COMMANDS = {
     'cut', 'tr', 'wc', 'diff', 'cmp', 'file', 'stat', 'readlink', 'ln', 'tee',
     'type', 'more.com', 'findstr', 'rev', 'fold', 'comm', 'join', 'column',
     'expand', 'unexpand',
+    # Windows cmd.exe builtins / utilities. The shell is cmd.exe on the Windows
+    # deployment target, so the POSIX-centric names above (rm/mv/cp) are not enough:
+    # these mutate, exfiltrate, or reconfigure the host and must be blocked too.
+    'del', 'erase', 'rd', 'rmdir', 'md', 'mkdir', 'move', 'ren', 'rename',
+    'copy', 'xcopy', 'robocopy', 'format', 'fc', 'comp', 'attrib', 'cacls',
+    'icacls', 'takeown', 'net', 'net1', 'sc', 'shutdown', 'at', 'schtasks',
+    'wmic', 'vssadmin', 'bcdedit', 'diskpart', 'cipher', 'mklink', 'subst',
+    'assoc', 'ftype', 'setx', 'start', 'call', 'reg', 'runas', 'msg', 'clip',
+    'fsutil', 'label', 'recover', 'replace',
 }
 
 # Matches python / python3 / python3.11 / py etc. so version-suffixed interpreter
@@ -322,6 +354,16 @@ def verify_safe_shell_command(cmd_str: str):
 
     if '..' in cmd_str:
         raise ValueError("Security error: Directory traversal ('..') is blocked.")
+
+    # cmd.exe expands %VAR%; this can smuggle absolute paths / secrets past the
+    # sandbox working directory (e.g. del %USERPROFILE%\...). Block it outright.
+    if '%' in cmd_str:
+        raise ValueError("Security error: Environment variable expansion ('%') is blocked.")
+
+    # Block absolute paths (Windows drive letters, UNC shares, POSIX root, ~ home) so
+    # a command can't escape the sandbox cwd even without '..'.
+    if re.search(r'(^|[\s"\'=;|&])([A-Za-z]:[\\/]|\\\\|/|~)', cmd_str):
+        raise ValueError("Security error: Absolute paths are blocked.")
 
     lowered_cmd = cmd_str.lower()
     for marker in SENSITIVE_PATH_MARKERS:
@@ -620,6 +662,13 @@ async def codex_audit_codebase_impl(args: dict = None) -> dict:
         for file in files:
             ext = os.path.splitext(file)[1]
             if ext in ALLOWED_EXTENSIONS and file not in IGNORED_FILES:
+                # Skip files whose name suggests they hold secrets, even if the extension
+                # is allowlisted (e.g. settings.local.json, a *.token file).
+                lower_name = file.lower()
+                if any(marker in lower_name for marker in SENSITIVE_FILENAME_MARKERS):
+                    print(f"[CODEX AUDIT] Skipping potential secret-bearing file: {file}")
+                    continue
+
                 file_path = os.path.join(root, file)
                 try:
                     mtime = os.path.getmtime(file_path)
@@ -636,7 +685,9 @@ async def codex_audit_codebase_impl(args: dict = None) -> dict:
         rel_path = os.path.relpath(file_path, PROJECT_ROOT)
         try:
             with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                code_content += f"\n--- FIL: {rel_path} ---\n{f.read()}\n"
+                # Redact obvious inline secrets before the content leaves the host.
+                safe_content = redact_secrets(f.read())
+                code_content += f"\n--- FILE: {rel_path} ---\n{safe_content}\n"
                 file_count += 1
         except Exception as e:
             print(f"[CODEX AUDIT] Could not read {rel_path}: {e}")
@@ -687,10 +738,10 @@ Use emojis to make the report more readable (e.g. 🔴 for critical errors, ⚠�
         with open(filepath, "w", encoding="utf-8") as f:
             f.write(report_text)
     except Exception as e:
-        return {"error": f"Kunde inte spara rapporten till fil: {str(e)}"}
+        return {"error": f"Could not save the report to a file: {str(e)}"}
         
     # Extract summary
-    summary = report_text.split("---RAPPORT_START---")[0].strip() if "---RAPPORT_START---" in report_text else report_text[:800]
+    summary = report_text.split(AUDIT_REPORT_SEPARATOR)[0].strip() if AUDIT_REPORT_SEPARATOR in report_text else report_text[:800]
     
     return {
         "summary": summary,
@@ -719,6 +770,13 @@ async def codex_run_and_fix_impl(args: dict) -> dict:
         return {"error": str(val_err)}
     if not os.path.exists(abs_file_path):
         return {"error": f"The target file was not found at: {abs_file_path}"}
+
+    # Only allow the auto-fixer to overwrite known code/text file types, so a fix can't
+    # be steered into writing arbitrary model output to an executable, binary, or an
+    # unexpected path within the project.
+    fix_ext = os.path.splitext(abs_file_path)[1].lower()
+    if fix_ext not in ALLOWED_FIX_EXTENSIONS:
+        return {"error": f"Security error: Auto-fix is not supported for the file type '{fix_ext or 'unknown'}'. Allowed: {', '.join(sorted(ALLOWED_FIX_EXTENSIONS))}."}
 
     # Safety net: keep a backup of the original file so a bad AI rewrite can always
     # be rolled back, even if the file was never committed to git.
