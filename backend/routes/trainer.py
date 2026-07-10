@@ -877,7 +877,7 @@ Rules for the briefing:
                     )
                     calendar_updated = True
                 except Exception as adj_err:
-                    print(f"[TRAINER CHECKIN] Kunde inte justera kalenderpass: {adj_err}")
+                    print(f"[TRAINER CHECKIN] Could not adjust the calendar session: {adj_err}")
 
         return {
             "status": "success",
@@ -1130,7 +1130,7 @@ Rules:
                 "reason": reason,
             })
         except Exception as save_err:
-            print(f"[TRAINER OPTIMIZE] Kunde inte uppdatera event {eid}: {save_err}")
+            print(f"[TRAINER OPTIMIZE] Could not update event {eid}: {save_err}")
 
     return {
         "status": "success",

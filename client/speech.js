@@ -169,7 +169,11 @@ class FrejaSpeechEngine {
         // 4. Remove bracketed directive/system tags e.g. [DIRECTIVE:...], [NEURAL MEMORY...]
         clean = clean.replace(/\[[A-Z0-9_\s:]+\]/gi, '');
 
-        // 5. Remove leftover empty parentheses/brackets e.g. ( ), (Källa: ), Källa:
+        // 5. Remove parentheses left empty by steps 2-4, e.g. "( )" or "(Källa: )" after the
+        //    URL inside them was stripped, plus a trailing dangling "Källa:".
+        //    "Källa: Google" is the Swedish citation the web-search directive makes Freja emit
+        //    (see client/gemini.js), so the Swedish word is matched here on purpose. A complete
+        //    "(Källa: Google)" is deliberately left intact and still spoken aloud.
         clean = clean.replace(/\(\s*(Källa:?)?\s*\)/gi, '');
         clean = clean.replace(/\bKälla:\s*(?=$|\.|\n)/gi, '');
 

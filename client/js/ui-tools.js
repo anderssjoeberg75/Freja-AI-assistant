@@ -8,102 +8,102 @@ FrejaUIController.prototype.handleToolCall = async function(call) {
     const toolsMetadata = {
         "get_weather": {
             name: "get_weather",
-            displayName: "Väderprognos",
+            displayName: "Weather forecast",
             permissionKey: "freja_tool_get_weather_allowed"
         },
         "google_search": {
             name: "google_search",
-            displayName: "Google Sökning",
+            displayName: "Google search",
             permissionKey: "freja_tool_google_search_allowed"
         },
         "get_garmin_health": {
             name: "get_garmin_health",
-            displayName: "Garmin Hälsodata",
+            displayName: "Garmin health data",
             permissionKey: "freja_tool_get_garmin_health_allowed"
         },
         "get_withings_health": {
             name: "get_withings_health",
-            displayName: "Withings Hälsodata",
+            displayName: "Withings health data",
             permissionKey: "freja_tool_get_withings_health_allowed"
         },
         "get_strava_data": {
             name: "get_strava_data",
-            displayName: "Strava Aktiviteter",
+            displayName: "Strava activities",
             permissionKey: "freja_tool_get_strava_data_allowed"
         },
         "get_strava_activity_analysis": {
             name: "get_strava_activity_analysis",
-            displayName: "Strava Aktivitetsanalys",
+            displayName: "Strava activity analysis",
             permissionKey: "freja_tool_get_strava_activity_analysis_allowed"
         },
         "get_strava_athlete_stats": {
             name: "get_strava_athlete_stats",
-            displayName: "Strava Atletstatistik",
+            displayName: "Strava athlete statistics",
             permissionKey: "freja_tool_get_strava_athlete_stats_allowed"
         },
         "manage_google_calendar": {
             name: "manage_google_calendar",
-            displayName: "Google Kalender",
+            displayName: "Google Calendar",
             permissionKey: "freja_tool_manage_google_calendar_allowed"
         },
         "execute_codex_code": {
             name: "execute_codex_code",
-            displayName: "Kodexekvering",
+            displayName: "Code execution",
             permissionKey: "freja_tool_execute_codex_code_allowed"
         },
         "run_code": {
             name: "run_code",
-            displayName: "Kodexekvering",
+            displayName: "Code execution",
             permissionKey: "freja_tool_run_code_allowed"
         },
         "codex_git_ops": {
             name: "codex_git_ops",
-            displayName: "Git-operationer",
+            displayName: "Git operations",
             permissionKey: "freja_tool_codex_git_ops_allowed"
         },
         "codex_audit_codebase": {
             name: "codex_audit_codebase",
-            displayName: "Kodgranskning",
+            displayName: "Code audit",
             permissionKey: "freja_tool_codex_audit_codebase_allowed"
         },
         "tool_analyze_code": {
             name: "tool_analyze_code",
-            displayName: "Kodgranskning",
+            displayName: "Code audit",
             permissionKey: "freja_tool_tool_analyze_code_allowed"
         },
         "codex_run_and_fix": {
             name: "codex_run_and_fix",
-            displayName: "Kod auto-rättning",
+            displayName: "Automatic code repair",
             permissionKey: "freja_tool_codex_run_and_fix_allowed"
         },
         "download_facebook_photos": {
             name: "download_facebook_photos",
-            displayName: "Facebook Bildnedladdning",
+            displayName: "Facebook photo download",
             permissionKey: "freja_tool_download_facebook_photos_allowed"
         },
         "learn_topic": {
             name: "learn_topic",
-            displayName: "Freja Inlärning",
+            displayName: "Freja learning",
             permissionKey: "freja_tool_learn_topic_allowed"
         },
         "get_learned_knowledge": {
             name: "get_learned_knowledge",
-            displayName: "Sök i Kunskapsbank",
+            displayName: "Search the knowledge base",
             permissionKey: "freja_tool_get_learned_knowledge_allowed"
         },
         "system_update": {
             name: "system_update",
-            displayName: "Systemuppdatering från GitHub",
+            displayName: "System update from GitHub",
             permissionKey: "freja_tool_system_update_allowed"
         },
         "read_project_file": {
             name: "read_project_file",
-            displayName: "Läs Projektfil",
+            displayName: "Read project file",
             permissionKey: "freja_tool_read_project_file_allowed"
         },
         "run_windows_command": {
             name: "run_windows_command",
-            displayName: "Windows Automatisering",
+            displayName: "Windows automation",
             permissionKey: "freja_tool_run_windows_command_allowed"
         }
     };
@@ -137,7 +137,7 @@ FrejaUIController.prototype.handleToolCall = async function(call) {
                 return {
                     status: "initiated",
                     task_id: taskId,
-                    message: "Nedladdningen av Facebook-bilder har påbörjats i bakgrunden. Du kan följa förloppet i terminalen."
+                    message: "The Facebook photo download has started in the background. Progress can be followed in the terminal."
                 };
             }
             
@@ -146,7 +146,7 @@ FrejaUIController.prototype.handleToolCall = async function(call) {
                 return {
                     status: "initiated",
                     task_id: taskId,
-                    message: `Inlärningsprocessen för "${args.topic}" har påbörjats i bakgrunden. Du kan följa förloppet i terminalen eller i Neural Learning Engine.`
+                    message: `The learning process for "${args.topic}" has started in the background. Progress can be followed in the terminal or in the Neural Learning Engine.`
                 };
             }
             
@@ -195,8 +195,8 @@ FrejaUIController.prototype.handleToolCall = async function(call) {
     
     // `git push` publishes to a remote and is hard to reverse, unlike the other
     // codex_git_ops actions (status/log/clone/checkout/commit stay local). It must
-    // always be re-confirmed, even if the user previously chose "Tillåt alltid" for
-    // Git-operationer in general. The backend enforces this independently too
+    // always be re-confirmed, even if the user previously chose "Allow always" for
+    // Git operations in general. The backend enforces this independently too
     // (see is_tool_execution_authorized in backend/routes/tools.py) since the client
     // check is only a UX convenience, not the authority.
     const isGitPush = call.name === "codex_git_ops" && (call.args?.action || "").toLowerCase() === "push";
@@ -248,27 +248,27 @@ FrejaUIController.prototype.appendPermissionRequest = function(tool, args, resol
     const argsStr = JSON.stringify(args, null, 2);
 
     const warningText = isGitPush
-        ? `FREJA vill köra <strong>git push</strong> och publicera lokala commits till fjärrarkivet. Detta går inte enkelt att ångra och kräver alltid bekräftelse, oavsett tidigare inställningar för Git-operationer.`
-        : `FREJA begär åtkomst till verktyget <strong>${tool.displayName || tool.name}</strong> för att slutföra din begäran.`;
+        ? `FREJA wants to run <strong>git push</strong> and publish local commits to the remote. This is not easily reversible and always requires confirmation, regardless of earlier settings for Git operations.`
+        : `FREJA is requesting access to the <strong>${tool.displayName || tool.name}</strong> tool in order to complete your request.`;
 
     // git push can never be permanently allowed from this dialog - only "allow once" or "deny".
     const allowAlwaysButton = isGitPush ? '' :
-        `<button class="hud-btn btn-secondary btn-allow-always" style="font-size: 10px; padding: 4px 10px;">Tillåt alltid</button>`;
+        `<button class="hud-btn btn-secondary btn-allow-always" style="font-size: 10px; padding: 4px 10px;">Allow always</button>`;
 
     msgDiv.innerHTML = `
-        <div class="msg-sender">[SÄKERHETS-GATEWAY]</div>
+        <div class="msg-sender">[SECURITY GATEWAY]</div>
         <div class="msg-content glass-morphic" style="border-color: #fdd663; padding: 12px; margin-top: 5px; background: rgba(25, 20, 10, 0.45);">
             <h4 style="color: #fdd663; margin-top: 0; font-family: var(--font-display); font-size: 11px; letter-spacing: 1px;">
-                <i class="fa-solid fa-shield-halved"></i> BEHÖRIGHETSBEGÄRAN KRÄVS
+                <i class="fa-solid fa-shield-halved"></i> PERMISSION REQUEST REQUIRED
             </h4>
             <p style="font-size: 11px; margin: 6px 0; line-height: 1.4; color: #f8f9fa;">
                 ${warningText}
             </p>
-            <div style="background: rgba(0,0,0,0.6); border: 1px solid rgba(253, 214, 99, 0.2); border-radius: 4px; padding: 6px; font-family: var(--font-mono); font-size: 10px; color: #fdd663; margin-bottom: 10px; white-space: pre-wrap;">Argument: ${argsStr}</div>
+            <div style="background: rgba(0,0,0,0.6); border: 1px solid rgba(253, 214, 99, 0.2); border-radius: 4px; padding: 6px; font-family: var(--font-mono); font-size: 10px; color: #fdd663; margin-bottom: 10px; white-space: pre-wrap;">Arguments: ${argsStr}</div>
             <div style="display: flex; gap: 8px;">
-                <button class="hud-btn btn-primary btn-allow-once" style="background: #fdd663; border-color: #fdd663; color: #000; font-size: 10px; padding: 4px 10px;">Tillåt denna gång</button>
+                <button class="hud-btn btn-primary btn-allow-once" style="background: #fdd663; border-color: #fdd663; color: #000; font-size: 10px; padding: 4px 10px;">Allow once</button>
                 ${allowAlwaysButton}
-                <button class="hud-btn btn-secondary btn-deny" style="border-color: #ff3b30; color: #ff3b30; font-size: 10px; padding: 4px 10px;">Neka</button>
+                <button class="hud-btn btn-secondary btn-deny" style="border-color: #ff3b30; color: #ff3b30; font-size: 10px; padding: 4px 10px;">Deny</button>
             </div>
         </div>
     `;
@@ -368,6 +368,9 @@ FrejaUIController.prototype.pollFacebookDownloadProgress = async function(taskId
                 self.writeLog(`[FACEBOOK DOWNLOAD] COMPLETED SUCCESSFULLY. Saved ${statusData.result.downloaded_count} images.`, "sys");
                 soundSynth.playNotify();
                 
+                // Freja speaks to the user, so this text stays Swedish (as do the
+                // appendChatMessage assistant lines below). Only the writeLog diagnostics
+                // and the permission-gateway UI above are English.
                 if (self.speech && self.speech.autoSpeak) {
                     self.speech.speak(`Nedladdningen av Facebook-bilder är klar. Hämtade ${statusData.result.downloaded_count} bilder.`);
                 }
@@ -378,14 +381,14 @@ FrejaUIController.prototype.pollFacebookDownloadProgress = async function(taskId
                 clearInterval(self.facebookDownloadInterval);
                 self.facebookDownloadInterval = null;
                 
-                self.writeLog(`[FACEBOOK DOWNLOAD] FAILED: ${statusData.error || "Okänt fel"}`, "err");
+                self.writeLog(`[FACEBOOK DOWNLOAD] FAILED: ${statusData.error || "Unknown error"}`, "err");
                 soundSynth.playError();
                 
                 if (self.speech && self.speech.autoSpeak) {
                     self.speech.speak(`Nedladdningen av Facebook-bilder misslyckades.`);
                 }
                 
-                self.appendChatMessage("assistant", `**[SYSTEMMEDDELANDE - FEL]** Nedladdningen av Facebook-bilder misslyckades: ${statusData.error || "Okänt fel"}`, false);
+                self.appendChatMessage("assistant", `**[SYSTEMMEDDELANDE - FEL]** Nedladdningen av Facebook-bilder misslyckades: ${statusData.error || "okänt fel"}`, false);
                 
             } else if (statusData.status === "cancelled") {
                 clearInterval(self.facebookDownloadInterval);
@@ -463,7 +466,7 @@ FrejaUIController.prototype.pollLearningProgress = function(taskId) {
                 self.writeLog("NEURAL LEARNING CANCELLED BY USER", "warn");
                 soundSynth.playError();
                 
-                if (stageLabel) stageLabel.textContent = "Avbruten.";
+                if (stageLabel) stageLabel.textContent = "Cancelled.";
                 if (percentLabel) percentLabel.textContent = "0%";
                 if (progressBar) progressBar.style.width = "0%";
                 

@@ -12,7 +12,8 @@ class GeminiClient {
         this.apiKey = "";
         this.model = "gemini-2.5-flash";
         this.history = [];
-        this.systemPrompt = "Du är FREJA, en intelligent och artig AI-assistent. Svara kortfattat.";
+        // Overridden by the persona textarea in Settings; see client/index.html #textarea-persona.
+        this.systemPrompt = "You are FREJA, an intelligent and polite AI assistant. Answer concisely, and always answer in Swedish.";
         this.lastFrameBuffer = null;
         this.lastWebcamCaptureTime = 0;
         this.loadApiKey();
@@ -112,7 +113,7 @@ class GeminiClient {
                 const serverKey = keys.freja_gemini_apikey || keys.gemini_api_key;
                 if (serverKey && serverKey.trim() !== "") {
                     this.apiKey = "configured";
-                    if (inputApiKeyEl) inputApiKeyEl.value = "•••••••• (Konfigurerad på Backend)";
+                    if (inputApiKeyEl) inputApiKeyEl.value = "•••••••• (Configured on the backend)";
                     if (capGeminiEl) capGeminiEl.classList.add('active');
                     console.log("[GEMINI] Loaded active Gemini API key from backend database.");
                     return;
@@ -193,7 +194,9 @@ class GeminiClient {
             parts: userParts
         });
 
-        // Clean history of negative constraints when requesting a Facebook download
+        // Clean history of negative constraints when requesting a Facebook download.
+        // These keyword lists match what the *user* types, and the user speaks Swedish to Freja,
+        // so the keywords are Swedish. They are input data, not UI copy.
         const lowerMsg = userMessage.toLowerCase();
         const isFacebookQuery = lowerMsg.includes("facebook") ||
             lowerMsg.includes("bilder") ||
@@ -265,7 +268,7 @@ class GeminiClient {
                 const memories = await window.uiController.memory.searchMemory(userMessage);
                 if (memories && memories.length > 0) {
                     const facts = memories.map(m => `- ${m.memory}`).join("\n");
-                    dynamicSystemPrompt = `${this.systemPrompt}\n\n[NEURAL MEMORY CHIPS RECOVERED]\nFreja minns följande om användaren:\n${facts}`;
+                    dynamicSystemPrompt = `${this.systemPrompt}\n\n[NEURAL MEMORY CHIPS RECOVERED]\nFreja remembers the following about the user:\n${facts}`;
                     console.log("[GEMINI] Dynamic System Prompt Injected with memories:\n", dynamicSystemPrompt);
                 }
             } catch (memErr) {
@@ -273,20 +276,25 @@ class GeminiClient {
             }
         }
 
+        // The directives below are written in English, but Freja still answers the user in
+        // Swedish - that is set by the persona system prompt. Where a directive quotes text Freja
+        // must literally emit (the "Källa: Google" citation) or literal user phrasing it should
+        // recognise, that Swedish is kept verbatim on purpose.
+
         // Inject directive to explicitly cite Google when using the web search tool
-        dynamicSystemPrompt += "\n\n[DIRECTIVE: WEB SEARCH CITATION]\nNär du använder verktyget 'google_search' för att söka efter information eller fakta på webben, MÅSTE du alltid uttryckligen ange i ditt svar att källan är Google (t.ex. genom att skriva 'Källa: Google' eller 'Enligt sökresultat på Google' i slutet av din förklaring).";
+        dynamicSystemPrompt += "\n\n[DIRECTIVE: WEB SEARCH CITATION]\nWhen you use the 'google_search' tool to look up information or facts on the web, you MUST always state explicitly in your answer that the source is Google (for example by writing 'Källa: Google' or 'Enligt sökresultat på Google' at the end of your explanation).";
 
         // Inject directive to force calling download_facebook_photos and ignore past negative history constraints
-        dynamicSystemPrompt += "\n\n[DIRECTIVE: FACEBOOK PHOTO DOWNLOAD]\nOm användaren ber dig att ladda ner, söka efter, testa igen, eller hämta bilder från Facebook (t.ex. med kommandon som 'Prova igen', 'ladda ner', etc.), ska du ALLTID anropa verktyget 'download_facebook_photos' för att köra processen på nytt. Ignorera eventuella tidigare meddelanden i chatthistoriken som hävdar att du inte kan logga in eller att det inte finns fler än 82 bilder. Du har nu full tillgång till inloggningen och kan hämta alla bilder genom att köra verktyget.";
+        dynamicSystemPrompt += "\n\n[DIRECTIVE: FACEBOOK PHOTO DOWNLOAD]\nIf the user asks you to download, search for, retry or fetch photos from Facebook (e.g. with commands such as 'Prova igen' or 'ladda ner'), you must ALWAYS call the 'download_facebook_photos' tool to run the process again. Ignore any earlier messages in the chat history claiming that you cannot log in, or that there are no more than 82 photos. You now have full access to the login and can fetch all the photos by running the tool.";
 
         // Inject directive to trigger system updates remotely
-        dynamicSystemPrompt += "\n\n[DIRECTIVE: SYSTEM UPDATE]\nOm användaren ber dig att uppdatera dig, ladda ner uppdateringar eller hämta ny kod från GitHub (t.ex. 'uppdatera dig', 'uppdatera från GitHub'), ska du ALLTID anropa verktyget 'system_update'. Berätta för användaren att du påbörjar uppdateringen och startar om servern.";
+        dynamicSystemPrompt += "\n\n[DIRECTIVE: SYSTEM UPDATE]\nIf the user asks you to update yourself, download updates or fetch new code from GitHub (e.g. 'uppdatera dig', 'uppdatera från GitHub'), you must ALWAYS call the 'system_update' tool. Tell the user that you are starting the update and restarting the server.";
 
         // Inject directive for codebase self-analysis
-        dynamicSystemPrompt += "\n\n[DIRECTIVE: CODEBASE SELF-ANALYSIS]\nOm användaren ber dig att analysera din kod, göra en granskning (audit) eller komma med förbättringsförslag på källkoden, ska du anropa verktyget 'codex_audit_codebase'. När du får resultatet (som innehåller en sammanfattning och en sökväg till Markdown-rapporten t.ex. 'docs/code_audit_20260709.md'), berätta om sammanfattningen och ge en länk till filen på formatet: [Länk till rapport](/api/docs/{filnamn}) (där filnamn är filnamnet på rapporten utan hela sökvägen, t.ex. code_audit_20260709.md). Du kan använda verktyget 'read_project_file' för att läsa rapporten eller källkodsfiler om du behöver mer detaljer för att svara.";
+        dynamicSystemPrompt += "\n\n[DIRECTIVE: CODEBASE SELF-ANALYSIS]\nIf the user asks you to analyse your code, perform an audit, or suggest improvements to the source code, call the 'codex_audit_codebase' tool. When you receive the result (which contains a summary and a path to the Markdown report, e.g. 'docs/code_audit_20260709.md'), relay the summary and link to the file in the format: [Länk till rapport](/api/docs/{filnamn}) - where {filnamn} is the report's file name without the directory, e.g. code_audit_20260709.md. You may use the 'read_project_file' tool to read the report or source files if you need more detail in order to answer.";
 
         // Inject directive for Windows automation
-        dynamicSystemPrompt += "\n\n[DIRECTIVE: WINDOWS OS AUTOMATION]\nOm användaren ber dig att utföra åtgärder på sin Windows-dator (t.ex. 'Öppna notepad', 'öppna kalkylatorn', 'visa mina bilder i C:\\Bilder', 'öppna google.com' eller köra kommandon), ska du ALLTID använda verktyget 'run_windows_command' med passande argument ('open_app', 'open_url', 'open_folder' eller 'run_cmd').";
+        dynamicSystemPrompt += "\n\n[DIRECTIVE: WINDOWS OS AUTOMATION]\nIf the user asks you to perform actions on their Windows computer (e.g. 'Öppna notepad', 'öppna kalkylatorn', 'visa mina bilder i C:\\Bilder', 'öppna google.com', or to run commands), you must ALWAYS use the 'run_windows_command' tool with suitable arguments ('open_app', 'open_url', 'open_folder' or 'run_cmd').";
 
 
 
@@ -390,7 +398,7 @@ class GeminiClient {
                 }
             }
 
-            return `[ANOMALY] Neural Uplink Failed. Det gick inte att kontakta Gemini. Fel: ${e.message}. Kontrollera din internetanslutning eller din API-nyckel i inställningarna.`;
+            return `[ANOMALY] Neural Uplink Failed. Could not reach Gemini. Error: ${e.message}. Check your internet connection, or your API key in the settings.`;
         }
     }
 

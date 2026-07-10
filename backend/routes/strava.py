@@ -347,7 +347,7 @@ async def delete_strava_log(id: str = Query(..., description="ID of activity to 
             cursor = conn.cursor()
             cursor.execute('DELETE FROM strava_activities WHERE id = ?', (id_to_delete,))
             conn.commit()
-        return {'status': 'success', 'message': f"Aktivitet {id_to_delete} borttagen."}
+        return {'status': 'success', 'message': f"Activity {id_to_delete} was deleted."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -596,7 +596,7 @@ async def post_strava_data(request: Request):
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (name, act_type, date_str, distance, moving_time, elapsed_time, total_elevation_gain, average_speed, max_speed, average_heartrate, max_heartrate, calories))
             conn.commit()
-        return {'status': 'success', 'message': 'Strava-aktivitet sparad.'}
+        return {'status': 'success', 'message': 'Strava activity saved.'}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

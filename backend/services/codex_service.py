@@ -522,7 +522,7 @@ async def call_gemini_api(prompt: str, system_instruction: str = "") -> str:
     # Fetch API key from db
     api_key = get_api_key('freja_gemini_apikey') or ""
     if not api_key:
-        raise Exception("Gemini API-nyckel saknas i databasen.")
+        raise Exception("The Gemini API key is missing from the database.")
         
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={api_key}"
     

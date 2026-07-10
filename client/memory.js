@@ -125,10 +125,12 @@ class FrejaMemoryEngine {
             try {
                 console.log("[SANDBOX] Extracting facts using Gemini model...");
                 const endpoint = `/api/gemini/generate?model=${encodeURIComponent(this.gemini.model)}`;
-                const prompt = `Extrahera nya personliga fakta om användaren (som namn, ålder, yrke, preferenser, intressen) från följande samtal. Returnera dem i JSON-schemat under nyckeln 'facts'. Lämna listan tom om inga nya fakta hittas.
-Konversation:
-Användare: "${userMsg}"
-Assistent: "${assistantMsg}"`;
+                // The extracted facts are re-injected into Freja's system prompt and shown in
+                // the memory vault, so the model is told to write them in Swedish.
+                const prompt = `Extract new personal facts about the user (such as name, age, occupation, preferences, interests) from the conversation below. Return them in the JSON schema under the key 'facts', written in Swedish. Leave the list empty if no new facts are found.
+Conversation:
+User: "${userMsg}"
+Assistant: "${assistantMsg}"`;
 
                 const response = await fetch(endpoint, {
                     method: "POST",
@@ -173,7 +175,9 @@ Assistent: "${assistantMsg}"`;
             }
         }
 
-        // Method B: Heuristic string processing rules as a lightweight offline backup
+        // Method B: Heuristic string processing rules as a lightweight offline backup.
+        // Both the phrases matched here and the facts produced are Swedish, because the user
+        // speaks Swedish and the resulting fact is displayed verbatim in the memory vault.
         if (extractedFacts.length === 0) {
             const text = userMsg.toLowerCase();
             if (text.includes("jag heter ") || text.includes("mitt namn är ")) {

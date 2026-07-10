@@ -383,7 +383,7 @@ async def download_facebook_photos_impl(profile_url: str, limit: int = 1000, pro
                     print("[Facebook Scraper] Abort signal detected in download loop. Stopping.")
                     break
                 if progress_callback:
-                    progress_callback(idx, total_photos, f"downloading ({len(downloaded_files)} sparade)")
+                    progress_callback(idx, total_photos, f"downloading ({len(downloaded_files)} saved)")
                 try:
                     # Extract unique photo ID from URL to check if the file already exists
                     match_fbid = re.search(r"fbid=(\d+)", photo_url)
@@ -402,7 +402,7 @@ async def download_facebook_photos_impl(profile_url: str, limit: int = 1000, pro
                         downloaded_files.append(relative_path)
                         print(f"[Facebook Scraper] Photo {photo_id} already exists in folder. Skipping page load!")
                         if progress_callback:
-                            progress_callback(idx + 1, total_photos, f"downloading ({len(downloaded_files)} sparade)")
+                            progress_callback(idx + 1, total_photos, f"downloading ({len(downloaded_files)} saved)")
                         continue
 
                     print(f"[Facebook Scraper] Processing photo {idx+1}/{len(photo_urls)}: {photo_url}")
@@ -462,7 +462,7 @@ async def download_facebook_photos_impl(profile_url: str, limit: int = 1000, pro
                     print(f"[Facebook Scraper] Error on photo detail page {photo_url}: {item_err}")
                 
                 if progress_callback:
-                    progress_callback(idx + 1, total_photos, f"downloading ({len(downloaded_files)} sparade)")
+                    progress_callback(idx + 1, total_photos, f"downloading ({len(downloaded_files)} saved)")
                     
         except Exception as main_err:
             print(f"[Facebook Scraper] Critical error in scraper loop: {main_err}")

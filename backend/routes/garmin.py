@@ -303,7 +303,7 @@ async def post_garmin_data(request: Request):
                     training_status = excluded.training_status
             ''', (date_str, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status))
             conn.commit()
-        return {'status': 'success', 'message': 'Garmin-logg sparad.'}
+        return {'status': 'success', 'message': 'Garmin log saved.'}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

@@ -49,7 +49,7 @@ async def delete_learned_entry(knowledge_id: int):
             cursor = conn.cursor()
             cursor.execute("DELETE FROM learned_knowledge WHERE id = ?", (knowledge_id,))
             conn.commit()
-        return {"status": "success", "message": "Kunskap raderad."}
+        return {"status": "success", "message": "Knowledge deleted."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

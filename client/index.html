@@ -134,11 +134,11 @@
                         <div class="control-row" style="margin-top: 10px;">
                             <label for="select-camera">Camera Input</label>
                             <select id="select-camera" class="hud-select">
-                                <option value="off" selected>Scanner avstängd</option>
+                                <option value="off" selected>Scanner off</option>
                             </select>
                         </div>
                         <div class="control-row-toggle" style="margin-top: 8px;">
-                            <span style="font-size: 11px; color: var(--color-text-muted);">Auto-skicka bildström</span>
+                            <span style="font-size: 11px; color: var(--color-text-muted);">Auto-send video stream</span>
                             <label class="hud-switch">
                                 <input type="checkbox" id="chk-auto-optics" checked>
                                 <span class="slider"></span>
@@ -243,7 +243,7 @@
                     <button id="btn-mic" class="btn-mic" title="Start Listening">
                         <i class="fa-solid fa-microphone" id="mic-icon"></i>
                     </button>
-                    <p class="voice-hint" id="voice-hint">Klicka för att prata med FREJA</p>
+                    <p class="voice-hint" id="voice-hint">Click to talk to FREJA</p>
                     <div class="voice-bars-container" id="voice-bars">
                         <!-- Sound bars show up when listening/speaking -->
                         <div class="bar"></div>
@@ -259,7 +259,7 @@
 
                 <!-- QUICK INPUT BOX (For typing queries) -->
                 <div class="text-input-container">
-                    <input type="text" id="text-query" placeholder="Mata in ett textkommando till FREJA..." class="hud-input">
+                    <input type="text" id="text-query" placeholder="Type a text command for FREJA..." class="hud-input">
                     <button id="btn-send-text" class="hud-btn-send" title="Skicka">
                         <i class="fa-solid fa-paper-plane"></i>
                     </button>
@@ -271,7 +271,7 @@
                 <div class="panel-header">
                     <i class="fa-solid fa-comments icon-accent"></i>
                     <h2>NEURAL CHAT HUB</h2>
-                    <button id="btn-clear-chat" class="panel-header-btn" title="Rensa chatthistorik">
+                    <button id="btn-clear-chat" class="panel-header-btn" title="Clear the chat history">
                         <i class="fa-solid fa-trash-can"></i>
                     </button>
                 </div>
@@ -280,7 +280,7 @@
                 <div class="chat-history" id="chat-history">
                     <div class="chat-msg system-msg">
                         <div class="msg-sender">[SYS]</div>
-                        <div class="msg-content">System startat. Välkommen operatör. Klicka på mikrofonen eller skriv ett meddelande nedan för att initiera konversation. Se till att lägga in din Gemini API-nyckel i inställningarna.</div>
+                        <div class="msg-content">System started. Welcome, operator. Click the microphone or type a message below to begin a conversation. Remember to enter your Gemini API key in the settings.</div>
                     </div>
                 </div>
 
@@ -313,17 +313,17 @@
                 <div class="settings-group">
                     <label for="input-access-token">Freja Access Token</label>
                     <div class="input-password-container">
-                        <input type="text" id="input-access-token" placeholder="Ange ditt säkerhetstoken..." class="hud-input">
+                        <input type="text" id="input-access-token" placeholder="Enter your access token..." class="hud-input">
                         <button type="button" id="btn-toggle-access-token" class="btn-toggle-input"><i class="fa-solid fa-eye-slash"></i></button>
                     </div>
-                    <p class="settings-help">Detta token skyddar din backend mot obehörig åtkomst. Spara samma token i webbläsaren för att ansluta.</p>
+                    <p class="settings-help">This token protects your backend from unauthorized access. Save the same token in the browser to connect.</p>
                 </div>
 
                 <div class="settings-group">
                     <label for="input-backend-url">Backend API URL</label>
-                    <input type="text" id="input-backend-url" placeholder="t.ex. http://localhost:8000 eller https://api.server.com" class="hud-input">
-                    <p class="settings-help">URL till din Freja API-backend. Om tom, används nuvarande domän/port (window.location.origin).</p>
-                    <a href="http://localhost:8000/" target="_blank" class="hud-link" style="display: inline-block; margin-top: 6px; font-size: 11px;"><i class="fa-solid fa-server"></i> Öppna Backend Admin Portal (Server- & Integrationskonfiguration)</a>
+                    <input type="text" id="input-backend-url" placeholder="e.g. http://localhost:8000 or https://api.server.com" class="hud-input">
+                    <p class="settings-help">URL of your Freja API backend. If empty, the current origin is used (window.location.origin).</p>
+                    <a href="http://localhost:8000/" target="_blank" class="hud-link" style="display: inline-block; margin-top: 6px; font-size: 11px;"><i class="fa-solid fa-server"></i> Open the Backend Admin Portal (server &amp; integration configuration)</a>
                 </div>
 
                 <div class="settings-group">
@@ -331,9 +331,9 @@
                     <div style="display: flex; gap: 8px;">
                         <select id="select-voice" class="hud-select" style="flex: 1;">
                             <!-- Loaded dynamically -->
-                            <option value="">Laddar röster...</option>
+                            <option value="">Loading voices...</option>
                         </select>
-                        <button type="button" id="btn-test-voice" class="hud-btn btn-secondary" style="padding: 0 12px; height: 32px;" title="Testa vald röst">
+                        <button type="button" id="btn-test-voice" class="hud-btn btn-secondary" style="padding: 0 12px; height: 32px;" title="Test the selected voice">
                             <i class="fa-solid fa-volume-high"></i>
                         </button>
                     </div>
@@ -345,16 +345,16 @@
                     <label for="select-eleven-voice">ElevenLabs Voice Presets</label>
                     <select id="select-eleven-voice" class="hud-select">
                         <option value="21m00Tcm4TlvDq8ikWAM" selected>Rachel (Varm & Tydlig - Kvinna)</option>
-                        <option value="ErXwobaYiN019PkySvjV">Antoni (Professionell & Djup - Man)</option>
-                        <option value="EXAVITQu4vr4xnSDxMaL">Bella (Klar & Naturlig - Kvinna)</option>
-                        <option value="pNInz6obpm5mJsZJQIEX">Adam (Klassisk röst - Man)</option>
-                        <option value="custom">-- Ange eget Voice ID --</option>
+                        <option value="ErXwobaYiN019PkySvjV">Antoni (professional &amp; deep - male)</option>
+                        <option value="EXAVITQu4vr4xnSDxMaL">Bella (clear &amp; natural - female)</option>
+                        <option value="pNInz6obpm5mJsZJQIEX">Adam (classic voice - male)</option>
+                        <option value="custom">-- Enter a custom Voice ID --</option>
                     </select>
                 </div>
 
                 <div class="settings-group" id="group-eleven-custom" style="display: none;">
                     <label for="input-eleven-custom-voice">Eget ElevenLabs Voice ID</label>
-                    <input type="text" id="input-eleven-custom-voice" placeholder="Mata in voice_id (t.ex. 21m00Tcm4TlvDq8ikWAM)..." class="hud-input">
+                    <input type="text" id="input-eleven-custom-voice" placeholder="Enter a voice_id (e.g. 21m00Tcm4TlvDq8ikWAM)..." class="hud-input">
                 </div>
 
                 <div class="settings-group">
@@ -367,7 +367,7 @@
 
                 <div class="settings-group">
                     <div class="slider-row">
-                        <label for="slider-pitch">Voice Pitch (Tonläge)</label>
+                        <label for="slider-pitch">Voice Pitch</label>
                         <span class="slider-val" id="val-pitch">1.0</span>
                     </div>
                     <input type="range" id="slider-pitch" min="0.5" max="1.5" step="0.1" value="1.0" class="hud-range">
@@ -375,13 +375,13 @@
 
                 <div class="settings-group">
                     <label for="textarea-persona">System Prompt (Jarvis Persona)</label>
-                    <textarea id="textarea-persona" rows="4" class="hud-textarea">Du är FREJA, en extremt intelligent, artig och kvick AI-assistent. Svara kortfattat och slagkraftigt, idealiskt för tal. Svara alltid på det språk som användaren pratar eller skriver (svenska eller engelska).</textarea>
+                    <textarea id="textarea-persona" rows="4" class="hud-textarea">You are FREJA, an extremely intelligent, polite and witty AI assistant. Answer concisely and with impact, ideally suited for speech. Always answer in Swedish, unless the user explicitly writes to you in another language.</textarea>
                 </div>
 
             </div>
             <div class="modal-footer">
-                <button id="btn-reset-settings" class="hud-btn btn-secondary">ÅTERSTÄLL ALLT</button>
-                <button id="btn-save-settings" class="hud-btn btn-primary">SPARA KONFIGURERING</button>
+                <button id="btn-reset-settings" class="hud-btn btn-secondary">RESET ALL</button>
+                <button id="btn-save-settings" class="hud-btn btn-primary">SAVE CONFIGURATION</button>
             </div>
         </div>
     </div>
@@ -427,19 +427,19 @@
                     <span class="status-val" id="memory-engine-status">OFFLINE (VIRTUAL SANDBOX)</span>
                 </div>
                 <p class="settings-help" style="margin-bottom: 15px; font-size: 11px;">
-                    Här lagras och struktureras dina personliga preferenser och minnen som FREJA extraherar under era samtal. De återanvänds automatiskt för att ge personliga svar.
+                    Your personal preferences and the memories FREJA extracts during your conversations are stored and structured here. They are reused automatically to give personalized answers.
                 </p>
 
                 <!-- New Memory Manual Entry -->
                 <div class="add-memory-container" style="display: flex; gap: 8px; margin-bottom: 15px;">
-                    <input type="text" id="input-new-memory" placeholder="Mata in ett minne manuellt... (t.ex. 'Gillar starkt kaffe')" class="hud-input" style="flex: 1; font-size: 12px; height: 32px;">
-                    <button id="btn-add-memory-manual" class="hud-btn btn-primary" style="padding: 0 15px; font-size: 11px; height: 32px; font-family: var(--font-display);"><i class="fa-solid fa-plus"></i> LÄGG TILL</button>
+                    <input type="text" id="input-new-memory" placeholder="Enter a memory manually... (e.g. &#39;Likes strong coffee&#39;)" class="hud-input" style="flex: 1; font-size: 12px; height: 32px;">
+                    <button id="btn-add-memory-manual" class="hud-btn btn-primary" style="padding: 0 15px; font-size: 11px; height: 32px; font-family: var(--font-display);"><i class="fa-solid fa-plus"></i> ADD</button>
                 </div>
 
                 <div class="memories-list-container" style="display: flex; flex-direction: column; flex: 1; min-height: 250px; max-height: 350px;">
                     <h3 class="section-title" style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); margin-bottom: 8px; letter-spacing: 1px;">MINNES-ENGRAM (<span id="memory-count">0</span>)</h3>
                     <div class="memories-list" id="memories-list" style="flex: 1; overflow-y: auto; background: rgba(0,0,0,0.3); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px;">
-                        <div class="memory-loading-msg" style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Laddar minnen...</div>
+                        <div class="memory-loading-msg" style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Loading memories...</div>
                     </div>
                 </div>
 
@@ -452,27 +452,27 @@
                         <div style="display: flex; flex-direction: column; gap: 4px;">
                             <label for="input-mem0-key" style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary);">Mem0 API Key</label>
                             <div class="input-password-container">
-                                <input type="text" id="input-mem0-key" placeholder="Mata in Token..." class="hud-input" style="height: 32px; font-size: 12px; flex: 1;">
+                                <input type="text" id="input-mem0-key" placeholder="Enter the token..." class="hud-input" style="height: 32px; font-size: 12px; flex: 1;">
                                 <button type="button" id="btn-toggle-mem0-key" class="btn-toggle-input" style="height: 32px;"><i class="fa-solid fa-eye-slash"></i></button>
                             </div>
-                            <p class="settings-help" style="font-size: 9px; line-height: 1.3; margin: 0;">Skapa ett gratis konto på <a href="https://mem0.ai/" target="_blank" class="hud-link">mem0.ai</a> för att skaffa en API-nyckel. Om tomt körs minnet i ett lokalt sandlådeläge.</p>
+                            <p class="settings-help" style="font-size: 9px; line-height: 1.3; margin: 0;">Create a free account at <a href="https://mem0.ai/" target="_blank" class="hud-link">mem0.ai</a> to get an API key. If left empty, memory runs in a local sandbox mode.</p>
                         </div>
                         <div class="settings-group-toggle" style="display: flex; justify-content: space-between; align-items: center;">
-                            <span style="font-size: 11px; color: var(--color-text-muted);">Aktivera neuralt minne</span>
+                            <span style="font-size: 11px; color: var(--color-text-muted);">Enable neural memory</span>
                             <label class="hud-switch">
                                 <input type="checkbox" id="chk-use-mem0" checked>
                                 <span class="slider"></span>
                             </label>
                         </div>
                         <button id="btn-save-memory-api" class="hud-btn btn-primary" style="height: 32px; font-family: var(--font-display); font-size: 11px; margin-top: 5px;">
-                            <i class="fa-solid fa-floppy-disk"></i> SPARA MINNESINSTÄLLNINGAR
+                            <i class="fa-solid fa-floppy-disk"></i> SAVE MEMORY SETTINGS
                         </button>
                     </div>
                 </details>
             </div>
             <div class="modal-footer">
                 <button id="btn-wipe-memory" class="hud-btn btn-secondary" style="border-color: #ff3b30; color: #ff3b30;"><i class="fa-solid fa-trash-can"></i> RADERA ALLT MINNE</button>
-                <button id="btn-refresh-memory" class="hud-btn btn-primary"><i class="fa-solid fa-rotate"></i> SYNKRONISERA</button>
+                <button id="btn-refresh-memory" class="hud-btn btn-primary"><i class="fa-solid fa-rotate"></i> SYNC</button>
             </div>
         </div>
     </div>
@@ -496,20 +496,20 @@
                         <input type="number" id="garmin-input-steps" placeholder="t.ex. 10000" class="hud-input" style="height: 32px; font-size: 12px;">
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 4px;">
-                        <label for="garmin-input-sleep" style="font-size: 11px; color: var(--color-text-muted);">Sömn (timmar)</label>
+                        <label for="garmin-input-sleep" style="font-size: 11px; color: var(--color-text-muted);">Sleep (hours)</label>
                         <input type="number" step="0.1" id="garmin-input-sleep" placeholder="t.ex. 7.5" class="hud-input" style="height: 32px; font-size: 12px;">
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 4px;">
-                        <label for="garmin-input-hr" style="font-size: 11px; color: var(--color-text-muted);">Vilopuls (BPM)</label>
+                        <label for="garmin-input-hr" style="font-size: 11px; color: var(--color-text-muted);">Resting heart rate (BPM)</label>
                         <input type="number" id="garmin-input-hr" placeholder="t.ex. 58" class="hud-input" style="height: 32px; font-size: 12px;">
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 4px;">
-                        <label for="garmin-input-calories" style="font-size: 11px; color: var(--color-text-muted);">Aktiva kalorier</label>
+                        <label for="garmin-input-calories" style="font-size: 11px; color: var(--color-text-muted);">Active calories</label>
                         <input type="number" id="garmin-input-calories" placeholder="t.ex. 400" class="hud-input" style="height: 32px; font-size: 12px;">
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 4px;">
-                        <label for="garmin-input-workout-type" style="font-size: 11px; color: var(--color-text-muted);">Träningsform</label>
-                        <input type="text" id="garmin-input-workout-type" placeholder="t.ex. Löpning" class="hud-input" style="height: 32px; font-size: 12px;">
+                        <label for="garmin-input-workout-type" style="font-size: 11px; color: var(--color-text-muted);">Workout type</label>
+                        <input type="text" id="garmin-input-workout-type" placeholder="e.g. Löpning" class="hud-input" style="height: 32px; font-size: 12px;">
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 4px;">
                         <label for="garmin-input-workout-duration" style="font-size: 11px; color: var(--color-text-muted);">Tid (minuter)</label>
@@ -523,50 +523,50 @@
                         <label for="garmin-input-hrv" style="font-size: 11px; color: var(--color-text-muted);">HRV (Snitt ms)</label>
                         <input type="number" id="garmin-input-hrv" placeholder="t.ex. 65" class="hud-input" style="height: 32px; font-size: 12px;">
                     </div>
-                    <button id="btn-save-garmin-manual" class="hud-btn btn-primary" style="grid-column: span 2; height: 34px; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-floppy-disk"></i> SPARA DAGSLOGG</button>
+                    <button id="btn-save-garmin-manual" class="hud-btn btn-primary" style="grid-column: span 2; height: 34px; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-floppy-disk"></i> SAVE DAILY LOG</button>
                 </div>
                 
                 <!-- List of recent logs -->
                 <div class="garmin-list-container" style="display: flex; flex-direction: column; flex: 1; min-height: 200px; max-height: 250px;">
-                    <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); margin-bottom: 8px; letter-spacing: 1px;">HISTORIK (SENASTE 10 DAGARNA)</h3>
+                    <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); margin-bottom: 8px; letter-spacing: 1px;">HISTORY (LASTASTE 10 DAGARNA)</h3>
                     <div class="garmin-list" id="garmin-list" style="flex: 1; overflow-y: auto; background: rgba(0,0,0,0.3); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px;">
-                        <div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Laddar historik...</div>
+                        <div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Loading history...</div>
                     </div>
                 </div>
 
                 <!-- Garmin Account & Permission Settings -->
                 <details class="garmin-api-details" style="border: 1px solid var(--color-border); border-radius: 4px; background: rgba(0, 0, 0, 0.2); padding: 8px 12px; margin-top: 10px;">
                     <summary style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); cursor: pointer; user-select: none; outline: none; letter-spacing: 1px;">
-                        <i class="fa-solid fa-user-gear" style="margin-right: 6px;"></i> GARMIN KONTOINSTÄLLNINGAR
+                        <i class="fa-solid fa-user-gear" style="margin-right: 6px;"></i> GARMIN ACCOUNT SETTINGS
                     </summary>
                     <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 10px;">
                         <div style="display: flex; flex-direction: column; gap: 4px;">
-                            <label for="input-garmin-email" style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary);">Garmin E-post</label>
-                            <input type="email" id="input-garmin-email" placeholder="Skriv Garmin e-post..." class="hud-input" style="height: 32px; font-size: 12px;">
+                            <label for="input-garmin-email" style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary);">Garmin email</label>
+                            <input type="email" id="input-garmin-email" placeholder="Enter the Garmin email..." class="hud-input" style="height: 32px; font-size: 12px;">
                         </div>
                         <div style="display: flex; flex-direction: column; gap: 4px;">
-                            <label for="input-garmin-password" style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary);">Garmin Lösenord</label>
+                            <label for="input-garmin-password" style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary);">Garmin password</label>
                             <div class="input-password-container">
-                                <input type="password" id="input-garmin-password" placeholder="Skriv Garmin lösenord..." class="hud-input" style="height: 32px; font-size: 12px; flex: 1;">
+                                <input type="password" id="input-garmin-password" placeholder="Enter the Garmin password..." class="hud-input" style="height: 32px; font-size: 12px; flex: 1;">
                                 <button type="button" id="btn-toggle-garmin-password" class="btn-toggle-input" style="height: 32px;"><i class="fa-solid fa-eye"></i></button>
                             </div>
                         </div>
                         <div class="settings-group-toggle" style="display: flex; justify-content: space-between; align-items: center;">
-                            <span style="font-size: 11px; color: var(--color-text-muted);">Tillåt Garmin Hälsocoach (get_garmin_health)</span>
+                            <span style="font-size: 11px; color: var(--color-text-muted);">Allow Garmin health coach (get_garmin_health)</span>
                             <label class="hud-switch">
                                 <input type="checkbox" id="chk-tool-get_garmin_health">
                                 <span class="slider"></span>
                             </label>
                         </div>
                         <button id="btn-save-garmin-api" class="hud-btn btn-primary" style="height: 32px; font-family: var(--font-display); font-size: 11px; margin-top: 5px;">
-                            <i class="fa-solid fa-floppy-disk"></i> SPARA KONTOINSTÄLLNINGAR
+                            <i class="fa-solid fa-floppy-disk"></i> SAVE ACCOUNT SETTINGS
                         </button>
                     </div>
                 </details>
             </div>
             <div class="modal-footer" style="display: flex; gap: 10px;">
-                <button id="btn-sync-garmin-dashboard" class="hud-btn btn-primary" style="flex: 1; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-arrows-rotate"></i> SYNKRONISERA ENHET</button>
-                <button id="btn-sync-garmin-all" class="hud-btn btn-primary" style="flex: 1; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-clock-rotate-left"></i> HÄMTA ALL HISTORIK</button>
+                <button id="btn-sync-garmin-dashboard" class="hud-btn btn-primary" style="flex: 1; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-arrows-rotate"></i> SYNC DEVICE</button>
+                <button id="btn-sync-garmin-all" class="hud-btn btn-primary" style="flex: 1; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-clock-rotate-left"></i> FETCH ALL HISTORY</button>
             </div>
         </div>
     </div>
@@ -582,21 +582,24 @@
                 <!-- Form for entering data -->
                 <div class="strava-form" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--color-border); border-radius: 4px; padding: 12px;">
                     <div style="grid-column: span 2; display: flex; flex-direction: column; gap: 4px;">
-                        <label for="strava-input-name" style="font-size: 11px; color: var(--color-text-muted);">Aktivitetsnamn</label>
-                        <input type="text" id="strava-input-name" placeholder="t.ex. Morgonlöpning" class="hud-input" style="height: 32px; font-size: 12px;">
+                        <label for="strava-input-name" style="font-size: 11px; color: var(--color-text-muted);">Activity name</label>
+                        <input type="text" id="strava-input-name" placeholder="e.g. Morgonlöpning" class="hud-input" style="height: 32px; font-size: 12px;">
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 4px;">
-                        <label for="strava-input-date" style="font-size: 11px; color: var(--color-text-muted);">Datum</label>
+                        <label for="strava-input-date" style="font-size: 11px; color: var(--color-text-muted);">Date</label>
                         <input type="date" id="strava-input-date" class="hud-input" style="height: 32px; font-size: 12px; font-family: var(--font-mono);">
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 4px;">
-                        <label for="strava-input-type" style="font-size: 11px; color: var(--color-text-muted);">Träningsform</label>
+                        <label for="strava-input-type" style="font-size: 11px; color: var(--color-text-muted);">Workout type</label>
+                        <!-- The option VALUES stay Swedish: they are persisted to
+                             strava_activities.type and matched by the pace-vs-speed logic in
+                             backend/routes/strava.py. Only the visible labels are English. -->
                         <select id="strava-input-type" class="hud-select" style="height: 32px; font-size: 12px; padding: 0 8px;">
-                            <option value="Löpning">Löpning</option>
-                            <option value="Cykling">Cykling</option>
-                            <option value="Simning">Simning</option>
-                            <option value="Styrketräning">Styrketräning</option>
-                            <option value="Promenad">Promenad</option>
+                            <option value="Löpning">Running</option>
+                            <option value="Cykling">Cycling</option>
+                            <option value="Simning">Swimming</option>
+                            <option value="Styrketräning">Strength training</option>
+                            <option value="Promenad">Walking</option>
                             <option value="Yoga">Yoga</option>
                         </select>
                     </div>
@@ -609,7 +612,7 @@
                         <input type="number" id="strava-input-duration" placeholder="t.ex. 1800" class="hud-input" style="height: 32px; font-size: 12px;">
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 4px;">
-                        <label for="strava-input-elevation" style="font-size: 11px; color: var(--color-text-muted);">Höjdmeter (m)</label>
+                        <label for="strava-input-elevation" style="font-size: 11px; color: var(--color-text-muted);">Elevation gain (m)</label>
                         <input type="number" id="strava-input-elevation" placeholder="t.ex. 45" class="hud-input" style="height: 32px; font-size: 12px;">
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 4px;">
@@ -624,14 +627,14 @@
                         <label for="strava-input-calories" style="font-size: 11px; color: var(--color-text-muted);">Kalorier (kcal)</label>
                         <input type="number" id="strava-input-calories" placeholder="t.ex. 350" class="hud-input" style="height: 32px; font-size: 12px;">
                     </div>
-                    <button id="btn-save-strava-manual" class="hud-btn btn-primary" style="grid-column: span 2; height: 34px; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-floppy-disk"></i> SPARA TRÄNINGSPASS</button>
+                    <button id="btn-save-strava-manual" class="hud-btn btn-primary" style="grid-column: span 2; height: 34px; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-floppy-disk"></i> SAVE WORKOUT</button>
                 </div>
                 
                 <!-- List of recent activities -->
                 <div class="strava-list-container" style="display: flex; flex-direction: column; flex: 1; min-height: 200px; max-height: 250px;">
-                    <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); margin-bottom: 8px; letter-spacing: 1px;">HISTORIK (SENASTE AKTIVITETERNA)</h3>
+                    <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); margin-bottom: 8px; letter-spacing: 1px;">HISTORY (LASTASTE AKTIVITETERNA)</h3>
                     <div class="strava-list" id="strava-list" style="flex: 1; overflow-y: auto; background: rgba(0,0,0,0.3); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px;">
-                        <div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Laddar historik...</div>
+                        <div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Loading history...</div>
                     </div>
                 </div>
 
@@ -643,44 +646,44 @@
                     <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 10px;">
                         <div style="display: flex; flex-direction: column; gap: 4px;">
                             <label for="input-strava-client-id" style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary);">Strava Client ID</label>
-                            <input type="text" id="input-strava-client-id" placeholder="Skriv Strava Client ID..." class="hud-input" style="height: 32px; font-size: 12px;">
+                            <input type="text" id="input-strava-client-id" placeholder="Enter the Strava Client ID..." class="hud-input" style="height: 32px; font-size: 12px;">
                         </div>
                         <div style="display: flex; flex-direction: column; gap: 4px;">
                             <label for="input-strava-client-secret" style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary);">Strava Client Secret</label>
                             <div class="input-password-container">
-                                <input type="password" id="input-strava-client-secret" placeholder="Skriv Strava Client Secret..." class="hud-input" style="height: 32px; font-size: 12px; flex: 1;">
+                                <input type="password" id="input-strava-client-secret" placeholder="Enter the Strava Client Secret..." class="hud-input" style="height: 32px; font-size: 12px; flex: 1;">
                                 <button type="button" id="btn-toggle-strava-secret" class="btn-toggle-input" style="height: 32px;"><i class="fa-solid fa-eye"></i></button>
                             </div>
                         </div>
                         <div style="display: flex; flex-direction: column; gap: 4px;">
                             <label for="input-strava-refresh-token" style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary);">Strava Refresh Token</label>
                             <div class="input-password-container">
-                                <input type="password" id="input-strava-refresh-token" placeholder="Skriv Strava Refresh Token..." class="hud-input" style="height: 32px; font-size: 12px; flex: 1;">
+                                <input type="password" id="input-strava-refresh-token" placeholder="Enter the Strava Refresh Token..." class="hud-input" style="height: 32px; font-size: 12px; flex: 1;">
                                 <button type="button" id="btn-toggle-strava-token" class="btn-toggle-input" style="height: 32px;"><i class="fa-solid fa-eye"></i></button>
                             </div>
                             <a id="lnk-strava-authorize" href="#" target="_blank" class="hud-link" style="display: none; margin-top: 6px; font-size: 11px; text-decoration: underline; color: #00f0ff;">
-                                <i class="fa-solid fa-key"></i> Auktorisera Strava (Hämta token med rätt behörigheter)
+                                <i class="fa-solid fa-key"></i> Authorize Strava (fetch a token with the required scopes)
                             </a>
                         </div>
 
                         <!-- Tool permissions -->
                         <div style="border-top: 1px solid rgba(255, 255, 255, 0.05); margin-top: 5px; padding-top: 8px; display: flex; flex-direction: column; gap: 8px;">
                             <div class="settings-group-toggle" style="display: flex; justify-content: space-between; align-items: center;">
-                                <span style="font-size: 11px; color: var(--color-text-muted);">Tillåt Strava Träningscoach (get_strava_data)</span>
+                                <span style="font-size: 11px; color: var(--color-text-muted);">Allow Strava training coach (get_strava_data)</span>
                                 <label class="hud-switch">
                                     <input type="checkbox" id="chk-tool-get_strava_data">
                                     <span class="slider"></span>
                                 </label>
                             </div>
                             <div class="settings-group-toggle" style="display: flex; justify-content: space-between; align-items: center;">
-                                <span style="font-size: 11px; color: var(--color-text-muted);">Tillåt Strava Detaljerad Aktivitet (get_strava_activity_analysis)</span>
+                                <span style="font-size: 11px; color: var(--color-text-muted);">Allow Strava detailed activity (get_strava_activity_analysis)</span>
                                 <label class="hud-switch">
                                     <input type="checkbox" id="chk-tool-get_strava_activity_analysis">
                                     <span class="slider"></span>
                                 </label>
                             </div>
                             <div class="settings-group-toggle" style="display: flex; justify-content: space-between; align-items: center;">
-                                <span style="font-size: 11px; color: var(--color-text-muted);">Tillåt Strava Atlet-statistik (get_strava_athlete_stats)</span>
+                                <span style="font-size: 11px; color: var(--color-text-muted);">Allow Strava athlete statistics (get_strava_athlete_stats)</span>
                                 <label class="hud-switch">
                                     <input type="checkbox" id="chk-tool-get_strava_athlete_stats">
                                     <span class="slider"></span>
@@ -689,14 +692,14 @@
                         </div>
 
                         <button id="btn-save-strava-api" class="hud-btn btn-primary" style="height: 32px; font-family: var(--font-display); font-size: 11px; margin-top: 5px;">
-                            <i class="fa-solid fa-floppy-disk"></i> SPARA API-INSTÄLLNINGAR
+                            <i class="fa-solid fa-floppy-disk"></i> SAVE API SETTINGS
                         </button>
                     </div>
                 </details>
             </div>
             <div class="modal-footer" style="display: flex; gap: 10px;">
-                <button id="btn-sync-strava-dashboard" class="hud-btn btn-primary" style="flex: 1; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-arrows-rotate"></i> SYNKRONISERA ENHET</button>
-                <button id="btn-sync-strava-all" class="hud-btn btn-primary" style="flex: 1; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-clock-rotate-left"></i> HÄMTA ALL HISTORIK</button>
+                <button id="btn-sync-strava-dashboard" class="hud-btn btn-primary" style="flex: 1; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-arrows-rotate"></i> SYNC DEVICE</button>
+                <button id="btn-sync-strava-all" class="hud-btn btn-primary" style="flex: 1; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-clock-rotate-left"></i> FETCH ALL HISTORY</button>
             </div>
         </div>
     </div>
@@ -731,14 +734,14 @@
                         <label for="withings-input-pulse" style="font-size: 11px; color: var(--color-text-muted);">Puls (BPM)</label>
                         <input type="number" id="withings-input-pulse" placeholder="t.ex. 56" class="hud-input" style="height: 32px; font-size: 12px;">
                     </div>
-                    <button id="btn-save-withings-manual" class="hud-btn btn-primary" style="grid-column: span 2; height: 34px; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-floppy-disk"></i> SPARA MÄTNING</button>
+                    <button id="btn-save-withings-manual" class="hud-btn btn-primary" style="grid-column: span 2; height: 34px; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-floppy-disk"></i> SAVE MEASUREMENT</button>
                 </div>
                 
                 <!-- List of recent measurements -->
                 <div class="withings-list-container" style="display: flex; flex-direction: column; flex: 1; min-height: 200px; max-height: 250px;">
-                    <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); margin-bottom: 8px; letter-spacing: 1px;">HISTORIK (SENASTE MÄTNINGARNA)</h3>
+                    <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); margin-bottom: 8px; letter-spacing: 1px;">HISTORY (LATEST MEASUREMENTS)</h3>
                     <div class="withings-list" id="withings-list" style="flex: 1; overflow-y: auto; background: rgba(0,0,0,0.3); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px;">
-                        <div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Laddar historik...</div>
+                        <div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Loading history...</div>
                     </div>
                 </div>
 
@@ -750,38 +753,38 @@
                     <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 10px;">
                         <div style="display: flex; flex-direction: column; gap: 4px;">
                             <label for="input-withings-client-id" style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary);">Withings Client ID</label>
-                            <input type="text" id="input-withings-client-id" placeholder="Skriv Withings Client ID..." class="hud-input" style="height: 32px; font-size: 12px;">
+                            <input type="text" id="input-withings-client-id" placeholder="Enter the Withings Client ID..." class="hud-input" style="height: 32px; font-size: 12px;">
                         </div>
                         <div style="display: flex; flex-direction: column; gap: 4px;">
                             <label for="input-withings-client-secret" style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary);">Withings Client Secret</label>
                             <div class="input-password-container">
-                                <input type="password" id="input-withings-client-secret" placeholder="Skriv Withings Client Secret..." class="hud-input" style="height: 32px; font-size: 12px; flex: 1;">
+                                <input type="password" id="input-withings-client-secret" placeholder="Enter the Withings Client Secret..." class="hud-input" style="height: 32px; font-size: 12px; flex: 1;">
                                 <button type="button" id="btn-toggle-withings-secret" class="btn-toggle-input" style="height: 32px;"><i class="fa-solid fa-eye"></i></button>
                             </div>
                         </div>
                         <div style="display: flex; flex-direction: column; gap: 4px;">
                             <label for="input-withings-refresh-token" style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary);">Withings Refresh Token</label>
                             <div class="input-password-container">
-                                <input type="password" id="input-withings-refresh-token" placeholder="Skriv Withings Refresh Token..." class="hud-input" style="height: 32px; font-size: 12px; flex: 1;">
+                                <input type="password" id="input-withings-refresh-token" placeholder="Enter the Withings Refresh Token..." class="hud-input" style="height: 32px; font-size: 12px; flex: 1;">
                                 <button type="button" id="btn-toggle-withings-token" class="btn-toggle-input" style="height: 32px;"><i class="fa-solid fa-eye"></i></button>
                             </div>
                         </div>
                         <div class="settings-group-toggle" style="display: flex; justify-content: space-between; align-items: center;">
-                            <span style="font-size: 11px; color: var(--color-text-muted);">Tillåt Withings Hälsocoach (get_withings_health)</span>
+                            <span style="font-size: 11px; color: var(--color-text-muted);">Allow Withings health coach (get_withings_health)</span>
                             <label class="hud-switch">
                                 <input type="checkbox" id="chk-tool-get_withings_health">
                                 <span class="slider"></span>
                             </label>
                         </div>
                         <button id="btn-save-withings-api" class="hud-btn btn-primary" style="height: 32px; font-family: var(--font-display); font-size: 11px; margin-top: 5px;">
-                            <i class="fa-solid fa-floppy-disk"></i> SPARA API-INSTÄLLNINGAR
+                            <i class="fa-solid fa-floppy-disk"></i> SAVE API SETTINGS
                         </button>
                     </div>
                 </details>
             </div>
             <div class="modal-footer" style="display: flex; gap: 10px;">
-                <button id="btn-sync-withings-dashboard" class="hud-btn btn-primary" style="flex: 1; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-arrows-rotate"></i> SYNKRONISERA ENHET</button>
-                <button id="btn-sync-withings-all" class="hud-btn btn-primary" style="flex: 1; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-clock-rotate-left"></i> HÄMTA ALL HISTORIK</button>
+                <button id="btn-sync-withings-dashboard" class="hud-btn btn-primary" style="flex: 1; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-arrows-rotate"></i> SYNC DEVICE</button>
+                <button id="btn-sync-withings-all" class="hud-btn btn-primary" style="flex: 1; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-clock-rotate-left"></i> FETCH ALL HISTORY</button>
             </div>
         </div>
     </div>
@@ -798,8 +801,8 @@
                 <div class="google-calendar-form" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--color-border); border-radius: 4px; padding: 12px;">
                     <input type="hidden" id="google-calendar-input-id">
                     <div style="grid-column: span 2; display: flex; flex-direction: column; gap: 4px;">
-                        <label for="google-calendar-input-summary" style="font-size: 11px; color: var(--color-text-muted);">Händelse/Titel</label>
-                        <input type="text" id="google-calendar-input-summary" placeholder="t.ex. Möte med Sven" class="hud-input" style="height: 32px; font-size: 12px;">
+                        <label for="google-calendar-input-summary" style="font-size: 11px; color: var(--color-text-muted);">Event / title</label>
+                        <input type="text" id="google-calendar-input-summary" placeholder="e.g. Meeting with Sven" class="hud-input" style="height: 32px; font-size: 12px;">
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 4px;">
                         <label for="google-calendar-input-start" style="font-size: 11px; color: var(--color-text-muted);">Starttid</label>
@@ -811,21 +814,21 @@
                     </div>
                     <div style="grid-column: span 2; display: flex; flex-direction: column; gap: 4px;">
                         <label for="google-calendar-input-description" style="font-size: 11px; color: var(--color-text-muted);">Beskrivning</label>
-                        <input type="text" id="google-calendar-input-description" placeholder="Mötesanteckningar eller info..." class="hud-input" style="height: 32px; font-size: 12px;">
+                        <input type="text" id="google-calendar-input-description" placeholder="Meeting notes or details..." class="hud-input" style="height: 32px; font-size: 12px;">
                     </div>
                     <div style="grid-column: span 2; display: flex; flex-direction: column; gap: 4px;">
                         <label for="google-calendar-input-location" style="font-size: 11px; color: var(--color-text-muted);">Plats</label>
-                        <input type="text" id="google-calendar-input-location" placeholder="Mötesrum, Teams/Meet eller adress..." class="hud-input" style="height: 32px; font-size: 12px;">
+                        <input type="text" id="google-calendar-input-location" placeholder="Meeting room, Teams/Meet link or address..." class="hud-input" style="height: 32px; font-size: 12px;">
                     </div>
-                    <button id="btn-save-google-calendar-manual" class="hud-btn btn-primary" style="grid-column: span 2; height: 34px; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-floppy-disk"></i> SPARA HÄNDELSE</button>
-                    <button id="btn-cancel-google-calendar-edit" class="hud-btn btn-secondary" style="grid-column: span 2; height: 34px; font-family: var(--font-display); font-size: 11px; display: none;">AVBRYT EDITERING</button>
+                    <button id="btn-save-google-calendar-manual" class="hud-btn btn-primary" style="grid-column: span 2; height: 34px; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-floppy-disk"></i> SAVE EVENT</button>
+                    <button id="btn-cancel-google-calendar-edit" class="hud-btn btn-secondary" style="grid-column: span 2; height: 34px; font-family: var(--font-display); font-size: 11px; display: none;">CANCEL EDIT</button>
                 </div>
                 
                 <!-- List of recent calendar events -->
                 <div class="google-calendar-list-container" style="display: flex; flex-direction: column; flex: 1; min-height: 200px; max-height: 250px;">
-                    <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); margin-bottom: 8px; letter-spacing: 1px;">KALENDERHÄNDELSER</h3>
+                    <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); margin-bottom: 8px; letter-spacing: 1px;">CALENDAR EVENTS</h3>
                     <div class="google-calendar-list" id="google-calendar-list" style="flex: 1; overflow-y: auto; background: rgba(0,0,0,0.3); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px;">
-                        <div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Laddar kalenderhändelser...</div>
+                        <div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Loading calendar events...</div>
                     </div>
                 </div>
 
@@ -837,43 +840,43 @@
                     <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 10px;">
                         <div style="display: flex; flex-direction: column; gap: 4px;">
                             <label for="input-google-calendar-client-id" style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary);">Google Client ID</label>
-                            <input type="text" id="input-google-calendar-client-id" placeholder="Skriv Google Client ID..." class="hud-input" style="height: 32px; font-size: 12px;">
+                            <input type="text" id="input-google-calendar-client-id" placeholder="Enter the Google Client ID..." class="hud-input" style="height: 32px; font-size: 12px;">
                             <a id="lnk-google-calendar-authorize" href="#" class="hud-btn btn-primary" style="display: none; text-align: center; text-decoration: none; align-items: center; justify-content: center; height: 32px; font-family: var(--font-display); font-size: 11px; margin-top: 5px;">
                                 <i class="fa-brands fa-google" style="margin-right: 6px;"></i> KOPPLA GOOGLE-KONTO
                             </a>
                             <p class="settings-help" style="font-size: 9px; line-height: 1.3; margin: 2px 0 6px 0; color: var(--color-text-muted);">
-                                Skapa ett OAuth Client ID av typen <strong>Desktop app</strong> i Google Cloud Console (inga redirect URIs eller secrets krävs). Klistra in ditt Client ID ovan och klicka på knappen för automatisk inloggning.
+                                Create an OAuth Client ID of type <strong>Desktop app</strong> in the Google Cloud Console (no redirect URIs or secrets required). Paste your Client ID above and click the button for automatic sign-in.
                             </p>
                         </div>
                         <div style="display: flex; flex-direction: column; gap: 4px;">
                             <label for="input-google-calendar-client-secret" style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary);">Google Client Secret</label>
                             <div class="input-password-container">
-                                <input type="password" id="input-google-calendar-client-secret" placeholder="Skriv Google Client Secret..." class="hud-input" style="height: 32px; font-size: 12px; flex: 1;">
+                                <input type="password" id="input-google-calendar-client-secret" placeholder="Enter the Google Client Secret..." class="hud-input" style="height: 32px; font-size: 12px; flex: 1;">
                                 <button type="button" id="btn-toggle-google-calendar-secret" class="btn-toggle-input" style="height: 32px;"><i class="fa-solid fa-eye"></i></button>
                             </div>
                         </div>
                         <div style="display: flex; flex-direction: column; gap: 4px;">
                             <label for="input-google-calendar-refresh-token" style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary);">Google Refresh Token</label>
                             <div class="input-password-container">
-                                <input type="password" id="input-google-calendar-refresh-token" placeholder="Skriv Google Refresh Token..." class="hud-input" style="height: 32px; font-size: 12px; flex: 1;">
+                                <input type="password" id="input-google-calendar-refresh-token" placeholder="Enter the Google Refresh Token..." class="hud-input" style="height: 32px; font-size: 12px; flex: 1;">
                                 <button type="button" id="btn-toggle-google-calendar-token" class="btn-toggle-input" style="height: 32px;"><i class="fa-solid fa-eye"></i></button>
                             </div>
                         </div>
                         <div class="settings-group-toggle" style="display: flex; justify-content: space-between; align-items: center;">
-                            <span style="font-size: 11px; color: var(--color-text-muted);">Tillåt Google Kalender (manage_google_calendar)</span>
+                            <span style="font-size: 11px; color: var(--color-text-muted);">Allow Google Calendar (manage_google_calendar)</span>
                             <label class="hud-switch">
                                 <input type="checkbox" id="chk-tool-manage_google_calendar">
                                 <span class="slider"></span>
                             </label>
                         </div>
                         <button id="btn-save-google-calendar-api" class="hud-btn btn-primary" style="height: 32px; font-family: var(--font-display); font-size: 11px; margin-top: 5px;">
-                            <i class="fa-solid fa-floppy-disk"></i> SPARA API-INSTÄLLNINGAR
+                            <i class="fa-solid fa-floppy-disk"></i> SAVE API SETTINGS
                         </button>
                     </div>
                 </details>
             </div>
             <div class="modal-footer" style="display: flex; gap: 10px;">
-                <button id="btn-sync-google_calendar-dashboard" class="hud-btn btn-primary" style="flex: 1; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-arrows-rotate"></i> SYNKRONISERA KALENDER</button>
+                <button id="btn-sync-google_calendar-dashboard" class="hud-btn btn-primary" style="flex: 1; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-arrows-rotate"></i> SYNC CALENDAR</button>
             </div>
         </div>
     </div>
@@ -889,25 +892,25 @@
                 <!-- Configuration Form -->
                 <div class="telegram-form" style="display: flex; flex-direction: column; gap: 10px; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--color-border); border-radius: 4px; padding: 12px;">
                     <div style="display: flex; flex-direction: column; gap: 4px;">
-                        <label for="telegram-input-token" style="font-size: 11px; color: var(--color-text-muted);">Telegram Bot Token (från @BotFather)</label>
-                        <input type="password" id="telegram-input-token" placeholder="Ange din bot token..." class="hud-input" style="height: 32px; font-size: 12px;">
+                        <label for="telegram-input-token" style="font-size: 11px; color: var(--color-text-muted);">Telegram bot token (from @BotFather)</label>
+                        <input type="password" id="telegram-input-token" placeholder="Enter your bot token..." class="hud-input" style="height: 32px; font-size: 12px;">
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 4px;">
                         <label for="telegram-input-chat-id" style="font-size: 11px; color: var(--color-text-muted);">Auktoriserat Chat ID (t.ex. 12345678)</label>
-                        <input type="text" id="telegram-input-chat-id" placeholder="Ange ditt Telegram chat ID..." class="hud-input" style="height: 32px; font-size: 12px;">
+                        <input type="text" id="telegram-input-chat-id" placeholder="Enter your Telegram chat ID..." class="hud-input" style="height: 32px; font-size: 12px;">
                     </div>
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
                         <span style="font-size: 11px; color: var(--color-text-muted);">Bot Status:</span>
                         <span id="telegram-bot-status" style="font-family: var(--font-mono); font-size: 11px; font-weight: bold; color: var(--color-error);">INAKTIV</span>
                     </div>
-                    <button id="btn-save-telegram" class="hud-btn btn-primary" style="height: 34px; font-family: var(--font-display); font-size: 11px; margin-top: 8px;"><i class="fa-solid fa-floppy-disk"></i> SPARA INSTÄLLNINGAR</button>
+                    <button id="btn-save-telegram" class="hud-btn btn-primary" style="height: 34px; font-family: var(--font-display); font-size: 11px; margin-top: 8px;"><i class="fa-solid fa-floppy-disk"></i> SAVE SETTINGS</button>
                 </div>
                 
                 <!-- Recent message logs -->
                 <div class="telegram-list-container" style="display: flex; flex-direction: column; flex: 1; min-height: 200px; max-height: 250px;">
                     <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); margin-bottom: 8px; letter-spacing: 1px;">SENASTE MEDDELANDEN</h3>
                     <div class="telegram-list" id="telegram-list" style="flex: 1; overflow-y: auto; background: rgba(0,0,0,0.3); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px;">
-                        <div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Ingen aktivitet loggad...</div>
+                        <div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">No activity logged...</div>
                     </div>
                 </div>
             </div>
@@ -937,24 +940,24 @@
                 <!-- Configuration Form -->
                 <div class="trainer-form" style="display: flex; flex-direction: column; gap: 10px; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--color-border); border-radius: 4px; padding: 12px;">
                     <div style="display: flex; flex-direction: column; gap: 4px;">
-                        <label for="trainer-input-goal" style="font-size: 11px; color: var(--color-text-muted);">Ditt träningsmål / Fokus</label>
-                        <input type="text" id="trainer-input-goal" placeholder="t.ex. Gå ner i vikt, springa 10 km, bygga muskler..." class="hud-input" style="height: 32px; font-size: 12px;">
+                        <label for="trainer-input-goal" style="font-size: 11px; color: var(--color-text-muted);">Your training goal / focus</label>
+                        <input type="text" id="trainer-input-goal" placeholder="e.g. lose weight, run 10 km, build muscle..." class="hud-input" style="height: 32px; font-size: 12px;">
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 4px;">
-                        <label for="trainer-input-limitations" style="font-size: 11px; color: var(--color-text-muted);">Skador / Sjukdomar / Begränsningar</label>
-                        <input type="text" id="trainer-input-limitations" placeholder="t.ex. Ansträngningsastma, känsligt högerknä..." class="hud-input" style="height: 32px; font-size: 12px;">
+                        <label for="trainer-input-limitations" style="font-size: 11px; color: var(--color-text-muted);">Injuries / illnesses / limitations</label>
+                        <input type="text" id="trainer-input-limitations" placeholder="e.g. exercise-induced asthma, sensitive right knee..." class="hud-input" style="height: 32px; font-size: 12px;">
                     </div>
-                    <button id="btn-generate-trainer-plan" class="hud-btn btn-primary" style="height: 34px; font-family: var(--font-display); font-size: 11px; margin-top: 8px;"><i class="fa-solid fa-wand-magic-sparkles"></i> GENERERA TRÄNINGSPROGRAM</button>
+                    <button id="btn-generate-trainer-plan" class="hud-btn btn-primary" style="height: 34px; font-family: var(--font-display); font-size: 11px; margin-top: 8px;"><i class="fa-solid fa-wand-magic-sparkles"></i> GENERATE TRAINING PLAN</button>
                 </div>
 
                 <!-- PT Settings -->
                 <div class="trainer-settings" style="display: flex; flex-direction: column; gap: 10px; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--color-border); border-radius: 4px; padding: 12px;">
-                    <span style="font-size: 11px; color: var(--color-primary); font-family: var(--font-display); letter-spacing: 0.5px;"><i class="fa-solid fa-sliders"></i> PT-INSTÄLLNINGAR</span>
+                    <span style="font-size: 11px; color: var(--color-primary); font-family: var(--font-display); letter-spacing: 0.5px;"><i class="fa-solid fa-sliders"></i> PT SETTINGS</span>
                     <label style="display: flex; align-items: flex-start; gap: 8px; font-size: 12px; color: var(--color-text); cursor: pointer;">
                         <input type="checkbox" id="chk-trainer-auto-adjust" checked style="margin-top: 2px;">
-                        <span>Justera kommande pass automatiskt efter ny Garmin-data (sömn, HRV och återhämtning)</span>
+                        <span>Automatically adjust upcoming sessions from new Garmin data (sleep, HRV and recovery)</span>
                     </label>
-                    <p style="font-size: 10px; color: var(--color-text-muted); margin: 0; line-height: 1.4;">F.R.E.J.A. läser din senaste återhämtningsdata och sänker längd/intensitet eller lägger in aktiv vila när kroppen behöver det – så att passen matchar ditt mål utan att du övertränar eller skadar dig.</p>
+                    <p style="font-size: 10px; color: var(--color-text-muted); margin: 0; line-height: 1.4;">F.R.E.J.A. reads your latest recovery data and reduces duration/intensity, or inserts active rest, when your body needs it - so the sessions match your goal without overtraining or injury.</p>
                     <button id="btn-trainer-optimize" class="hud-btn btn-primary" style="height: 34px; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-wand-sparkles"></i> OPTIMERA KOMMANDE PASS NU</button>
                     <div id="trainer-optimize-output" style="display: none; background: rgba(0, 0, 0, 0.4); border: 1px solid var(--color-border); border-radius: 4px; padding: 12px; font-family: var(--font-sans); font-size: 13px; line-height: 1.5; color: var(--color-text); max-height: 300px; overflow-y: auto;"></div>
                 </div>
@@ -970,7 +973,7 @@
                 <div class="trainer-list-container" style="display: flex; flex-direction: column; flex: 1; min-height: 180px; max-height: 250px;">
                     <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); margin-bottom: 8px; letter-spacing: 1px;">TIDIGARE REKOMMENDATIONER</h3>
                     <div class="trainer-list" id="trainer-list" style="flex: 1; overflow-y: auto; background: rgba(0,0,0,0.3); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px;">
-                        <div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Ingen historik laddad...</div>
+                        <div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">No history loaded...</div>
                     </div>
                 </div>
             </div>
@@ -990,9 +993,9 @@
             <div class="modal-body" style="display: flex; flex-direction: column; gap: 15px; overflow-y: auto;">
                 <!-- Manual Learning Trigger -->
                 <div class="learning-trigger-panel" style="background: rgba(0, 0, 0, 0.2); border: 1px solid var(--color-border); border-radius: 4px; padding: 12px; display: flex; flex-direction: column; gap: 10px;">
-                    <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); letter-spacing: 1px; margin: 0;">LÄR IN ETT NYTT ÄMNE</h3>
+                    <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); letter-spacing: 1px; margin: 0;">LEARN A NEW TOPIC</h3>
                     <div style="display: flex; gap: 8px;">
-                        <input type="text" id="learning-input-topic" placeholder="t.ex. odling av lök, hjärt-kärlhälsa, kvantdatorer..." class="hud-input" style="flex: 1; height: 32px; font-size: 12px;">
+                        <input type="text" id="learning-input-topic" placeholder="e.g. growing onions, cardiovascular health, quantum computers..." class="hud-input" style="flex: 1; height: 32px; font-size: 12px;">
                         <button id="btn-start-learning" class="hud-btn btn-primary" style="height: 32px; font-family: var(--font-display); font-size: 11px; white-space: nowrap;"><i class="fa-solid fa-play"></i> STARTA</button>
                     </div>
                     
@@ -1005,32 +1008,32 @@
                         <div class="progress-bar-container" style="height: 6px; background: rgba(255,255,255,0.05); border-radius: 3px; overflow: hidden; margin-bottom: 8px;">
                             <div class="progress-bar" id="learning-status-bar" style="width: 0%; height: 100%; background: var(--color-primary); transition: width 0.3s ease;"></div>
                         </div>
-                        <button id="btn-cancel-learning" class="hud-btn btn-secondary" style="height: 24px; font-family: var(--font-display); font-size: 10px; padding: 0 10px; width: 100%;"><i class="fa-solid fa-ban"></i> AVBRYT INLÄRNINGSPROCESS</button>
+                        <button id="btn-cancel-learning" class="hud-btn btn-secondary" style="height: 24px; font-family: var(--font-display); font-size: 10px; padding: 0 10px; width: 100%;"><i class="fa-solid fa-ban"></i> CANCEL THE LEARNING PROCESS</button>
                     </div>
                 </div>
 
                 <!-- Stored Domain Credentials -->
                 <div class="credentials-panel" style="background: rgba(0, 0, 0, 0.2); border: 1px solid var(--color-border); border-radius: 4px; padding: 12px; display: flex; flex-direction: column; gap: 10px;">
-                    <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); letter-spacing: 1px; margin: 0;">DOMÄN-AUTENTISERING (FÖR SKYDDADE KÄLLOR)</h3>
+                    <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); letter-spacing: 1px; margin: 0;">DOMAIN AUTHENTICATION (FOR PROTECTED SOURCES)</h3>
                     
                     <div style="display: grid; grid-template-columns: 1.2fr 1fr 1.2fr auto; gap: 8px;">
                         <input type="text" id="cred-input-domain" placeholder="t.ex. sub.domain.com" class="hud-input" style="height: 28px; font-size: 11px;">
-                        <input type="text" id="cred-input-user" placeholder="E-post / Användare" class="hud-input" style="height: 28px; font-size: 11px;">
-                        <input type="password" id="cred-input-pass" placeholder="Lösenord" class="hud-input" style="height: 28px; font-size: 11px;">
-                        <button id="btn-save-credentials" class="hud-btn btn-primary" style="height: 28px; font-family: var(--font-display); font-size: 10px; padding: 0 10px;"><i class="fa-solid fa-save"></i> SPARA</button>
+                        <input type="text" id="cred-input-user" placeholder="Email / username" class="hud-input" style="height: 28px; font-size: 11px;">
+                        <input type="password" id="cred-input-pass" placeholder="Password" class="hud-input" style="height: 28px; font-size: 11px;">
+                        <button id="btn-save-credentials" class="hud-btn btn-primary" style="height: 28px; font-family: var(--font-display); font-size: 10px; padding: 0 10px;"><i class="fa-solid fa-save"></i> SAVE</button>
                     </div>
                     
                     <!-- Credentials List -->
                     <div id="credentials-list" style="max-height: 90px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; background: rgba(0,0,0,0.3); padding: 5px; border-radius: 3px; font-family: var(--font-mono); font-size: 10px; border: 1px solid rgba(255,255,255,0.05);">
-                        <div style="color: var(--color-text-muted); text-align: center; padding: 5px;">Inga sparade inloggningar...</div>
+                        <div style="color: var(--color-text-muted); text-align: center; padding: 5px;">No saved logins...</div>
                     </div>
                 </div>
 
                 <!-- Stored Knowledge Vault -->
                 <div class="knowledge-vault-panel" style="display: flex; flex-direction: column; flex: 1; min-height: 220px;">
-                    <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); margin-bottom: 8px; letter-spacing: 1px; margin-top: 0;">INLÄRD KUNSKAPSBANK</h3>
+                    <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); margin-bottom: 8px; letter-spacing: 1px; margin-top: 0;">LEARNED KNOWLEDGE BASE</h3>
                     <div class="knowledge-list" id="knowledge-list" style="flex: 1; overflow-y: auto; background: rgba(0,0,0,0.3); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px; display: flex; flex-direction: column; gap: 8px;">
-                        <div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Laddar kunskapsbank...</div>
+                        <div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Loading the knowledge base...</div>
                     </div>
                 </div>
             </div>
@@ -1045,8 +1048,8 @@
         <div class="shield-prompt">
             <div class="reactor-logo-small"></div>
             <h1>F.R.E.J.A. COGNITIVE NETWORK</h1>
-            <p>Klicka på skärmen för att starta det neurala gränssnittet och initiera ljudenheterna.</p>
-            <button id="btn-initialize-audio" class="hud-btn-huge">STARTA GRÄNSSNITTET</button>
+            <p>Click the screen to start the neural interface and initialize the audio devices.</p>
+            <button id="btn-initialize-audio" class="hud-btn-huge">START THE INTERFACE</button>
         </div>
     </div>
 
@@ -1058,17 +1061,17 @@
             </div>
             <div class="modal-body">
                 <p style="font-size: 11px; line-height: 1.5; color: var(--color-text-muted); margin-bottom: 10px;">
-                    F.R.E.J.A. API-backend är skyddad. Vänligen ange ditt åtkomsttoken för att verifiera din session.
+                    The F.R.E.J.A. API backend is protected. Please enter your access token to verify your session.
                 </p>
                 <div class="settings-group">
                     <label for="input-login-token">Access Token</label>
                     <div class="input-password-container">
-                        <input type="password" id="input-login-token" placeholder="Ange token..." class="hud-input">
+                        <input type="password" id="input-login-token" placeholder="Enter the token..." class="hud-input">
                         <button type="button" id="btn-toggle-login-token" class="btn-toggle-input"><i class="fa-solid fa-eye"></i></button>
                     </div>
                 </div>
                 <div id="login-error-msg" style="color: var(--color-error); font-family: var(--font-mono); font-size: 10px; display: none; margin-top: 5px;">
-                    <i class="fa-solid fa-circle-exclamation"></i> FELAKTIGT ÅTKOMSTTOKEN. FÖRSÖK IGEN.
+                    <i class="fa-solid fa-circle-exclamation"></i> INVALID ACCESS TOKEN. TRY AGAIN.
                 </div>
             </div>
             <div class="modal-footer" style="padding: 10px 20px;">

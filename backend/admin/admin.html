@@ -482,7 +482,7 @@
                 <span class="auth-title">FREJA BACKEND AUTHENTICATION</span>
             </div>
             <p style="font-size: 12px; color: var(--color-text-muted); line-height: 1.5;">
-                Åtkomst nekas. Backend-API är skyddat. Ange ditt <strong>Freja Access Token</strong> för att verifiera din session.
+                Access denied. The backend API is protected. Enter your <strong>Freja Access Token</strong> to verify your session.
             </p>
             <div class="form-group">
                 <label for="input-auth-token">Access Token</label>
@@ -492,7 +492,7 @@
                 </div>
             </div>
             <button id="btn-submit-auth" class="btn btn-primary" style="justify-content: center; width: 100%;">
-                <i class="fa-solid fa-key"></i> LÅS UPP ADMINPORTAL
+                <i class="fa-solid fa-key"></i> UNLOCK THE ADMIN PORTAL
             </button>
         </div>
     </div>
@@ -504,13 +504,13 @@
         </div>
         <div class="header-actions">
             <button id="btn-update-github" class="btn">
-                <i class="fa-brands fa-github"></i> HÄMTA FRÅN GITHUB & STARTA OM
+                <i class="fa-brands fa-github"></i> PULL FROM GITHUB &amp; RESTART
             </button>
             <button id="btn-save-all" class="btn btn-primary">
-                <i class="fa-solid fa-floppy-disk"></i> SPARA ALLA INSTÄLLNINGAR
+                <i class="fa-solid fa-floppy-disk"></i> SAVE ALL SETTINGS
             </button>
             <a href="/client/" target="_blank" class="btn">
-                <i class="fa-solid fa-up-right-from-square"></i> ÖPPNA KLIENT HUD
+                <i class="fa-solid fa-up-right-from-square"></i> OPEN THE CLIENT HUD
             </a>
         </div>
     </header>
@@ -542,7 +542,7 @@
             <div class="status-card">
                 <div class="status-icon"><i class="fa-solid fa-shield-halved"></i></div>
                 <div class="status-info">
-                    <span class="status-label">API ANVÄNDARSKYDD</span>
+                    <span class="status-label">API ACCESS PROTECTION</span>
                     <span class="status-val" id="val-auth-status">VERIFIERAS...</span>
                 </div>
             </div>
@@ -559,10 +559,10 @@
                     <div class="form-group">
                         <label for="key-freja_access_token">
                             Freja Access Token
-                            <span class="label-hint">Lösenord för klientanslutning</span>
+                            <span class="label-hint">Password for the client connection</span>
                         </label>
                         <div class="input-wrapper">
-                            <input type="password" id="key-freja_access_token" class="input-control" placeholder="Ange säkerhetstoken...">
+                            <input type="password" id="key-freja_access_token" class="input-control" placeholder="Enter the access token...">
                             <button type="button" class="toggle-btn" onclick="toggleVisibility('key-freja_access_token')"><i class="fa-solid fa-eye"></i></button>
                         </div>
                     </div>
@@ -573,7 +573,7 @@
                     <div class="form-group">
                         <label for="key-gemini_api_key">
                             Google Gemini API Key
-                            <span class="label-hint">Krävs för AI Intelligens</span>
+                            <span class="label-hint">Required for AI intelligence</span>
                         </label>
                         <div class="input-wrapper">
                             <input type="password" id="key-gemini_api_key" class="input-control" placeholder="AIzaSy...">
@@ -584,8 +584,8 @@
                     <!-- ElevenLabs API Key -->
                     <div class="form-group">
                         <label for="key-elevenlabs_api_key">
-                            ElevenLabs API Key (Valfri)
-                            <span class="label-hint">Neural Röstsyntes</span>
+                            ElevenLabs API Key (optional)
+                            <span class="label-hint">Neural voice synthesis</span>
                         </label>
                         <div class="input-wrapper">
                             <input type="password" id="key-elevenlabs_api_key" class="input-control" placeholder="xi-api-key...">
@@ -596,8 +596,8 @@
                     <!-- Mem0 API Key -->
                     <div class="form-group">
                         <label for="key-mem0_api_key">
-                            Mem0 Cloud API Key (Valfri)
-                            <span class="label-hint">Långtidsminne molntjänst</span>
+                            Mem0 Cloud API Key (optional)
+                            <span class="label-hint">Long-term memory cloud service</span>
                         </label>
                         <div class="input-wrapper">
                             <input type="password" id="key-mem0_api_key" class="input-control" placeholder="Mem0 Token...">
@@ -628,7 +628,7 @@
 
                     <p style="font-size: 11px; color: var(--color-text-muted); line-height: 1.5; margin-top: 12px; background: rgba(0, 240, 255, 0.05); border: 1px solid rgba(0, 240, 255, 0.2); border-radius: 6px; padding: 12px;">
                         <i class="fa-solid fa-circle-info" style="color: var(--color-primary); margin-right: 6px;"></i>
-                        <strong>OBS:</strong> Hälso- och kalenderkonton (Garmin, Strava, Withings och Google Calendar) ställs in direkt i klientens GUI under respektive instrumentpanel.
+                        <strong>NOTE:</strong> Health and calendar accounts (Garmin, Strava, Withings and Google Calendar) are configured directly in the client GUI, under their respective dashboards.
                     </p>
                 </div>
             </div>
@@ -643,13 +643,13 @@
                         <input type="checkbox" id="chk-autoscroll" checked> Auto-skrolla
                     </label>
                     <button id="btn-clear-logs" class="btn" style="padding: 4px 10px; font-size: 11px;">
-                        <i class="fa-solid fa-trash-can"></i> Rensa Loggar
+                        <i class="fa-solid fa-trash-can"></i> Clear logs
                     </button>
                 </div>
             </div>
             <div class="panel-body" style="padding: 12px;">
                 <div id="terminal-console" style="background: #04060c; border: 1px solid var(--color-border); border-radius: 6px; padding: 12px; height: 260px; overflow-y: auto; font-family: var(--font-mono); font-size: 12px; display: flex; flex-direction: column; gap: 4px;">
-                    <div style="color: var(--color-text-muted);">Initierar loggmätare...</div>
+                    <div style="color: var(--color-text-muted);">Initializing log meters...</div>
                 </div>
             </div>
         </div>
@@ -669,7 +669,7 @@
 
     <div class="toast" id="toast-msg">
         <i class="fa-solid fa-circle-check" style="color: var(--color-success);"></i>
-        <span id="toast-text">Inställningarna har sparats i databasen.</span>
+        <span id="toast-text">The settings have been saved to the database.</span>
     </div>
 
     <footer>
@@ -678,20 +678,20 @@
 
     <script>
         const TOOL_LIST = [
-            { id: 'tool-get_weather', label: 'Väderverktyg (get_weather)' },
-            { id: 'tool-google_search', label: 'Google Sökning (google_search)' },
-            { id: 'tool-execute_codex_code', label: 'Kodexekvering (execute_codex_code)' },
-            { id: 'tool-codex_git_ops', label: 'Git Operationer (codex_git_ops)' },
-            { id: 'tool-codex_audit_codebase', label: 'Kodgranskning (codex_audit_codebase)' },
-            { id: 'tool-codex_run_and_fix', label: 'Auto-rättning (codex_run_and_fix)' },
-            { id: 'tool-download_facebook_photos', label: 'Facebook Nedladdning (download_facebook_photos)' },
-            { id: 'tool-get_personal_trainer_advice', label: 'Personlig Tränare (get_personal_trainer_advice)' },
-            { id: 'tool-learn_topic', label: 'Neural Inlärning (learn_topic)' },
-            { id: 'tool-get_learned_knowledge', label: 'Kunskapsbank Sök (get_learned_knowledge)' },
-            { id: 'tool-get_garmin_health', label: 'Garmin Hälsocoach (get_garmin_health)' },
-            { id: 'tool-get_strava_data', label: 'Strava Träningscoach (get_strava_data)' },
-            { id: 'tool-get_withings_health', label: 'Withings Hälsocoach (get_withings_health)' },
-            { id: 'tool-manage_google_calendar', label: 'Google Kalender (manage_google_calendar)' }
+            { id: 'tool-get_weather', label: 'Weather tool (get_weather)' },
+            { id: 'tool-google_search', label: 'Google search (google_search)' },
+            { id: 'tool-execute_codex_code', label: 'Code execution (execute_codex_code)' },
+            { id: 'tool-codex_git_ops', label: 'Git operations (codex_git_ops)' },
+            { id: 'tool-codex_audit_codebase', label: 'Code audit (codex_audit_codebase)' },
+            { id: 'tool-codex_run_and_fix', label: 'Automatic code repair (codex_run_and_fix)' },
+            { id: 'tool-download_facebook_photos', label: 'Facebook photo download (download_facebook_photos)' },
+            { id: 'tool-get_personal_trainer_advice', label: 'Personal trainer (get_personal_trainer_advice)' },
+            { id: 'tool-learn_topic', label: 'Neural learning (learn_topic)' },
+            { id: 'tool-get_learned_knowledge', label: 'Knowledge base search (get_learned_knowledge)' },
+            { id: 'tool-get_garmin_health', label: 'Garmin health coach (get_garmin_health)' },
+            { id: 'tool-get_strava_data', label: 'Strava training coach (get_strava_data)' },
+            { id: 'tool-get_withings_health', label: 'Withings health coach (get_withings_health)' },
+            { id: 'tool-manage_google_calendar', label: 'Google Calendar (manage_google_calendar)' }
         ];
 
         function getActiveToken() {
@@ -725,13 +725,13 @@
 
         function showAuthOverlay() {
             document.getElementById('auth-overlay').classList.add('active');
-            document.getElementById('val-auth-status').innerText = 'NEKAD (OBEHÖRIG)';
+            document.getElementById('val-auth-status').innerText = 'DENIED (UNAUTHORIZED)';
             document.getElementById('val-auth-status').style.color = 'var(--color-error)';
         }
 
         function hideAuthOverlay() {
             document.getElementById('auth-overlay').classList.remove('active');
-            document.getElementById('val-auth-status').innerText = 'VERIFIERAD (OK)';
+            document.getElementById('val-auth-status').innerText = 'VERIFIED (OK)';
             document.getElementById('val-auth-status').style.color = 'var(--color-success)';
         }
 
@@ -764,7 +764,7 @@
                         showAuthOverlay();
                         return;
                     }
-                    throw new Error('Misslyckades att hämta nycklar.');
+                    throw new Error('Failed to fetch the keys.');
                 }
 
                 hideAuthOverlay();
@@ -791,7 +791,7 @@
                 checkTelegramStatus();
             } catch (err) {
                 console.error(err);
-                showToast('Kunde inte kontakta backend API.', true);
+                showToast('Could not reach the backend API.', true);
             }
         }
 
@@ -844,26 +844,26 @@
                 if (res.ok) {
                     if (token) setActiveToken(token);
                     hideAuthOverlay();
-                    showToast('Alla backend-inställningar har sparats framgångsrikt!');
+                    showToast('All backend settings were saved successfully.');
                     checkTelegramStatus();
                 } else if (res.status === 401) {
                     showAuthOverlay();
-                    showToast('Fel vid sparning: Åtkomst nekas (Felaktig Access Token)', true);
+                    showToast('Save failed: access denied (invalid access token)', true);
                 } else {
                     showToast('Fel vid sparning: ' + res.statusText, true);
                 }
             } catch (err) {
                 console.error(err);
-                showToast('Ett nätverksfel uppstod vid sparning.', true);
+                showToast('A network error occurred while saving.', true);
             }
         }
 
         async function updateFromGithub() {
-            if (!confirm("Vill du hämta den senaste koden från GitHub (git pull) och starta om backend-servern?")) {
+            if (!confirm("Pull the latest code from GitHub (git pull) and restart the backend server?")) {
                 return;
             }
 
-            showToast("Hämtar uppdateringar från GitHub...", false);
+            showToast("Pulling updates from GitHub...", false);
             const token = getActiveToken();
             const headers = { 'Content-Type': 'application/json' };
             if (token) headers['X-Freja-Token'] = token;
@@ -883,12 +883,12 @@
                 }
             } catch (err) {
                 console.error(err);
-                showToast('Ett nätverksfel uppstod vid uppdateringen.', true);
+                showToast('A network error occurred during the update.', true);
             }
         }
 
         async function pollServerRestart() {
-            showToast("Väntar på att servern ska starta om...", false);
+            showToast("Waiting for the server to restart...", false);
             let attempts = 0;
             const interval = setInterval(async () => {
                 attempts++;
@@ -900,13 +900,13 @@
                     const res = await fetch('/api/keys', { headers: headers });
                     if (res.ok || res.status === 401) {
                         clearInterval(interval);
-                        showToast("Servern har startats om! Laddar om sidan...", false);
+                        showToast("The server has restarted. Reloading the page...", false);
                         setTimeout(() => location.reload(), 1200);
                     }
                 } catch (e) {
                     if (attempts > 30) {
                         clearInterval(interval);
-                        showToast("Kunde inte bekräfta omstart automatisk. Ladda om sidan manuellt.", true);
+                        showToast("Could not confirm the restart automatically. Reload the page manually.", true);
                     }
                 }
             }, 1500);
@@ -931,7 +931,7 @@
             if (!consoleEl) return;
 
             if (logs.length === 0) {
-                consoleEl.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; padding: 20px;">Inga loggar registrerade ännu.</div>';
+                consoleEl.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; padding: 20px;">No logs recorded yet.</div>';
                 return;
             }
 

@@ -16,7 +16,7 @@ window.FrejaCamera = {
         try {
             if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
                 console.warn("[CAMERA] MediaDevices API not supported in this browser environment.");
-                selectCam.innerHTML = '<option value="off">Kamera stöds ej</option>';
+                selectCam.innerHTML = '<option value="off">Camera not supported</option>';
                 return;
             }
 
@@ -35,7 +35,7 @@ window.FrejaCamera = {
                 }
             }
             
-            selectCam.innerHTML = '<option value="off">Scanner avstängd</option>';
+            selectCam.innerHTML = '<option value="off">Scanner off</option>';
             
             if (videoDevices.length === 0) {
                 console.warn("[CAMERA] No camera devices found.");

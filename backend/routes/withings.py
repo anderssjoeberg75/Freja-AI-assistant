@@ -293,7 +293,7 @@ async def post_withings_data(request: Request):
                     heart_pulse = excluded.heart_pulse
             ''', (date_str, weight, fat_ratio, bone_mass, heart_pulse))
             conn.commit()
-        return {'status': 'success', 'message': 'Withings-logg sparad.'}
+        return {'status': 'success', 'message': 'Withings log saved.'}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

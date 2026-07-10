@@ -15,14 +15,14 @@ FrejaUIController.prototype.loadMemoryVaultUI = async function() {
         statusVal.className = "status-val status-online";
     }
     
-    memoriesList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Laddar minnesengram...</div>';
+    memoriesList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Loading memory engrams...</div>';
     
     try {
         const memories = await this.memory.getAllMemories();
         memoryCount.textContent = memories.length;
         
         if (memories.length === 0) {
-            memoriesList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[INGA MINNESFRAGMENT UPPTÄCKTA]</div>';
+            memoriesList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[NO MEMORY FRAGMENTS DETECTED]</div>';
             return;
         }
         
@@ -33,7 +33,7 @@ FrejaUIController.prototype.loadMemoryVaultUI = async function() {
             
             card.innerHTML = `
                 <div class="memory-engram-text">${this.escapeHTML(m.memory)}</div>
-                <button class="memory-engram-delete-btn" data-id="${m.id}" title="Radera detta engram">
+                <button class="memory-engram-delete-btn" data-id="${m.id}" title="Delete this engram">
                     <i class="fa-solid fa-trash-can"></i>
                 </button>
             `;
@@ -50,7 +50,7 @@ FrejaUIController.prototype.loadMemoryVaultUI = async function() {
                     const currentCount = parseInt(memoryCount.textContent) - 1;
                     memoryCount.textContent = currentCount;
                     if (currentCount === 0) {
-                        memoriesList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[INGA MINNESFRAGMENT UPPTÄCKTA]</div>';
+                        memoriesList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[NO MEMORY FRAGMENTS DETECTED]</div>';
                     }
                 } else {
                     card.style.opacity = '1';
@@ -139,7 +139,7 @@ FrejaUIController.prototype.loadTelegramDashboardUI = async function() {
         
     } catch (e) {
         console.error("[TELEGRAM] UI load error:", e);
-        telegramList.innerHTML = '<div style="color: #ff3b30; text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[FEL VID HÄMTNING AV STATUS]</div>';
+        telegramList.innerHTML = '<div style="color: #ff3b30; text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[ERROR FETCHING STATUS]</div>';
     }
 };
 
@@ -150,7 +150,7 @@ FrejaUIController.prototype.loadTrainerDashboardUI = async function() {
     const trainerList = document.getElementById('trainer-list');
     if (!trainerList) return;
 
-    trainerList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Laddar historik...</div>';
+    trainerList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Loading history...</div>';
     
     try {
         const res = await fetch('/api/trainer/plans?limit=10');
@@ -158,7 +158,7 @@ FrejaUIController.prototype.loadTrainerDashboardUI = async function() {
         
         const plans = await res.json();
         if (plans.length === 0) {
-            trainerList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[INGA TIDIGARE PROGRAM HITTADE]</div>';
+            trainerList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[NO PREVIOUS PLANS FOUND]</div>';
             return;
         }
         
@@ -183,7 +183,7 @@ FrejaUIController.prototype.loadTrainerDashboardUI = async function() {
                     <button class="trainer-view-icon-btn" title="Visa detaljer" style="background: transparent; border: none; color: var(--color-primary); cursor: pointer; padding: 2px 4px;">
                         <i class="fa-solid fa-eye"></i>
                     </button>
-                    <button class="trainer-delete-btn" data-id="${plan.id}" title="Radera logg" style="background: transparent; border: none; color: #ff3b30; cursor: pointer; padding: 2px 4px;">
+                    <button class="trainer-delete-btn" data-id="${plan.id}" title="Delete log" style="background: transparent; border: none; color: #ff3b30; cursor: pointer; padding: 2px 4px;">
                         <i class="fa-solid fa-trash-can"></i>
                     </button>
                 </div>
@@ -204,7 +204,7 @@ FrejaUIController.prototype.loadTrainerDashboardUI = async function() {
             const delBtn = item.querySelector('.trainer-delete-btn');
             delBtn.addEventListener('click', async (e) => {
                 e.stopPropagation();
-                if (!confirm("Vill du verkligen radera detta program?")) return;
+                if (!confirm("Really delete this training plan?")) return;
                 soundSynth.playClick();
                 try {
                     const delRes = await fetch(`/api/trainer/plans?plan_id=${plan.id}`, {
@@ -230,7 +230,7 @@ FrejaUIController.prototype.loadTrainerDashboardUI = async function() {
         });
     } catch (e) {
         console.error("[TRAINER] UI load error:", e);
-        trainerList.innerHTML = '<div style="color: #ff3b30; text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[FEL VID HÄMTNING AV HISTORIK]</div>';
+        trainerList.innerHTML = '<div style="color: #ff3b30; text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[ERROR FETCHING HISTORY]</div>';
     }
 };
 
@@ -244,7 +244,7 @@ FrejaUIController.prototype.runTrainerCheckin = async function() {
         btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> CHECKAR IN...';
     }
     out.style.display = 'block';
-    out.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 16px;">Läser nattens hälsodata (Garmin / Withings)...</div>';
+    out.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 16px;">Reading last night&#39;s health data (Garmin / Withings)...</div>';
     this.writeLog("RUNNING DAILY TRAINER CHECK-IN...", "sys");
 
     try {
@@ -267,10 +267,10 @@ FrejaUIController.prototype.runTrainerCheckin = async function() {
         const badgeStyle = "font-size: 10px; font-family: var(--font-mono); background: rgba(0,242,254,0.1); border: 1px solid rgba(0,242,254,0.2); color: var(--color-primary); border-radius: 3px; padding: 3px 8px;";
         let badges = '';
         if (data.calendar_updated) {
-            badges += `<span style="${badgeStyle}">✅ Kalendern uppdaterad</span>`;
+            badges += `<span style="${badgeStyle}">✅ Calendar updated</span>`;
         }
         if (adh.adherence_pct !== null && adh.adherence_pct !== undefined) {
-            badges += `<span style="${badgeStyle}">📊 Följsamhet ${adh.adherence_pct}% (${adh.completed}/${adh.planned})</span>`;
+            badges += `<span style="${badgeStyle}">📊 Adherence ${adh.adherence_pct}% (${adh.completed}/${adh.planned})</span>`;
         }
 
         out.innerHTML = `
@@ -286,7 +286,7 @@ FrejaUIController.prototype.runTrainerCheckin = async function() {
             this.loadTrainerDashboardUI();
         }
     } catch (e) {
-        out.innerHTML = `<div style="color: #ff3b30; font-family: var(--font-mono); font-size: 11px; padding: 12px;">[INCHECKNING MISSLYCKADES] ${e.message}</div>`;
+        out.innerHTML = `<div style="color: #ff3b30; font-family: var(--font-mono); font-size: 11px; padding: 12px;">[CHECK-IN FAILED] ${e.message}</div>`;
         soundSynth.playError();
         this.writeLog(`CHECK-IN ERROR: ${e.message}`, "err");
     } finally {
@@ -335,7 +335,7 @@ FrejaUIController.prototype.runTrainerOptimize = async function() {
         btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> OPTIMERAR...';
     }
     out.style.display = 'block';
-    out.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 16px;">Läser återhämtningsdata och granskar kommande pass...</div>';
+    out.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 16px;">Reading recovery data and reviewing upcoming sessions...</div>';
     this.writeLog("OPTIMIZING UPCOMING WORKOUTS FROM RECOVERY DATA...", "sys");
 
     try {
@@ -356,7 +356,7 @@ FrejaUIController.prototype.runTrainerOptimize = async function() {
 
         const badgeStyle = "font-size: 10px; font-family: var(--font-mono); background: rgba(0,242,254,0.1); border: 1px solid rgba(0,242,254,0.2); color: var(--color-primary); border-radius: 3px; padding: 3px 8px;";
         let badges = `<span style="${badgeStyle}">🔍 ${data.considered || 0} pass granskade</span>`;
-        badges += `<span style="${badgeStyle}">${data.changes_count ? '✅' : '➖'} ${data.changes_count || 0} justerade</span>`;
+        badges += `<span style="${badgeStyle}">${data.changes_count ? '✅' : '➖'} ${data.changes_count || 0} adjusted</span>`;
 
         let changeList = '';
         if (changes.length) {
@@ -374,7 +374,7 @@ FrejaUIController.prototype.runTrainerOptimize = async function() {
         soundSynth.playNotify();
         this.writeLog(`WORKOUT OPTIMIZATION COMPLETE (${data.changes_count || 0} adjusted)`, "sys");
     } catch (e) {
-        out.innerHTML = `<div style="color: #ff3b30; font-family: var(--font-mono); font-size: 11px; padding: 12px;">[OPTIMERING MISSLYCKADES] ${e.message}</div>`;
+        out.innerHTML = `<div style="color: #ff3b30; font-family: var(--font-mono); font-size: 11px; padding: 12px;">[OPTIMIZATION FAILED] ${e.message}</div>`;
         soundSynth.playError();
         this.writeLog(`OPTIMIZATION ERROR: ${e.message}`, "err");
     } finally {
@@ -423,7 +423,7 @@ FrejaUIController.prototype.renderTrainerPlanDetails = function(planId, adviceTe
     
     const rhr_trend = planData.resting_hr_trend || "Stabil / Saknas";
     const hrv_trend = planData.hrv_trend || "Normal / Saknas";
-    const weekly_focus = planData.weekly_focus || "Allmän träning";
+    const weekly_focus = planData.weekly_focus || "General training";
     const summary = planData.summary || "";
     const workouts = planData.workouts || [];
     
@@ -447,6 +447,9 @@ FrejaUIController.prototype.renderTrainerPlanDetails = function(planId, adviceTe
         const completedStyle = w.completed ? 'text-decoration: line-through; opacity: 0.6;' : '';
         
         let icon = "fa-person-running";
+        // activity_type comes from the generated plan and is Swedish (see the trainer
+        // response schema), so these keyword tests match Swedish words. English variants are
+        // included for plans that predate that schema.
         const type = (w.activity_type || "").toLowerCase();
         if (type.includes("styrka") || type.includes("gym") || type.includes("body")) {
             icon = "fa-dumbbell";
@@ -502,7 +505,7 @@ FrejaUIController.prototype.renderTrainerPlanDetails = function(planId, adviceTe
 
             <!-- Workouts Checklist -->
             <div class="workouts-section">
-                <div style="font-size: 10px; color: var(--color-primary); font-family: var(--font-display); margin-bottom: 8px; letter-spacing: 0.5px;">VECKANS TRÄNINGSPASS</div>
+                <div style="font-size: 10px; color: var(--color-primary); font-family: var(--font-display); margin-bottom: 8px; letter-spacing: 0.5px;">THIS WEEK&#39;S WORKOUTS</div>
                 <div style="display: flex; flex-direction: column; gap: 8px;">
                     ${workoutsHTML}
                 </div>
@@ -553,7 +556,7 @@ FrejaUIController.prototype.renderTrainerPlanDetails = function(planId, adviceTe
         btnBook.addEventListener('click', async () => {
             const startDateVal = document.getElementById('trainer-book-start-date').value;
             if (!startDateVal) {
-                alert("Ange ett startdatum för träningsveckan.");
+                alert("Enter a start date for the training week.");
                 return;
             }
             
@@ -605,7 +608,7 @@ FrejaUIController.prototype.loadGarminDashboardUI = async function() {
         dateInput.value = today;
     }
 
-    garminList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Laddar historik...</div>';
+    garminList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Loading history...</div>';
     
     try {
         const res = await fetch('/api/garmin/data?days=10');
@@ -613,7 +616,7 @@ FrejaUIController.prototype.loadGarminDashboardUI = async function() {
         
         const logs = await res.json();
         if (logs.length === 0) {
-            garminList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[INGA HÄLSOLOGGAR HITTADE]</div>';
+            garminList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[NO HEALTH LOGS FOUND]</div>';
             return;
         }
         
@@ -629,6 +632,7 @@ FrejaUIController.prototype.loadGarminDashboardUI = async function() {
             item.style.fontSize = "11px";
             item.style.fontFamily = "var(--font-mono)";
             
+            // "Ingen" is the Swedish placeholder the backend substitutes for a null workout_type.
             const workoutInfo = log.workout_type && log.workout_type !== "Ingen" 
                 ? ` | ${log.workout_type} (${log.workout_duration}m)` 
                 : "";
@@ -637,9 +641,9 @@ FrejaUIController.prototype.loadGarminDashboardUI = async function() {
             
             item.innerHTML = `
                 <div style="flex: 1; color: var(--color-text-bright);">
-                    <span style="color: var(--color-primary);">${log.date}</span>: ${log.steps} steg | ${log.sleep_hours}h sömn | ${log.resting_hr} puls | ${log.active_calories} kcal${workoutInfo}${bbInfo}${hrvInfo}
+                    <span style="color: var(--color-primary);">${log.date}</span>: ${log.steps} steps | ${log.sleep_hours}h sleep | ${log.resting_hr} bpm | ${log.active_calories} kcal${workoutInfo}${bbInfo}${hrvInfo}
                 </div>
-                <button class="garmin-delete-btn" data-date="${log.date}" title="Radera logg" style="background: transparent; border: none; color: #ff3b30; cursor: pointer; padding: 2px 6px;">
+                <button class="garmin-delete-btn" data-date="${log.date}" title="Delete log" style="background: transparent; border: none; color: #ff3b30; cursor: pointer; padding: 2px 6px;">
                     <i class="fa-solid fa-trash-can"></i>
                 </button>
             `;
@@ -656,7 +660,7 @@ FrejaUIController.prototype.loadGarminDashboardUI = async function() {
                         this.writeLog(`GARMIN LOG FOR ${dateVal} PURGED`, "sys");
                         item.remove();
                         if (garminList.children.length === 0) {
-                            garminList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[INGA HÄLSOLOGGAR HITTADE]</div>';
+                            garminList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[NO HEALTH LOGS FOUND]</div>';
                         }
                     } else {
                         throw new Error(delData.message || "Failed deleting");
@@ -672,7 +676,7 @@ FrejaUIController.prototype.loadGarminDashboardUI = async function() {
         });
     } catch (err) {
         console.error("[GARMIN] UI load error:", err);
-        garminList.innerHTML = '<div style="color: #ff3b30; text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[FEL VID LADDNING AV HISTORIK]</div>';
+        garminList.innerHTML = '<div style="color: #ff3b30; text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[ERROR LOADING HISTORY]</div>';
     }
 };
 
@@ -687,7 +691,7 @@ FrejaUIController.prototype.loadStravaDashboardUI = async function() {
         dateInput.value = today;
     }
 
-    stravaList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Laddar historik...</div>';
+    stravaList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Loading history...</div>';
     
     try {
         const res = await fetch('/api/strava/data?days=15');
@@ -695,7 +699,7 @@ FrejaUIController.prototype.loadStravaDashboardUI = async function() {
         
         const logs = await res.json();
         if (logs.length === 0) {
-            stravaList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[INGA TRÄNINGSPASS HITTADE]</div>';
+            stravaList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[NO WORKOUTS FOUND]</div>';
             return;
         }
         
@@ -722,7 +726,7 @@ FrejaUIController.prototype.loadStravaDashboardUI = async function() {
                 <div style="flex: 1; color: var(--color-text-bright);">
                     <span style="color: var(--color-primary);">${log.date}</span>: <strong style="color: var(--color-accent);">${log.type}</strong> - ${log.name} (${km} | ${mins}${speedInfo}${elevInfo}${hrInfo}${calInfo})
                 </div>
-                <button class="strava-delete-btn" data-id="${log.id}" title="Radera aktivitet" style="background: transparent; border: none; color: #ff3b30; cursor: pointer; padding: 2px 6px;">
+                <button class="strava-delete-btn" data-id="${log.id}" title="Delete activity" style="background: transparent; border: none; color: #ff3b30; cursor: pointer; padding: 2px 6px;">
                     <i class="fa-solid fa-trash-can"></i>
                 </button>
             `;
@@ -739,7 +743,7 @@ FrejaUIController.prototype.loadStravaDashboardUI = async function() {
                         this.writeLog(`STRAVA LOG FOR ID ${idVal} PURGED`, "sys");
                         item.remove();
                         if (stravaList.children.length === 0) {
-                            stravaList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[INGA TRÄNINGSPASS HITTADE]</div>';
+                            stravaList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[NO WORKOUTS FOUND]</div>';
                         }
                     } else {
                         throw new Error(delData.message || "Failed deleting");
@@ -755,7 +759,7 @@ FrejaUIController.prototype.loadStravaDashboardUI = async function() {
         });
     } catch (err) {
         console.error("[STRAVA] UI load error:", err);
-        stravaList.innerHTML = '<div style="color: #ff3b30; text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[FEL VID LADDNING AV HISTORIK]</div>';
+        stravaList.innerHTML = '<div style="color: #ff3b30; text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[ERROR LOADING HISTORY]</div>';
     }
 };
 
@@ -770,7 +774,7 @@ FrejaUIController.prototype.loadWithingsDashboardUI = async function() {
         dateInput.value = today;
     }
 
-    withingsList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Laddar mätningar...</div>';
+    withingsList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Loading measurements...</div>';
     
     try {
         const res = await fetch('/api/withings/data?days=15');
@@ -778,7 +782,7 @@ FrejaUIController.prototype.loadWithingsDashboardUI = async function() {
         
         const logs = await res.json();
         if (logs.length === 0) {
-            withingsList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[INGA MÄTNINGAR HITTADE]</div>';
+            withingsList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[NO MEASUREMENTS FOUND]</div>';
             return;
         }
         
@@ -801,9 +805,9 @@ FrejaUIController.prototype.loadWithingsDashboardUI = async function() {
             
             item.innerHTML = `
                 <div style="flex: 1; color: var(--color-text-bright);">
-                    <span style="color: var(--color-primary);">${log.date}</span>: <strong style="color: var(--color-accent);">Mätning</strong> - ${weight}${fat}${bone}${pulse}
+                    <span style="color: var(--color-primary);">${log.date}</span>: <strong style="color: var(--color-accent);">Measurement</strong> - ${weight}${fat}${bone}${pulse}
                 </div>
-                <button class="withings-delete-btn" data-date="${log.date}" title="Radera mätning" style="background: transparent; border: none; color: #ff3b30; cursor: pointer; padding: 2px 6px;">
+                <button class="withings-delete-btn" data-date="${log.date}" title="Delete measurement" style="background: transparent; border: none; color: #ff3b30; cursor: pointer; padding: 2px 6px;">
                     <i class="fa-solid fa-trash-can"></i>
                 </button>
             `;
@@ -820,7 +824,7 @@ FrejaUIController.prototype.loadWithingsDashboardUI = async function() {
                         this.writeLog(`WITHINGS LOG FOR DATE ${dateVal} PURGED`, "sys");
                         item.remove();
                         if (withingsList.children.length === 0) {
-                            withingsList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[INGA MÄTNINGAR HITTADE]</div>';
+                            withingsList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[NO MEASUREMENTS FOUND]</div>';
                         }
                     } else {
                         throw new Error(delData.message || "Failed deleting");
@@ -836,7 +840,7 @@ FrejaUIController.prototype.loadWithingsDashboardUI = async function() {
         });
     } catch (err) {
         console.error("[WITHINGS] UI load error:", err);
-        withingsList.innerHTML = '<div style="color: #ff3b30; text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[FEL VID LADDNING AV HISTORIK]</div>';
+        withingsList.innerHTML = '<div style="color: #ff3b30; text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[ERROR LOADING HISTORY]</div>';
     }
 };
 
@@ -858,7 +862,7 @@ FrejaUIController.prototype.loadGoogleCalendarDashboardUI = async function() {
         endInput.value = endISO;
     }
 
-    calendarList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Laddar kalender...</div>';
+    calendarList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Loading the calendar...</div>';
     
     try {
         const res = await fetch('/api/google_calendar/data?days=30');
@@ -866,7 +870,7 @@ FrejaUIController.prototype.loadGoogleCalendarDashboardUI = async function() {
         
         const events = await res.json();
         if (events.length === 0) {
-            calendarList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[INGA HÄNDELSER HITTADE]</div>';
+            calendarList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[NO EVENTS FOUND]</div>';
             return;
         }
         
@@ -904,10 +908,10 @@ FrejaUIController.prototype.loadGoogleCalendarDashboardUI = async function() {
                     ${descInfo}
                 </div>
                 <div style="display: flex; gap: 5px; align-self: center;">
-                    <button class="calendar-edit-btn" title="Redigera händelse" style="background: transparent; border: none; color: var(--color-primary); cursor: pointer; padding: 2px 6px;">
+                    <button class="calendar-edit-btn" title="Edit event" style="background: transparent; border: none; color: var(--color-primary); cursor: pointer; padding: 2px 6px;">
                         <i class="fa-solid fa-pencil"></i>
                     </button>
-                    <button class="calendar-delete-btn" title="Radera händelse" style="background: transparent; border: none; color: #ff3b30; cursor: pointer; padding: 2px 6px;">
+                    <button class="calendar-delete-btn" title="Delete event" style="background: transparent; border: none; color: #ff3b30; cursor: pointer; padding: 2px 6px;">
                         <i class="fa-solid fa-trash-can"></i>
                     </button>
                 </div>
@@ -925,7 +929,7 @@ FrejaUIController.prototype.loadGoogleCalendarDashboardUI = async function() {
                 document.getElementById('google-calendar-input-location').value = evt.location || "";
                 
                 const btnSave = document.getElementById('btn-save-google-calendar-manual');
-                if (btnSave) btnSave.innerHTML = `<i class="fa-solid fa-floppy-disk"></i> SPARA ÄNDRINGAR`;
+                if (btnSave) btnSave.innerHTML = `<i class="fa-solid fa-floppy-disk"></i> SAVE CHANGES`;
                 
                 const btnCancel = document.getElementById('btn-cancel-google-calendar-edit');
                 if (btnCancel) btnCancel.style.display = "block";
@@ -934,7 +938,7 @@ FrejaUIController.prototype.loadGoogleCalendarDashboardUI = async function() {
             // Bind Delete Action
             const delBtn = item.querySelector('.calendar-delete-btn');
             delBtn.addEventListener('click', async () => {
-                if (!confirm(`Vill du verkligen ta bort händelsen "${evt.summary}"?`)) return;
+                if (!confirm(`Really delete the event "${evt.summary}"?`)) return;
                 soundSynth.playClick();
                 item.style.opacity = '0.5';
                 try {
@@ -944,7 +948,7 @@ FrejaUIController.prototype.loadGoogleCalendarDashboardUI = async function() {
                         this.writeLog(`CALENDAR EVENT "${evt.summary}" REMOVED`, "sys");
                         item.remove();
                         if (calendarList.children.length === 0) {
-                            calendarList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[INGA HÄNDELSER HITTADE]</div>';
+                            calendarList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[NO EVENTS FOUND]</div>';
                         }
                     } else {
                         throw new Error(delData.message || "Failed deleting");
@@ -960,7 +964,7 @@ FrejaUIController.prototype.loadGoogleCalendarDashboardUI = async function() {
         });
     } catch (err) {
         console.error("[CALENDAR] UI load error:", err);
-        calendarList.innerHTML = '<div style="color: #ff3b30; text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[FEL VID LADDNING AV KALENDER]</div>';
+        calendarList.innerHTML = '<div style="color: #ff3b30; text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[ERROR LOADING THE CALENDAR]</div>';
     }
 };
 
@@ -1001,12 +1005,12 @@ FrejaUIController.prototype.pollSyncStatus = async function(provider) {
                     if (btn) {
                         btn.disabled = false;
                         btn.innerHTML = provider === 'google_calendar'
-                            ? `<i class="fa-solid fa-arrows-rotate"></i> SYNKRONISERA KALENDER`
-                            : `<i class="fa-solid fa-arrows-rotate"></i> SYNKRONISERA ENHET`;
+                            ? `<i class="fa-solid fa-arrows-rotate"></i> SYNC CALENDAR`
+                            : `<i class="fa-solid fa-arrows-rotate"></i> SYNC DEVICE`;
                     }
                     if (btnAll) {
                         btnAll.disabled = false;
-                        btnAll.innerHTML = `<i class="fa-solid fa-clock-rotate-left"></i> HÄMTA ALL HISTORIK`;
+                        btnAll.innerHTML = `<i class="fa-solid fa-clock-rotate-left"></i> FETCH ALL HISTORY`;
                     }
                     if (capItem) {
                         capItem.classList.remove('syncing-blink');
@@ -1027,12 +1031,12 @@ FrejaUIController.prototype.pollSyncStatus = async function(provider) {
                     if (btn) {
                         btn.disabled = false;
                         btn.innerHTML = provider === 'google_calendar'
-                            ? `<i class="fa-solid fa-arrows-rotate"></i> SYNKRONISERA KALENDER`
-                            : `<i class="fa-solid fa-arrows-rotate"></i> SYNKRONISERA ENHET`;
+                            ? `<i class="fa-solid fa-arrows-rotate"></i> SYNC CALENDAR`
+                            : `<i class="fa-solid fa-arrows-rotate"></i> SYNC DEVICE`;
                     }
                     if (btnAll) {
                         btnAll.disabled = false;
-                        btnAll.innerHTML = `<i class="fa-solid fa-clock-rotate-left"></i> HÄMTA ALL HISTORIK`;
+                        btnAll.innerHTML = `<i class="fa-solid fa-clock-rotate-left"></i> FETCH ALL HISTORY`;
                     }
                     if (capItem) {
                         capItem.classList.remove('syncing-blink');
@@ -1058,7 +1062,7 @@ FrejaUIController.prototype.loadCredentialsUI = async function() {
         const data = await res.json();
         
         if (data.length === 0) {
-            credsList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; padding: 5px;">Inga sparade inloggningar...</div>';
+            credsList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; padding: 5px;">No saved logins...</div>';
             return;
         }
         
@@ -1086,7 +1090,7 @@ FrejaUIController.prototype.loadCredentialsUI = async function() {
             item.querySelector('.btn-delete-cred').addEventListener('click', async (e) => {
                 const btn = e.currentTarget;
                 const cleanDomain = btn.getAttribute('data-clean');
-                if (confirm(`Vill du radera inloggningsuppgifter för domänen?`)) {
+                if (confirm(`Delete the stored credentials for this domain?`)) {
                     soundSynth.playClick();
                     try {
                         const delRes = await fetch(`/api/learning/credentials/${cleanDomain}`, { method: "DELETE" });
@@ -1116,7 +1120,7 @@ FrejaUIController.prototype.loadLearningVaultUI = async function() {
         const data = await res.json();
         
         if (data.length === 0) {
-            vaultList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Ingen sparad kunskap hittades...</div>';
+            vaultList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">No stored knowledge found...</div>';
             return;
         }
         
@@ -1153,7 +1157,7 @@ FrejaUIController.prototype.loadLearningVaultUI = async function() {
                     ${window.FrejaMarkdown ? window.FrejaMarkdown.parseMarkdown(entry.detailed_notes) : entry.detailed_notes}
                     
                     <div style="margin-top: 10px; border-top: 1px dashed rgba(255,255,255,0.1); padding-top: 8px; font-size: 10px; color: var(--color-text-muted);">
-                        <strong>Källor:</strong> ${sourcesMarkup || 'Inga källor angivna'}
+                        <strong>Sources:</strong> ${sourcesMarkup || 'No sources given'}
                     </div>
                 </div>
             `;
@@ -1165,7 +1169,7 @@ FrejaUIController.prototype.loadLearningVaultUI = async function() {
                 soundSynth.playClick();
                 if (detailsContainer.style.display === 'none') {
                     detailsContainer.style.display = 'block';
-                    btnToggle.textContent = 'DÖLJ DETALJERADE ANTECKNINGAR';
+                    btnToggle.textContent = 'HIDE DETAILED NOTES';
                 } else {
                     detailsContainer.style.display = 'none';
                     btnToggle.textContent = 'VISA DETALJERADE ANTECKNINGAR';
@@ -1175,7 +1179,7 @@ FrejaUIController.prototype.loadLearningVaultUI = async function() {
             // Delete handler
             card.querySelector('.btn-delete-knowledge').addEventListener('click', async (e) => {
                 const knowledgeId = e.currentTarget.getAttribute('data-id');
-                if (confirm(`Är du säker på att du vill radera all sparad kunskap om "${entry.topic}"?`)) {
+                if (confirm(`Are you sure you want to delete all stored knowledge about "${entry.topic}"?`)) {
                     soundSynth.playClick();
                     try {
                         const delRes = await fetch(`/api/learning/delete/${knowledgeId}`, { method: "DELETE" });

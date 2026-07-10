@@ -305,7 +305,9 @@ class FrejaUIController {
             if (autoOptics) {
                 attachImage = true;
             } else {
-                // Heuristic vision keywords check
+                // Heuristic vision keyword check. The user speaks Swedish to Freja, so the
+                // Swedish triggers are matched alongside the English ones. These are user input,
+                // not UI copy - translating them would break voice control.
                 const visionKeywords = [
                     'se', 'titta', 'kamera', 'bild', 'vad är det', 'vem är det',
                     'look', 'see', 'camera', 'picture', 'photo', 'what is this', 'who is this',

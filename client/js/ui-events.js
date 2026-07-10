@@ -99,7 +99,7 @@ FrejaUIController.prototype.bindEvents = function() {
             document.getElementById('vocal-status').textContent = "STANDBY";
             document.getElementById('vocal-status').classList.remove('active');
             if (window.visualizer) window.visualizer.state = 'SLEEPING';
-            document.getElementById('voice-hint').textContent = "Röststyrning avstängd";
+            document.getElementById('voice-hint').textContent = "Voice control off";
             document.getElementById('voice-bars').classList.remove('active');
             self.writeLog("VOICE COGNITION DEACTIVATED", "warn");
         } else {
@@ -195,14 +195,14 @@ FrejaUIController.prototype.bindEvents = function() {
     if (btnClearChat) {
         btnClearChat.addEventListener('click', () => {
             soundSynth.playError();
-            if (confirm("Vill du rensa chatthistoriken? Detta tar bort meddelandena från skärmen och nollställer samtalskontexten.")) {
+            if (confirm("Clear the chat history? This removes the messages from the screen and resets the conversation context.")) {
                 self.gemini.clearHistory();
                 fetch('/api/chat/clear', { method: 'POST' }).catch(e => console.error(e));
                 const chatHistory = document.getElementById('chat-history');
                 chatHistory.innerHTML = `
                     <div class="chat-msg system-msg">
                         <div class="msg-sender">[SYS]</div>
-                        <div class="msg-content">Samtalskontext återställd. Chatten rensad.</div>
+                        <div class="msg-content">Conversation context reset. Chat cleared.</div>
                     </div>
                 `;
                 self.writeLog("NEURAL CONTEXT RESET & CHAT CLEARED", "sys");
@@ -1067,7 +1067,7 @@ FrejaUIController.prototype.bindEvents = function() {
             document.getElementById('google-calendar-input-end').value = endISO;
 
             const btnSave = document.getElementById('btn-save-google-calendar-manual');
-            if (btnSave) btnSave.innerHTML = `<i class="fa-solid fa-floppy-disk"></i> SPARA HÄNDELSE`;
+            if (btnSave) btnSave.innerHTML = `<i class="fa-solid fa-floppy-disk"></i> SAVE EVENT`;
             
             const btnCancel = document.getElementById('btn-cancel-google-calendar-edit');
             if (btnCancel) btnCancel.style.display = "none";
@@ -1092,7 +1092,7 @@ FrejaUIController.prototype.bindEvents = function() {
             if (!summary || !startTime || !endTime) {
                 self.writeLog("CALENDAR FAILURE: TITEL OCH TIDER SAKNAS", "err");
                 soundSynth.playError();
-                alert("Titel, starttid och sluttid krävs.");
+                alert("A title, start time and end time are required.");
                 return;
             }
             soundSynth.playClick();
@@ -1130,7 +1130,7 @@ FrejaUIController.prototype.bindEvents = function() {
                     document.getElementById('google-calendar-input-location').value = '';
                     
                     const btnSave = document.getElementById('btn-save-google-calendar-manual');
-                    if (btnSave) btnSave.innerHTML = `<i class="fa-solid fa-floppy-disk"></i> SPARA HÄNDELSE`;
+                    if (btnSave) btnSave.innerHTML = `<i class="fa-solid fa-floppy-disk"></i> SAVE EVENT`;
                     
                     const btnCancel = document.getElementById('btn-cancel-google-calendar-edit');
                     if (btnCancel) btnCancel.style.display = "none";
@@ -1155,7 +1155,7 @@ FrejaUIController.prototype.bindEvents = function() {
             document.getElementById('google-calendar-input-location').value = '';
             
             const btnSave = document.getElementById('btn-save-google-calendar-manual');
-            if (btnSave) btnSave.innerHTML = `<i class="fa-solid fa-floppy-disk"></i> SPARA HÄNDELSE`;
+            if (btnSave) btnSave.innerHTML = `<i class="fa-solid fa-floppy-disk"></i> SAVE EVENT`;
             
             btnCancelGoogleCalendarEdit.style.display = "none";
         });
@@ -1230,7 +1230,7 @@ FrejaUIController.prototype.bindEvents = function() {
     if (btnWipeMemory) {
         btnWipeMemory.addEventListener('click', async () => {
             soundSynth.playError();
-            if (confirm("VIKTIGT: Är du säker på att du vill radera alla samlade minnen och engram? Detta kan inte ångras.")) {
+            if (confirm("IMPORTANT: Are you sure you want to delete all collected memories and engrams? This cannot be undone.")) {
                 self.writeLog("INITIATING CORE MEMORY WIPE", "warn");
                 const success = await self.memory.deleteAllMemories();
                 if (success) {
@@ -1349,7 +1349,7 @@ FrejaUIController.prototype.bindEvents = function() {
     const btnResetSettings = document.getElementById('btn-reset-settings');
     btnResetSettings.addEventListener('click', async () => {
         soundSynth.playError();
-        if (confirm("Vill du återställa alla inställningar till grundutförande?")) {
+        if (confirm("Reset all settings to their defaults?")) {
             localStorage.clear();
             self.gemini.clearHistory();
             try {
@@ -1403,7 +1403,7 @@ FrejaUIController.prototype.bindEvents = function() {
 
     // Speech engine dynamic local voices lists filler callback
     this.speech.voiceUpdateCallback = (voices) => {
-        selectVoice.innerHTML = '<option value="">Standard Röst (Automatisk)</option>';
+        selectVoice.innerHTML = '<option value="">Default voice (automatic)</option>';
         voices.forEach((voice, index) => {
             const option = document.createElement('option');
             option.value = index;
@@ -1481,7 +1481,7 @@ FrejaUIController.prototype.bindEvents = function() {
             const topicInput = document.getElementById('learning-input-topic');
             const topic = topicInput.value.trim();
             if (!topic) {
-                alert("Ange ett ämne att lära sig.");
+                alert("Enter a topic to learn about.");
                 return;
             }
             
@@ -1546,7 +1546,7 @@ FrejaUIController.prototype.bindEvents = function() {
             const password = passInput.value.trim();
             
             if (!domain || !username || !password) {
-                alert("Fyll i domän, användarnamn och lösenord.");
+                alert("Fill in the domain, username and password.");
                 return;
             }
             
@@ -1567,7 +1567,7 @@ FrejaUIController.prototype.bindEvents = function() {
                     self.loadCredentialsUI();
                 } else {
                     const err = await res.json();
-                    alert("Kunde inte spara credentials: " + (err.detail || "Fel"));
+                    alert("Could not save the credentials: " + (err.detail || "Error"));
                 }
             } catch (err) {
                 console.error(err);
@@ -1594,9 +1594,9 @@ FrejaUIController.prototype.bindEvents = function() {
             const goalInput = document.getElementById('trainer-input-goal').value.trim();
             const limitationsInput = document.getElementById('trainer-input-limitations').value.trim();
             if (!goalInput) {
-                self.writeLog("COACH FAILURE: MÅL SAKNAS", "err");
+                self.writeLog("COACH FAILURE: GOAL MISSING", "err");
                 soundSynth.playError();
-                alert("Ange ett träningsmål eller fokusområde.");
+                alert("Enter a training goal or focus area.");
                 return;
             }
             
@@ -1626,9 +1626,9 @@ FrejaUIController.prototype.bindEvents = function() {
                     self.loadTrainerDashboardUI();
                 } else {
                     const err = await res.json();
-                    self.writeLog(`COACH ERROR: ${err.detail || 'Kunde inte generera'}`, "err");
+                    self.writeLog(`COACH ERROR: ${err.detail || 'Could not generate'}`, "err");
                     soundSynth.playError();
-                    alert(`Fel: ${err.detail || 'Kunde inte generera programmet.'}`);
+                    alert(`Error: ${err.detail || 'Could not generate the training plan.'}`);
                 }
             } catch (e) {
                 self.writeLog(`COACH ERROR: ${e.message}`, "err");
@@ -1636,7 +1636,7 @@ FrejaUIController.prototype.bindEvents = function() {
                 alert(`Fel vid kommunikation med servern: ${e.message}`);
             } finally {
                 btnGenerateTrainerPlan.disabled = false;
-                btnGenerateTrainerPlan.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> GENERERA TRÄNINGSPROGRAM';
+                btnGenerateTrainerPlan.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> GENERATE TRAINING PLAN';
             }
         });
     }
@@ -1702,7 +1702,7 @@ FrejaUIController.prototype.bindEvents = function() {
             } catch (err) {
                 self.writeLog(`TELEGRAM SAVE ERROR: ${err.message}`, "err");
                 soundSynth.playError();
-                alert("Kunde inte spara inställningarna: " + err.message);
+                alert("Could not save the settings: " + err.message);
             }
         });
     }

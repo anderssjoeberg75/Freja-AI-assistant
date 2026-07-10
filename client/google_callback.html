@@ -43,8 +43,8 @@
     <div class="container">
         <h1>[GOOGLE KALENDER AUKTORISERING]</h1>
         <p id="info">Utbyter auktoriseringskod mot tokens...</p>
-        <div id="status" class="status">Vänta...</div>
-        <button id="close-btn" style="display:none;" onclick="window.close()">STÄNG FÖNSTER</button>
+        <div id="status" class="status">Please wait...</div>
+        <button id="close-btn" style="display:none;" onclick="window.close()">CLOSE WINDOW</button>
     </div>
     <script>
         async function exchangeToken() {
@@ -56,8 +56,8 @@
             const closeBtn = document.getElementById('close-btn');
 
             if (!code || !verifier || !clientId) {
-                statusDiv.innerHTML = '<span style="color: #ff3366;">Fel: Det saknas verifierare, client ID eller kod. Kontrollera att du startade anslutningen i samma webbläsare.</span>';
-                infoP.innerText = 'Misslyckades.';
+                statusDiv.innerHTML = '<span style="color: #ff3366;">Error: The verifier, client ID or code is missing. Make sure you started the connection in this same browser.</span>';
+                infoP.innerText = 'Failed.';
                 return;
             }
 
@@ -81,17 +81,17 @@
                 });
                 const resData = await response.json();
                 if (response.ok && resData.status === 'success') {
-                    statusDiv.innerHTML = '<span style="color: #00ff66;">AUKTORISERING LYCKADES!</span>';
-                    infoP.innerText = 'Ditt Google-konto har kopplats. Vi har sparat ditt refresh-token i databasen.';
+                    statusDiv.innerHTML = '<span style="color: #00ff66;">AUTHORIZATION SUCCEEDED</span>';
+                    infoP.innerText = 'Your Google account has been connected. The refresh token was saved to the database.';
                     closeBtn.style.display = 'inline-block';
                 } else {
-                    statusDiv.innerHTML = '<span style="color: #ff3366;">MISSLYCKADES</span>';
-                    infoP.innerText = resData.detail || 'Fel vid utbyte.';
+                    statusDiv.innerHTML = '<span style="color: #ff3366;">FAILED</span>';
+                    infoP.innerText = resData.detail || 'The token exchange failed.';
                 }
             } catch (err) {
                 console.error(err);
-                statusDiv.innerHTML = '<span style="color: #ff3366;">NÄTVERKSFEL</span>';
-                infoP.innerText = err.message || 'Kunde inte ansluta till API-servern.';
+                statusDiv.innerHTML = '<span style="color: #ff3366;">NETWORK ERROR</span>';
+                infoP.innerText = err.message || 'Could not connect to the API server.';
             }
         }
         exchangeToken();
