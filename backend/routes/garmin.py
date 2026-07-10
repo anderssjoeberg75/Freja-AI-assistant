@@ -2,7 +2,8 @@
 
 import datetime
 import os
-from fastapi import APIRouter, HTTPException, Query, Request, BackgroundTasks
+import asyncio
+from fastapi import APIRouter, HTTPException, Query, Request
 from backend.config import PROJECT_ROOT
 from backend.database import get_db_connection, get_api_key
 from backend.services.sync_status import set_sync_state
@@ -41,7 +42,7 @@ async def get_garmin_data(days: int = Query(7, description="Number of days to re
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-def run_garmin_sync_task(email, password, days):
+def run_garmin_sync_task_blocking(email, password, days):
     try:
         from garminconnect import Garmin
         token_dir = os.path.join(os.path.dirname(os.path.abspath(PROJECT_ROOT)), '.garminconnect')
@@ -193,23 +194,12 @@ def run_garmin_sync_task(email, password, days):
                 ''', (date_str, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status))
                 
             conn.commit()
-        set_sync_state("garmin", "success")
-        # Fresh recovery data just landed — let COACH AI re-tune upcoming workouts.
-        try:
-            _auto_optimize_workouts_after_sync()
-        except Exception as opt_err:
-            print(f"[GARMIN SYNC] Automatic workout optimization was skipped: {opt_err}")
     except Exception as e:
-        print(f"[GARMIN SYNC TASK ERROR]: {e}")
-        set_sync_state("garmin", "error", str(e))
+        raise e
 
 
-def _auto_optimize_workouts_after_sync():
-    """After a Garmin sync, let COACH AI adjust the upcoming calendar workouts to
-    the user's latest recovery — unless auto-adjust is disabled or no training
-    goal is set. Runs the async optimizer in a private event loop (we're in a
-    background worker thread) and never raises back into the sync task."""
-    import asyncio
+async def auto_optimize_workouts_after_sync_async():
+    """Trigger the async workout optimization on the main event loop."""
     from backend.routes.trainer import get_trainer_profile, core_optimize_upcoming_workouts
 
     profile = get_trainer_profile()
@@ -221,13 +211,32 @@ def _auto_optimize_workouts_after_sync():
     if not (profile.get("goals") or profile.get("event")):
         return  # No training goal yet — nothing meaningful to optimize toward.
 
-    result = asyncio.run(core_optimize_upcoming_workouts(trigger="garmin_sync"))
+    result = await core_optimize_upcoming_workouts(trigger="garmin_sync")
     if isinstance(result, dict) and result.get("changes_count"):
         print(f"[GARMIN SYNC] COACH AI justerade {result['changes_count']} kommande pass efter ny Garmin-data.")
 
+
+async def run_garmin_sync_flow(email, password, days):
+    """Asynchronous orchestrator for Garmin Connect synchronization.
+    Runs the blocking sync in a thread executor, then executes optimization in the main event loop.
+    """
+    try:
+        # Run blocking HTTP requests / SQLite updates in a background thread executor
+        await asyncio.to_thread(run_garmin_sync_task_blocking, email, password, days)
+        set_sync_state("garmin", "success")
+        
+        # Run the async optimizer directly in the main event loop
+        try:
+            await auto_optimize_workouts_after_sync_async()
+        except Exception as opt_err:
+            print(f"[GARMIN SYNC] Automatic workout optimization was skipped: {opt_err}")
+    except Exception as e:
+        print(f"[GARMIN SYNC TASK ERROR]: {e}")
+        set_sync_state("garmin", "error", str(e))
+
+
 @router.get("/api/garmin/sync")
 async def get_garmin_sync(
-    background_tasks: BackgroundTasks,
     days: int = Query(7, description="Number of days to sync")
 ):
     email = get_api_key('freja_garmin_email') or ""
@@ -240,10 +249,13 @@ async def get_garmin_sync(
         )
         
     set_sync_state("garmin", "syncing")
-    background_tasks.add_task(run_garmin_sync_task, email, password, days)
+    
+    from backend.services.task_queue import enqueue_task
+    enqueue_task(run_garmin_sync_flow, email, password, days)
+    
     return {
         'status': 'syncing',
-        'message': "Garmin sync started in the background."
+        'message': "Garmin sync started in the background queue."
     }
 
 @router.get("/api/garmin/delete")

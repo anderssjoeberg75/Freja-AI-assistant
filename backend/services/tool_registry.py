@@ -29,7 +29,7 @@ from backend.database import get_db_connection, get_api_key
 
 # Import backend business logic routines
 from backend.services.search_service import perform_search
-from backend.routes.garmin import run_garmin_sync_task, get_garmin_data
+from backend.routes.garmin import run_garmin_sync_flow, get_garmin_data
 from backend.routes.withings import run_withings_sync_task, get_withings_data
 from backend.routes.strava import (
     run_strava_sync_task,
@@ -517,8 +517,8 @@ async def exec_garmin_health(args):
             print("[Garmin Tool] Recent sync found. Skipping API sync, using cached DB data.")
         else:
             try:
-                # Garmin Connect sync is CPU/network intensive sync, run in ThreadPool
-                await run_in_threadpool(run_garmin_sync_task, email, password, days)
+                from backend.services.task_queue import enqueue_task
+                await enqueue_task(run_garmin_sync_flow, email, password, days)
                 sync_status = "success"
                 sync_message = "Garmin sync completed."
             except Exception as sync_err:

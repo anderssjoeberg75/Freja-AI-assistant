@@ -57,10 +57,13 @@ async def lifespan(app: FastAPI):
     The worker takes a file lock (`.telegram_bot.lock`) so that when uvicorn runs with
     reload or multiple workers, only one process actually polls Telegram."""
     # Startup: Initialize the Telegram background worker
+    from backend.services.task_queue import start_task_queue, stop_task_queue
+    start_task_queue()
     task = asyncio.create_task(telegram_worker_loop())
     yield
     # Shutdown: Clean up background tasks
     task.cancel()
+    await stop_task_queue()
     try:
         await task
     except asyncio.CancelledError:

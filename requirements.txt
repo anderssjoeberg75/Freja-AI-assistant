@@ -9,3 +9,5 @@ garminconnect
 cryptography>=41.0,<44
 pytest
 pytest-asyncio
+SQLAlchemy>=2.0.0
+alembic>=1.11.0

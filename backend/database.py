@@ -17,6 +17,20 @@ from contextlib import contextmanager
 
 from backend.config import DB_FILE
 from backend.crypto_utils import encrypt_value, decrypt_value
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+engine = create_engine(f"sqlite:///{DB_FILE}", connect_args={"timeout": 30})
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+@contextmanager
+def get_db_session():
+    """Context manager for SQLAlchemy database sessions."""
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 
 @contextmanager
@@ -126,6 +140,9 @@ def get_all_api_keys() -> dict:
 
 def init_db():
     """Initializes the SQLite database and creates the keys and garmin_health tables if they don't exist."""
+    from backend.models import Base
+    Base.metadata.create_all(bind=engine)
+
     conn = sqlite3.connect(DB_FILE, timeout=30)
     conn.execute("PRAGMA journal_mode=WAL")
     cursor = conn.cursor()
