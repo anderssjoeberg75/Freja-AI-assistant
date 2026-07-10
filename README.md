@@ -384,6 +384,24 @@ The application separates the client frontend from focused backend modules:
 
 Backend routes are registered centrally but implemented in focused domain modules. This keeps the server entry point small and makes route behavior independently testable.
 
+### 🌍 Language Convention
+
+**All source text is English. Freja answers the user in Swedish.**
+
+Comments, docstrings, log lines, exception messages, HTTP error details, Gemini tool descriptions, and every piece of UI copy in the HUD and admin panel are written in English. Freja still replies in Swedish because the *system prompts* say so — never because the surrounding code is Swedish. Those prompts live in [gemini.js](client/gemini.js) (HUD), [telegram_service.py](backend/services/telegram_service.py) (Telegram bot), [trainer.py](backend/routes/trainer.py) (coach), [learning_service.py](backend/services/learning_service.py), and [codex_service.py](backend/services/codex_service.py) (audit report). Each is English prose containing an explicit "answer in Swedish" instruction.
+
+Some Swedish is deliberately kept because translating it would change behavior. It is commented in place; the categories are:
+
+| Category | Example | Why it stays |
+| --- | --- | --- |
+| Text Freja speaks or writes to the user | `speech.speak("Nedladdningen ... är klar")` | It *is* Freja's Swedish answer. |
+| Keywords matched against user speech | `includes("avbryt")`, vision keywords in [app.js](client/app.js) | The user speaks Swedish; translating breaks voice control. |
+| Values persisted in the database | `Löpning`, `Styrketräning`, `Övertränad` | Shown in the HUD and matched by pace/recovery logic. Changing them needs a data migration. |
+| Weekday names in generated plans | `Måndag` … `Söndag` | `book_plan_to_calendar` parses them back into dates. |
+| Third-party UI strings | `"Tillåt alla cookies"` in [facebook_service.py](backend/services/facebook_service.py) | Facebook's own button labels, matched by visible text. |
+
+When adding code, follow the same rule: write it in English, and if you need Freja to say something in Swedish, put that instruction in the prompt rather than in the code.
+
 ### Running Tests
 
 Run backend regression tests with:

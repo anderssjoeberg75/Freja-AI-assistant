@@ -1,4 +1,20 @@
-"""Freja FastAPI backend entry point."""
+"""Freja FastAPI backend entry point.
+
+Wiring order matters here and is easy to get wrong when debugging:
+
+  1. `init_db()` runs at import time, before any router is registered, so every route can
+     assume its tables exist.
+  2. Middleware is applied bottom-up in Starlette: `FrejaAuthMiddleware` is added last and
+     therefore runs FIRST, rejecting unauthenticated requests before CORS headers are added.
+  3. Routers are then mounted, followed by the admin page at "/" and the client HUD at
+     "/client". Static mounts come last so they never shadow an API route.
+  4. `lifespan` starts the Telegram polling worker on boot and cancels it on shutdown.
+
+Language convention for the whole project: all source text - comments, log lines, error
+messages, tool descriptions and UI copy - is written in English. Freja nevertheless answers
+the user in Swedish, which is enforced by the system prompts (see `client/gemini.js` and
+`backend/services/telegram_service.py`), not by the language of the code.
+"""
 
 import os
 import uvicorn
@@ -36,6 +52,10 @@ from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """Owns the Telegram polling worker's lifetime.
+
+    The worker takes a file lock (`.telegram_bot.lock`) so that when uvicorn runs with
+    reload or multiple workers, only one process actually polls Telegram."""
     # Startup: Initialize the Telegram background worker
     task = asyncio.create_task(telegram_worker_loop())
     yield
@@ -54,7 +74,9 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Register CORS Middleware
+# Register CORS Middleware.
+# allow_origins=["*"] is safe only because allow_credentials is False and every protected
+# route requires the X-Freja-Token header, which a browser will not attach automatically.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -63,7 +85,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Register Authentication Middleware
+# Register Authentication Middleware. Added last, so it is the OUTERMOST middleware and runs
+# before CORS on every request - see the note in the module docstring.
 from backend.middleware.auth import FrejaAuthMiddleware
 app.add_middleware(FrejaAuthMiddleware)
 

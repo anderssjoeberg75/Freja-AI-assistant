@@ -105,6 +105,7 @@ async def query_gemini_with_tools(contents, api_key, system_prompt):
             res_json = res.json()
             candidates = res_json.get("candidates", [])
             if not candidates:
+                # Swedish: delivered straight to the user's Telegram chat.
                 return "Inget svar returnerades från Gemini."
                 
             candidate = candidates[0]

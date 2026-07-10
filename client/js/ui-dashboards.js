@@ -261,6 +261,7 @@ FrejaUIController.prototype.runTrainerCheckin = async function() {
 
         const data = await res.json();
         const checkin = data.checkin || {};
+        // Freja's own briefing text, so the fallback is Swedish too.
         const briefing = checkin.briefing || 'Ingen briefing genererades.';
         const adh = data.adherence || {};
 
@@ -332,7 +333,7 @@ FrejaUIController.prototype.runTrainerOptimize = async function() {
 
     if (btn) {
         btn.disabled = true;
-        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> OPTIMERAR...';
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> OPTIMIZING...';
     }
     out.style.display = 'block';
     out.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 16px;">Reading recovery data and reviewing upcoming sessions...</div>';
@@ -351,11 +352,12 @@ FrejaUIController.prototype.runTrainerOptimize = async function() {
         }
 
         const data = await res.json();
+        // Freja's own summary text, so the fallback is Swedish too.
         const briefing = data.briefing || 'Ingen sammanfattning genererades.';
         const changes = data.changes || [];
 
         const badgeStyle = "font-size: 10px; font-family: var(--font-mono); background: rgba(0,242,254,0.1); border: 1px solid rgba(0,242,254,0.2); color: var(--color-primary); border-radius: 3px; padding: 3px 8px;";
-        let badges = `<span style="${badgeStyle}">🔍 ${data.considered || 0} pass granskade</span>`;
+        let badges = `<span style="${badgeStyle}">🔍 ${data.considered || 0} sessions reviewed</span>`;
         badges += `<span style="${badgeStyle}">${data.changes_count ? '✅' : '➖'} ${data.changes_count || 0} adjusted</span>`;
 
         let changeList = '';
@@ -380,7 +382,7 @@ FrejaUIController.prototype.runTrainerOptimize = async function() {
     } finally {
         if (btn) {
             btn.disabled = false;
-            btn.innerHTML = '<i class="fa-solid fa-wand-sparkles"></i> OPTIMERA KOMMANDE PASS NU';
+            btn.innerHTML = '<i class="fa-solid fa-wand-sparkles"></i> OPTIMIZE UPCOMING SESSIONS NOW';
         }
     }
 };
@@ -517,7 +519,7 @@ FrejaUIController.prototype.renderTrainerPlanDetails = function(planId, adviceTe
                 <div style="display: flex; gap: 8px; align-items: center;">
                     <input type="date" id="trainer-book-start-date" class="hud-input" style="height: 32px; font-size: 12px; flex: 1;" value="${getNextMondayStr()}">
                     <button id="btn-trainer-book-calendar" class="hud-btn btn-primary" style="height: 32px; font-family: var(--font-display); font-size: 11px; padding: 0 12px; display: flex; align-items: center; gap: 5px;">
-                        <i class="fa-solid fa-calendar-plus"></i> BOKA PASS
+                        <i class="fa-solid fa-calendar-plus"></i> BOOK SESSIONS
                     </button>
                 </div>
             </div>
@@ -588,10 +590,10 @@ FrejaUIController.prototype.renderTrainerPlanDetails = function(planId, adviceTe
             } catch (err) {
                 this.writeLog(`CALENDAR EXCEPTION: ${err.message}`, "err");
                 soundSynth.playError();
-                alert(`Fel vid kommunikation med servern: ${err.message}`);
+                alert(`Error communicating with the server: ${err.message}`);
             } finally {
                 btnBook.disabled = false;
-                btnBook.innerHTML = '<i class="fa-solid fa-calendar-plus"></i> BOKA PASS';
+                btnBook.innerHTML = '<i class="fa-solid fa-calendar-plus"></i> BOOK SESSIONS';
             }
         });
     }
@@ -1082,7 +1084,7 @@ FrejaUIController.prototype.loadCredentialsUI = async function() {
             item.innerHTML = `
                 <span style="color: var(--color-primary); flex: 1;">${cred.domain}</span>
                 <span style="color: var(--color-text-muted); margin-right: 10px;">${cred.username}</span>
-                <button class="btn-delete-cred hud-btn-icon" data-clean="${cred.clean_domain}" style="height: 18px; width: 18px; font-size: 9px; line-height: 18px; display: inline-flex; justify-content: center; align-items: center; border-color: rgba(255, 59, 48, 0.3); color: #ff3b30;" title="Radera inloggning">
+                <button class="btn-delete-cred hud-btn-icon" data-clean="${cred.clean_domain}" style="height: 18px; width: 18px; font-size: 9px; line-height: 18px; display: inline-flex; justify-content: center; align-items: center; border-color: rgba(255, 59, 48, 0.3); color: #ff3b30;" title="Delete login">
                     <i class="fa-solid fa-trash-can"></i>
                 </button>
             `;
@@ -1144,7 +1146,7 @@ FrejaUIController.prototype.loadLearningVaultUI = async function() {
                     <h4 style="font-family: var(--font-display); font-size: 12px; color: var(--color-primary); margin: 0; text-transform: uppercase; letter-spacing: 0.5px;">${entry.topic}</h4>
                     <div style="display: flex; gap: 8px; align-items: center;">
                         <span style="font-family: var(--font-mono); font-size: 9px; color: var(--color-text-muted);">${entry.timestamp}</span>
-                        <button class="btn-delete-knowledge hud-btn-icon" data-id="${entry.id}" style="height: 20px; width: 20px; font-size: 10px; border-color: rgba(255,59,48,0.3); color: #ff3b30;" title="Radera kunskap">
+                        <button class="btn-delete-knowledge hud-btn-icon" data-id="${entry.id}" style="height: 20px; width: 20px; font-size: 10px; border-color: rgba(255,59,48,0.3); color: #ff3b30;" title="Delete knowledge">
                             <i class="fa-solid fa-trash-can"></i>
                         </button>
                     </div>

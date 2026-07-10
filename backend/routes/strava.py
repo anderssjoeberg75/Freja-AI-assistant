@@ -15,7 +15,7 @@ router = APIRouter()
 async def get_strava_callback(code: str = Query("", description="Authorization code")):
     code = code.strip()
     if not code:
-        return HTMLResponse('<h3>Fel: Ingen auktoriseringskod hittades i anropet.</h3>', status_code=400)
+        return HTMLResponse('<h3>Error: No authorization code was found in the request.</h3>', status_code=400)
     try:
         client_id = get_api_key('freja_strava_client_id') or ""
         client_secret = get_api_key('freja_strava_client_secret') or ""

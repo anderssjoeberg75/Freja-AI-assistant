@@ -60,6 +60,9 @@ async def run_google_calendar_sync_task():
                     tomorrow_str = (datetime.date.today() + datetime.timedelta(days=1)).strftime('%Y-%m-%d')
                     in_three_days_str = (datetime.date.today() + datetime.timedelta(days=3)).strftime('%Y-%m-%d')
                     
+                    # Demo events, only inserted when the table is empty, so the calendar
+                    # dashboard is not blank before a real Google account is connected.
+                    # Written in Swedish because they stand in for the user's own entries.
                     calendar_seed = [
                         ("Möte med Sven", "Gå igenom kvartalsrapporten och planera nästa sprint.", f"{today_str}T10:00:00", f"{today_str}T11:00:00", "Konferensrum A"),
                         ("Lunch med Maria", "Diskutera det nya designförslaget för gränssnittet.", f"{today_str}T12:00:00", f"{today_str}T13:00:00", "Gondolen"),
@@ -99,7 +102,7 @@ async def run_google_calendar_sync_task():
             synced_ids = set()
             for item in events_data:
                 g_id = item.get("id")
-                summary = item.get("summary", "(Ingen titel)")
+                summary = item.get("summary", "(No title)")
                 description = item.get("description", "")
                 
                 # Start/End date/datetime parsing
@@ -368,7 +371,7 @@ async def get_google_calendar_callback(
 ):
     code = code.strip()
     if not code:
-        return HTMLResponse('<h3>Fel: Ingen auktoriseringskod hittades i anropet.</h3>', status_code=400)
+        return HTMLResponse('<h3>Error: No authorization code was found in the request.</h3>', status_code=400)
         
     if state:
         frontend_url = state.rstrip('/')

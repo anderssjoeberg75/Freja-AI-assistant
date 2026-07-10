@@ -1,4 +1,14 @@
-"""Database schema initialization and migrations."""
+"""Database schema initialization and migrations.
+
+Everything lives in one SQLite file (`keys.db`). Two things are worth knowing before
+debugging anything here:
+
+  * WAL journal mode is enabled per connection, so concurrent readers never block the
+    single writer. That is what lets a background sync task write while an HTTP request reads.
+  * Values in `api_keys` are encrypted at rest (see `backend/crypto_utils.py`). Reading a row
+    directly with the `sqlite3` CLI therefore shows ciphertext, not the key - use
+    `get_api_key()` instead.
+"""
 
 import datetime
 import secrets
@@ -20,6 +30,9 @@ def get_db_connection():
         conn.close()
 
 
+# Legacy setting names kept working after the `freja_`-prefixed rename. `get_api_key()`
+# falls back through this map in both directions, so an old database and a new one both
+# resolve the same value without a migration.
 KEY_ALIASES = {
     'telegram_bot_token': 'freja_telegram_bot_token',
     'telegram_chat_id': 'freja_telegram_chat_id',
@@ -222,6 +235,9 @@ def init_db():
         cursor.execute('ALTER TABLE withings_measurements ADD COLUMN sleep_score INTEGER')
     except sqlite3.OperationalError:
         pass
+    # Demo rows, inserted only into empty tables so the HUD dashboards render before any
+    # provider is connected. The Swedish activity names mirror what a real sync writes
+    # (see the type_mapping in backend/routes/garmin.py), so the UI looks the same either way.
     cursor.execute('SELECT COUNT(*) FROM garmin_health')
     if cursor.fetchone()[0] == 0:
         today = datetime.date.today()

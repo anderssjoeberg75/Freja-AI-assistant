@@ -635,7 +635,7 @@ FrejaUIController.prototype.bindEvents = function() {
             }
             soundSynth.playClick();
             const payload = {
-                name: nameInput || "Manuellt pass",
+                name: nameInput || "Manuellt pass",  // persisted as strava_activities.name, shown to the user
                 date: dateInput,
                 type: document.getElementById('strava-input-type').value,
                 distance: parseFloat(document.getElementById('strava-input-distance').value) || 0.0,
@@ -1633,7 +1633,7 @@ FrejaUIController.prototype.bindEvents = function() {
             } catch (e) {
                 self.writeLog(`COACH ERROR: ${e.message}`, "err");
                 soundSynth.playError();
-                alert(`Fel vid kommunikation med servern: ${e.message}`);
+                alert(`Error communicating with the server: ${e.message}`);
             } finally {
                 btnGenerateTrainerPlan.disabled = false;
                 btnGenerateTrainerPlan.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> GENERATE TRAINING PLAN';

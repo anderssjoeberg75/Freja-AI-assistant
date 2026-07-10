@@ -113,7 +113,7 @@ async def run_withings_sync_task(client_id, client_secret, refresh_token, days: 
         access_token = body.get('access_token')
         new_refresh_token = body.get('refresh_token')
         if not access_token:
-            raise Exception('Inget access_token returnerades.')
+            raise Exception('No access_token was returned.')
             
         if new_refresh_token and new_refresh_token != refresh_token:
             set_api_key('freja_withings_refresh_token', new_refresh_token)

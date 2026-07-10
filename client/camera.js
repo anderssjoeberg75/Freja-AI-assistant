@@ -41,7 +41,7 @@ window.FrejaCamera = {
                 console.warn("[CAMERA] No camera devices found.");
                 const option = document.createElement('option');
                 option.value = "off";
-                option.textContent = "Ingen kamera hittades";
+                option.textContent = "No camera found";
                 selectCam.appendChild(option);
                 return;
             }

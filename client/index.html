@@ -437,7 +437,7 @@
                 </div>
 
                 <div class="memories-list-container" style="display: flex; flex-direction: column; flex: 1; min-height: 250px; max-height: 350px;">
-                    <h3 class="section-title" style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); margin-bottom: 8px; letter-spacing: 1px;">MINNES-ENGRAM (<span id="memory-count">0</span>)</h3>
+                    <h3 class="section-title" style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); margin-bottom: 8px; letter-spacing: 1px;">MEMORY ENGRAMS (<span id="memory-count">0</span>)</h3>
                     <div class="memories-list" id="memories-list" style="flex: 1; overflow-y: auto; background: rgba(0,0,0,0.3); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px;">
                         <div class="memory-loading-msg" style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Loading memories...</div>
                     </div>
@@ -446,7 +446,7 @@
                 <!-- Neural Memory API/Sandbox Settings -->
                 <details class="memory-api-details" style="border: 1px solid var(--color-border); border-radius: 4px; background: rgba(0, 0, 0, 0.2); padding: 8px 12px; margin-top: 10px;">
                     <summary style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); cursor: pointer; user-select: none; outline: none; letter-spacing: 1px;">
-                        <i class="fa-solid fa-key" style="margin-right: 6px;"></i> NEURALT MINNE KONFIGURATION
+                        <i class="fa-solid fa-key" style="margin-right: 6px;"></i> NEURAL MEMORY CONFIGURATION
                     </summary>
                     <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 10px;">
                         <div style="display: flex; flex-direction: column; gap: 4px;">
@@ -471,7 +471,7 @@
                 </details>
             </div>
             <div class="modal-footer">
-                <button id="btn-wipe-memory" class="hud-btn btn-secondary" style="border-color: #ff3b30; color: #ff3b30;"><i class="fa-solid fa-trash-can"></i> RADERA ALLT MINNE</button>
+                <button id="btn-wipe-memory" class="hud-btn btn-secondary" style="border-color: #ff3b30; color: #ff3b30;"><i class="fa-solid fa-trash-can"></i> WIPE ALL MEMORY</button>
                 <button id="btn-refresh-memory" class="hud-btn btn-primary"><i class="fa-solid fa-rotate"></i> SYNC</button>
             </div>
         </div>
@@ -908,14 +908,14 @@
                 
                 <!-- Recent message logs -->
                 <div class="telegram-list-container" style="display: flex; flex-direction: column; flex: 1; min-height: 200px; max-height: 250px;">
-                    <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); margin-bottom: 8px; letter-spacing: 1px;">SENASTE MEDDELANDEN</h3>
+                    <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); margin-bottom: 8px; letter-spacing: 1px;">RECENT MESSAGES</h3>
                     <div class="telegram-list" id="telegram-list" style="flex: 1; overflow-y: auto; background: rgba(0,0,0,0.3); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px;">
                         <div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">No activity logged...</div>
                     </div>
                 </div>
             </div>
             <div class="modal-footer" style="display: flex; gap: 10px;">
-                <button id="btn-refresh-telegram" class="hud-btn btn-primary" style="flex: 1; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-arrows-rotate"></i> UPPDATERA LOGGAR</button>
+                <button id="btn-refresh-telegram" class="hud-btn btn-primary" style="flex: 1; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-arrows-rotate"></i> REFRESH LOGS</button>
             </div>
         </div>
     </div>
@@ -931,7 +931,7 @@
                 <!-- Daily Check-in -->
                 <div class="trainer-checkin" style="display: flex; flex-direction: column; gap: 8px; background: rgba(0, 242, 254, 0.05); border: 1px solid rgba(0, 242, 254, 0.15); border-radius: 4px; padding: 12px;">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <span style="font-size: 11px; color: var(--color-primary); font-family: var(--font-display); letter-spacing: 0.5px;"><i class="fa-solid fa-sun"></i> DAGLIG INCHECKNING</span>
+                        <span style="font-size: 11px; color: var(--color-primary); font-family: var(--font-display); letter-spacing: 0.5px;"><i class="fa-solid fa-sun"></i> DAILY CHECK-IN</span>
                         <button id="btn-trainer-checkin" class="hud-btn btn-primary" style="height: 30px; font-family: var(--font-display); font-size: 10px; padding: 0 12px; display: flex; align-items: center; gap: 5px;"><i class="fa-solid fa-heart-pulse"></i> CHECKA IN</button>
                     </div>
                     <div id="trainer-checkin-output" style="display: none; background: rgba(0, 0, 0, 0.4); border: 1px solid var(--color-border); border-radius: 4px; padding: 12px; font-family: var(--font-sans); font-size: 13px; line-height: 1.5; color: var(--color-text); max-height: 320px; overflow-y: auto;"></div>
@@ -958,7 +958,7 @@
                         <span>Automatically adjust upcoming sessions from new Garmin data (sleep, HRV and recovery)</span>
                     </label>
                     <p style="font-size: 10px; color: var(--color-text-muted); margin: 0; line-height: 1.4;">F.R.E.J.A. reads your latest recovery data and reduces duration/intensity, or inserts active rest, when your body needs it - so the sessions match your goal without overtraining or injury.</p>
-                    <button id="btn-trainer-optimize" class="hud-btn btn-primary" style="height: 34px; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-wand-sparkles"></i> OPTIMERA KOMMANDE PASS NU</button>
+                    <button id="btn-trainer-optimize" class="hud-btn btn-primary" style="height: 34px; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-wand-sparkles"></i> OPTIMIZE UPCOMING SESSIONS NOW</button>
                     <div id="trainer-optimize-output" style="display: none; background: rgba(0, 0, 0, 0.4); border: 1px solid var(--color-border); border-radius: 4px; padding: 12px; font-family: var(--font-sans); font-size: 13px; line-height: 1.5; color: var(--color-text); max-height: 300px; overflow-y: auto;"></div>
                 </div>
 
@@ -978,7 +978,7 @@
                 </div>
             </div>
             <div class="modal-footer" style="display: flex; gap: 10px;">
-                <button id="btn-refresh-trainer" class="hud-btn btn-primary" style="flex: 1; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-arrows-rotate"></i> UPPDATERA HISTORIK</button>
+                <button id="btn-refresh-trainer" class="hud-btn btn-primary" style="flex: 1; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-arrows-rotate"></i> REFRESH HISTORY</button>
             </div>
         </div>
     </div>
@@ -1038,7 +1038,7 @@
                 </div>
             </div>
             <div class="modal-footer" style="display: flex; gap: 10px;">
-                <button id="btn-refresh-learning" class="hud-btn btn-primary" style="flex: 1; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-arrows-rotate"></i> UPPDATERA KUNSKAPSBANK</button>
+                <button id="btn-refresh-learning" class="hud-btn btn-primary" style="flex: 1; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-arrows-rotate"></i> REFRESH KNOWLEDGE BASE</button>
             </div>
         </div>
     </div>

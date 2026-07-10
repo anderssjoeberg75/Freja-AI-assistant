@@ -1,3 +1,18 @@
+/**
+ * F.R.E.J.A. Client HUD - browser-side orchestration.
+ *
+ * This file does three separate jobs, in order:
+ *   1. A global `fetch` wrapper that rewrites relative /api/ URLs to the configured backend
+ *      and attaches the X-Freja-Token header. It runs before any module loads, so every
+ *      later `fetch('/api/...')` in the codebase is authenticated without extra plumbing.
+ *   2. `sendMessage()` - the path a user utterance takes: cancel-command detection, then
+ *      vision-keyword detection (should a webcam frame be attached?), then Gemini.
+ *   3. Boot-time wiring of the UI controller, speech engine, camera and visualizer.
+ *
+ * Note: the cancel/vision keyword lists are Swedish because the user speaks Swedish to Freja.
+ * They match user input, not UI copy - see the comment at each list.
+ */
+
 // Intercept all fetch requests to inject X-Freja-Token automatically for F.R.E.J.A. API endpoints.
 window.originalFetch = window.fetch;
 window.fetch = async function(url, options = {}) {
@@ -249,10 +264,13 @@ class FrejaUIController {
     async processUserQuery(text) {
         const cleanText = text.trim().toLowerCase();
         const cleanTextNoPunct = cleanText.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g, "");
-        const containsCancelWord = 
-            cleanTextNoPunct.includes("avbryt") || 
-            cleanTextNoPunct.includes("av bryt") || 
-            cleanTextNoPunct.includes("stoppa") || 
+        // Swedish stop-words the user actually speaks: "avbryt" = cancel, "stoppa"/"sluta" = stop.
+        // "av bryt" catches the speech recognizer splitting the word into two tokens. These match
+        // user input, so they must stay Swedish.
+        const containsCancelWord =
+            cleanTextNoPunct.includes("avbryt") ||
+            cleanTextNoPunct.includes("av bryt") ||
+            cleanTextNoPunct.includes("stoppa") ||
             cleanTextNoPunct.includes("sluta");
 
         const isCancelCommand = 
