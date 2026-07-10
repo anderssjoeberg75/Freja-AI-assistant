@@ -914,8 +914,9 @@
 
         async function loadSystemLogs() {
             const token = getActiveToken();
+            if (!token) return;
             const headers = {};
-            if (token) headers['X-Freja-Token'] = token;
+            headers['X-Freja-Token'] = token;
 
             try {
                 const res = await fetch('/api/system/logs', { headers: headers });

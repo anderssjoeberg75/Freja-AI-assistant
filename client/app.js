@@ -507,10 +507,9 @@ class FrejaUIController {
         const sendHeartbeat = async () => {
             try {
                 const token = localStorage.getItem("freja_access_token") || "";
+                if (!token) return;
                 const headers = { "Content-Type": "application/json" };
-                if (token) {
-                    headers["X-Freja-Token"] = token;
-                }
+                headers["X-Freja-Token"] = token;
                 
                 await fetch("/api/client/heartbeat", {
                     method: "POST",
