@@ -93,7 +93,7 @@ async def post_learning_credentials(request: Request):
         password = body.get("password", "").strip()
         
         if not domain or not username or not password:
-            raise HTTPException(status_code=400, detail="Domän, användarnamn och lösenord krävs.")
+            raise HTTPException(status_code=400, detail="Domain, username and password are required.")
             
         # Normalize domain for database key naming
         clean_domain = re.sub(r'[^a-zA-Z0-9]', '_', domain).lower()
@@ -106,7 +106,7 @@ async def post_learning_credentials(request: Request):
         set_api_key(user_key, username)
         set_api_key(pass_key, password)
 
-        return {"status": "success", "message": f"Autentiseringsuppgifter för {domain} sparade."}
+        return {"status": "success", "message": f"Credentials for {domain} saved."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

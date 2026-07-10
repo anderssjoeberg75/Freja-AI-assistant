@@ -149,7 +149,7 @@ async def get_google_calendar_sync(background_tasks: BackgroundTasks):
     background_tasks.add_task(run_google_calendar_sync_task)
     return {
         "status": "syncing",
-        "message": "Google Kalender-synkronisering påbörjad i bakgrunden."
+        "message": "Google Calendar sync started in the background."
     }
 
 def core_get_calendar_data(days: int = 30) -> list[dict]:
@@ -195,7 +195,7 @@ async def core_save_calendar_event(
     location = location.strip()
 
     if not summary or not start_time or not end_time:
-        raise ValueError("Titel, starttid och sluttid krävs.")
+        raise ValueError("A title, start time and end time are required.")
 
     # Clean ISO timezone offset if present
     if len(start_time) > 19:
@@ -267,7 +267,7 @@ async def core_save_calendar_event(
     
     return {
         "status": "success",
-        "message": "Kalenderhändelse sparad.",
+        "message": "Calendar event saved.",
         "event": {
             "id": db_id,
             "google_event_id": google_event_id,
@@ -288,7 +288,7 @@ async def core_delete_calendar_event(db_id: int) -> dict:
         cursor.execute("SELECT google_event_id, summary FROM google_calendar_events WHERE id = ?", (db_id,))
         row = cursor.fetchone()
         if not row:
-            raise ValueError("Händelsen hittades inte.")
+            raise ValueError("The event was not found.")
             
         google_event_id, summary = row[0], row[1]
         
@@ -310,7 +310,7 @@ async def core_delete_calendar_event(db_id: int) -> dict:
         cursor.execute("DELETE FROM google_calendar_events WHERE id = ?", (db_id,))
         conn.commit()
     
-    return {"status": "success", "message": f"Händelsen '{summary}' borttagen."}
+    return {"status": "success", "message": f"The event '{summary}' was deleted."}
 
 @router.get("/api/google_calendar/data")
 async def get_google_calendar_data(days: int = Query(30, description="Range of days to retrieve events for")):
@@ -416,10 +416,10 @@ async def get_google_calendar_callback(
     </head>
     <body>
         <div class="container">
-            <h1>[GOOGLE KALENDER AUKTORISERING]</h1>
-            <p id="info">Utbyter auktoriseringskod mot tokens...</p>
-            <div id="status" class="status">Vänta...</div>
-            <button id="close-btn" style="display:none;" onclick="window.close()">STÄNG FÖNSTER</button>
+            <h1>[GOOGLE CALENDAR AUTHORIZATION]</h1>
+            <p id="info">Exchanging the authorization code for tokens...</p>
+            <div id="status" class="status">Please wait...</div>
+            <button id="close-btn" style="display:none;" onclick="window.close()">CLOSE WINDOW</button>
         </div>
         <script>
             async function exchangeToken() {
@@ -431,8 +431,8 @@ async def get_google_calendar_callback(
                 const closeBtn = document.getElementById('close-btn');
 
                 if (!code || !verifier || !clientId) {
-                    statusDiv.innerHTML = '<span style="color: #ff3366;">Fel: Det saknas verifierare, client ID eller kod. Kontrollera att du startade anslutningen i samma webbläsare.</span>';
-                    infoP.innerText = 'Misslyckades.';
+                    statusDiv.innerHTML = '<span style="color: #ff3366;">Error: The verifier, client ID or code is missing. Make sure you started the connection in this same browser.</span>';
+                    infoP.innerText = 'Failed.';
                     return;
                 }
 
@@ -454,16 +454,16 @@ async def get_google_calendar_callback(
                     });
                     const resData = await response.json();
                     if (response.ok && resData.status === 'success') {
-                        statusDiv.innerHTML = '<span style="color: #00ff66;">AUKTORISERING LYCKADES!</span>';
-                        infoP.innerText = 'Ditt Google-konto har kopplats. Vi har sparat ditt refresh-token i databasen.';
+                        statusDiv.innerHTML = '<span style="color: #00ff66;">AUTHORIZATION SUCCEEDED</span>';
+                        infoP.innerText = 'Your Google account has been connected. The refresh token was saved to the database.';
                         // Clean up verifier
                         localStorage.removeItem('google_code_verifier');
                     } else {
-                        throw new Error(resData.detail || resData.message || 'Kunde inte utbyta tokens.');
+                        throw new Error(resData.detail || resData.message || 'Could not exchange the tokens.');
                     }
                 } catch (err) {
-                    statusDiv.innerHTML = '<span style="color: #ff3366;">FEL VID TOKEN-UTBYTE: ' + err.message + '</span>';
-                    infoP.innerText = 'Ett fel uppstod.';
+                    statusDiv.innerHTML = '<span style="color: #ff3366;">TOKEN EXCHANGE FAILED: ' + err.message + '</span>';
+                    infoP.innerText = 'An error occurred.';
                 } finally {
                     closeBtn.style.display = 'inline-block';
                 }
@@ -483,7 +483,7 @@ async def post_google_calendar_exchange(body: GoogleExchangeRequest):
     redirect_uri = body.redirect_uri.strip()
 
     if not code or not code_verifier or not client_id or not redirect_uri:
-        raise HTTPException(status_code=400, detail="Kod, verifierare, Client ID och redirect URI krävs.")
+        raise HTTPException(status_code=400, detail="The code, verifier, Client ID and redirect URI are required.")
 
     try:
         url = "https://oauth2.googleapis.com/token"
@@ -499,13 +499,13 @@ async def post_google_calendar_exchange(body: GoogleExchangeRequest):
             res = await client.post(url, data=payload, timeout=10.0)
             if res.status_code != 200:
                 print(f"[GOOGLE CALENDAR EXCHANGE ERROR]: HTTP {res.status_code} - {res.text}")
-                raise Exception(f"Google svarade med status {res.status_code}: {res.text}")
+                raise Exception(f"Google responded with status {res.status_code}: {res.text}")
                 
             res_body = res.json()
             
         new_refresh_token = res_body.get('refresh_token')
         if not new_refresh_token:
-            raise Exception("Inget refresh-token returnerades från Google. Om du redan har kopplat kontot en gång, gå till ditt Google-konto och ta bort behörigheterna för appen innan du ansluter igen för att tvinga Google att visa samtycke och skicka ett refresh-token.")
+            raise Exception("Google returned no refresh token. If you have already connected this account once, revoke the app's access in your Google account before connecting again - that forces Google to show the consent screen and issue a new refresh token.")
             
         # Save client_id and refresh_token to the database
         set_api_key('freja_google_calendar_client_id', client_id)

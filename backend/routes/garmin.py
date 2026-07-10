@@ -102,6 +102,9 @@ def run_garmin_sync_task(email, password, days):
                     start_time_local = act.get('startTimeLocal', '')
                     if start_time_local and start_time_local.startswith(date_str):
                         act_type = act.get('activityType', {}).get('typeKey')
+                        # Garmin's typeKey -> the Swedish label persisted in garmin_health.workout_type.
+                        # These labels are rendered directly in the HUD dashboard, which is why they are
+                        # Swedish. Changing them would require migrating existing rows.
                         type_mapping = {
                             'running': 'Löpning',
                             'cycling': 'Cykling',
@@ -143,6 +146,8 @@ def run_garmin_sync_task(email, password, days):
                         if isinstance(ts_data, dict):
                             raw_status = ts_data.get('trainingStatus')
                             if raw_status:
+                                # Also persisted in Swedish and shown as-is in the HUD. The trainer
+                                # prompts reference these exact strings when judging recovery.
                                 status_mapping = {
                                     'PRODUCTIVE': 'Produktiv',
                                     'MAINTAINING': 'Underhållande',
@@ -193,7 +198,7 @@ def run_garmin_sync_task(email, password, days):
         try:
             _auto_optimize_workouts_after_sync()
         except Exception as opt_err:
-            print(f"[GARMIN SYNC] Auto-optimering av träningspass hoppades över: {opt_err}")
+            print(f"[GARMIN SYNC] Automatic workout optimization was skipped: {opt_err}")
     except Exception as e:
         print(f"[GARMIN SYNC TASK ERROR]: {e}")
         set_sync_state("garmin", "error", str(e))
@@ -231,14 +236,14 @@ async def get_garmin_sync(
     if not email or not password:
         raise HTTPException(
             status_code=400,
-            detail="Garmin Connect inloggningsuppgifter saknas. Ange e-post och lösenord i Inställningar."
+            detail="Garmin Connect credentials are missing. Enter the email and password in Settings."
         )
         
     set_sync_state("garmin", "syncing")
     background_tasks.add_task(run_garmin_sync_task, email, password, days)
     return {
         'status': 'syncing',
-        'message': "Garmin-synkronisering påbörjad i bakgrunden."
+        'message': "Garmin sync started in the background."
     }
 
 @router.get("/api/garmin/delete")
@@ -252,7 +257,7 @@ async def delete_garmin_log(date: str = Query(..., description="Date to delete")
             cursor = conn.cursor()
             cursor.execute('DELETE FROM garmin_health WHERE date = ?', (date_to_delete,))
             conn.commit()
-        return {'status': 'success', 'message': f"Logg för {date_to_delete} borttagen."}
+        return {'status': 'success', 'message': f"The log for {date_to_delete} was deleted."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

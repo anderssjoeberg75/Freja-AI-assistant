@@ -32,7 +32,7 @@ async def run():
             await asyncio.sleep(2)
             try:
                 if page.is_closed():
-                    print("\n[Fel] Webbläsarfönstret stängdes innan inloggningen slutfördes.")
+                    print("\n[Error] The browser window was closed before the login completed.")
                     break
                 
                 state = await context.storage_state()
@@ -42,15 +42,15 @@ async def run():
                     await context.storage_state(path=str(state_path))
                     await asyncio.sleep(1)
                     await context.storage_state(path=str(state_path))
-                    print(f"\n[Success] Inloggning detekterad! Session sparad till: {state_path.resolve()}")
+                    print(f"\n[Success] Login detected. Session saved to: {state_path.resolve()}")
                     logged_in = True
                     break
             except Exception as e:
-                print(f"\n[Error] Fel under övervakning: {e}")
+                print(f"\n[Error] Failure while monitoring the login: {e}")
                 break
-                
+
         if not logged_in:
-            print("\nInloggningen misslyckades eller avbröts.")
+            print("\nThe login failed or was aborted.")
             
         await browser.close()
 

@@ -120,9 +120,9 @@ def test_persistent_logging(db_token):
             lines = f.readlines()
             assert len(lines) == 1
             data = json.loads(lines[0])
-            assert data["message"] == "Logghistorik rensad."
-        assert len(SYSTEM_LOGS) == 1  # Contains "Logghistorik rensad."
-        assert SYSTEM_LOGS[0]["message"] == "Logghistorik rensad."
+            assert data["message"] == "Log history cleared."
+        assert len(SYSTEM_LOGS) == 1  # Contains "Log history cleared."
+        assert SYSTEM_LOGS[0]["message"] == "Log history cleared."
 
     finally:
         # Restore original logs state

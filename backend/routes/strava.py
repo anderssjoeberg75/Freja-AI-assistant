@@ -21,7 +21,7 @@ async def get_strava_callback(code: str = Query("", description="Authorization c
         client_secret = get_api_key('freja_strava_client_secret') or ""
 
         if not client_id or not client_secret:
-            return HTMLResponse('<h3>Fel: Strava Client ID eller Client Secret saknas i F.R.E.J.A. databasen. Spara dessa i Inställningar först.</h3>', status_code=400)
+            return HTMLResponse('<h3>Error: The Strava Client ID or Client Secret is missing from the F.R.E.J.A. database. Save them in Settings first.</h3>', status_code=400)
             
         token_url = "https://www.strava.com/oauth/token"
         payload = {
@@ -38,7 +38,7 @@ async def get_strava_callback(code: str = Query("", description="Authorization c
             
         new_refresh_token = res_body.get('refresh_token')
         if not new_refresh_token:
-            raise Exception('Kunde inte hämta refresh token från Strava svar.')
+            raise Exception('Could not read the refresh token from the Strava response.')
             
         set_api_key('freja_strava_refresh_token', new_refresh_token)
 
@@ -82,10 +82,10 @@ async def get_strava_callback(code: str = Query("", description="Authorization c
         </head>
         <body>
             <div class="container">
-                <h1>[STRAVA AUKTORISERING LYCKADES]</h1>
-                <p>Ditt refresh-token med rätt behörigheter (activity:read) har sparats.</p>
-                <p>Du kan stänga det här fönstret och återgå till F.R.E.J.A. Neural Interface.</p>
-                <button onclick="window.close()">STÄNG FÖNSTER</button>
+                <h1>[STRAVA AUTHORIZATION SUCCEEDED]</h1>
+                <p>Your refresh token with the required scopes (activity:read) has been saved.</p>
+                <p>You can close this window and return to the F.R.E.J.A. Neural Interface.</p>
+                <button onclick="window.close()">CLOSE WINDOW</button>
             </div>
         </body>
         </html>
@@ -97,7 +97,9 @@ async def get_strava_callback(code: str = Query("", description="Authorization c
 async def run_strava_sync_task(client_id, client_secret, refresh_token, days: int = 14):
     try:
         if client_id == '123456' or refresh_token in ('refreshtokentoken', 'MOCK_REFRESH_TOKEN'):
-            # Load mock data
+            # Demo mode: seed the dashboard with plausible activities so the HUD is not empty
+            # before real credentials are configured. Activity names/types are Swedish because
+            # they are displayed to the user exactly as a real synced activity would be.
             with get_db_connection() as conn:
                 cursor = conn.cursor()
                 today = datetime.date.today()
@@ -146,7 +148,7 @@ async def run_strava_sync_task(client_id, client_secret, refresh_token, days: in
         access_token = res_body.get('access_token')
         new_refresh_token = res_body.get('refresh_token')
         if not access_token:
-            raise Exception('Inget access_token returnerades från Strava OAuth.')
+            raise Exception('No access_token was returned from Strava OAuth.')
             
         if new_refresh_token and new_refresh_token != refresh_token:
             set_api_key('freja_strava_refresh_token', new_refresh_token)
@@ -259,12 +261,12 @@ async def get_strava_sync(
     if not client_id or not client_secret or not refresh_token:
         raise HTTPException(
             status_code=400,
-            detail="Strava API-uppgifter saknas. Ange Client ID, Client Secret och Refresh Token i Inställningar."
+            detail="Strava API credentials are missing. Enter the Client ID, Client Secret and Refresh Token in Settings."
         )
         
     set_sync_state("strava", "syncing")
     background_tasks.add_task(run_strava_sync_task, client_id, client_secret, refresh_token, days)
-    return {'status': 'syncing', 'message': "Strava-synkronisering påbörjad i bakgrunden."}
+    return {'status': 'syncing', 'message': "Strava sync started in the background."}
 
 @router.get("/api/strava/data")
 async def get_strava_data(days: int = Query(7, description="Number of days to retrieve")):
@@ -295,6 +297,9 @@ async def get_strava_data(days: int = Query(7, description="Number of days to re
             max_heartrate = row[11]
             calories = row[12]
             
+            # Foot-based activities are reported as pace (min/km), everything else as speed
+            # (km/h). Both the Swedish labels (written by the sync's type mapping) and the raw
+            # Strava type names are matched, since older rows may hold either.
             formatted_speed = ""
             if act_type in ('Löpning', 'Promenad', 'Run', 'Walk'):
                 if distance > 0:
@@ -468,6 +473,7 @@ async def get_strava_activity_details(id: str = Query(..., description="ID of ac
             m_time_secs = activity.get('moving_time', 0) or 0
             avg_speed_ms = activity.get('average_speed', 0.0) or 0.0
             
+            # Same pace-vs-speed rule as get_strava_data(); see the comment there.
             formatted_speed = ""
             if mapped_type in ('Löpning', 'Promenad', 'Run', 'Walk'):
                 if dist_meters > 0:
@@ -510,7 +516,7 @@ async def get_strava_activity_details(id: str = Query(..., description="ID of ac
             print(f"Strava activity details real API failed ({api_err}), falling back to mock details.")
             return serve_mock_details()
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Kunde inte hämta aktivitetsdetaljer: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Could not fetch the activity details: {str(e)}")
 
 @router.get("/api/strava/athlete_stats")
 async def get_strava_athlete_stats():
@@ -539,7 +545,7 @@ async def get_strava_athlete_stats():
                 athlete = res.json()
             athlete_id = athlete.get('id')
             if not athlete_id:
-                raise Exception('Kunde inte hämta atlet-ID från profil.')
+                raise Exception('Could not read the athlete ID from the profile.')
             stats_url = f"https://www.strava.com/api/v3/athletes/{athlete_id}/stats"
             async with httpx.AsyncClient() as client:
                 res = await client.get(stats_url, headers={'Authorization': f"Bearer {access_token}"}, timeout=10.0)
@@ -550,7 +556,7 @@ async def get_strava_athlete_stats():
             print(f"Failed to fetch real athlete stats ({api_err}), falling back to mock stats.")
             return mock_stats
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Kunde inte hämta atlet-statistik: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Could not fetch the athlete statistics: {str(e)}")
 
 @router.get("/api/strava/credentials")
 async def get_strava_credentials():

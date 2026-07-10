@@ -1002,9 +1002,9 @@ GOAL: "{goal_str}"{limitations_prompt}
 Rules:
 - Assess recovery from sleep, resting heart rate (RHR), HRV, Body Battery, recovery time and training status.
 - If recovery is POOR (e.g. RHR up sharply >{RHR_ALERT_PCT:.0f}%, HRV down sharply <{HRV_ALERT_PCT:.0f}%,
-  short/poor sleep, low Body Battery, long recovery time, a training status such as "Overreaching",
-  "Unproductive" or "Strained"): reduce the length and/or intensity of the nearest sessions, or turn a
-  hard session into active rest.
+  short/poor sleep, low Body Battery, long recovery time, or a training status of "Övertränad",
+  "Oproduktiv" or "Ansträngd" - the Garmin sync stores these in Swedish): reduce the length and/or
+  intensity of the nearest sessions, or turn a hard session into active rest.
 - If recovery is GOOD: keep the sessions as they are (action="keep"). NEVER reduce without cause.
 - Never increase a single session by more than ~10-15%. Prioritise health over pushing towards the goal.
 - For EVERY booked session above, return one entry in "adjustments" with exactly the same event_id (integer).

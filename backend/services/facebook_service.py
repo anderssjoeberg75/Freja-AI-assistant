@@ -101,11 +101,13 @@ async def download_facebook_photos_impl(profile_url: str, limit: int = 1000, pro
         if not is_logged_in:
             print("[Facebook Scraper] Not logged in. Loading Facebook home...")
             if progress_callback:
-                progress_callback(0, 100, "Vänligen logga in på Facebook i det öppnade webbläsarfönstret...")
+                progress_callback(0, 100, "Please log in to Facebook in the browser window that just opened...")
             await page.goto("https://www.facebook.com", wait_until="domcontentloaded", timeout=25000)
             await page.wait_for_timeout(2000)
             
-            # Dismiss cookie consent dialogs on login page to uncover the form fields
+            # Dismiss cookie consent dialogs on the login page to uncover the form fields.
+            # These are Facebook's own button labels, matched by visible text, so they must stay
+            # in the locales Facebook may render (English and Swedish) - they are not our UI copy.
             cookie_buttons = [
                 "Decline optional cookies",
                 "Decline all",
@@ -136,7 +138,7 @@ async def download_facebook_photos_impl(profile_url: str, limit: int = 1000, pro
                 if ABORT_DOWNLOAD:
                     break
                 if progress_callback:
-                    progress_callback(wait_idx, max_login_wait, "Väntar på inloggning i det öppnade fönstret...")
+                    progress_callback(wait_idx, max_login_wait, "Waiting for the login in the opened window...")
                 try:
                     from urllib.parse import urlparse
                     parsed_url = urlparse(page.url)
@@ -146,7 +148,7 @@ async def download_facebook_photos_impl(profile_url: str, limit: int = 1000, pro
                     checkpoint_paths = ["/checkpoint", "/login", "/two_step", "/confirm"]
                     if any(path.startswith(p) for p in checkpoint_paths):
                         if progress_callback:
-                            progress_callback(wait_idx, max_login_wait, "Säkerhetssteg/2FA aktivt. Slutför inloggningen i fönstret...")
+                            progress_callback(wait_idx, max_login_wait, "Security step/2FA active. Complete the login in the window...")
                         continue
 
                     state = await context.storage_state()
@@ -170,7 +172,7 @@ async def download_facebook_photos_impl(profile_url: str, limit: int = 1000, pro
                         "downloaded_count": 0,
                         "images": []
                     }
-                raise Exception("Facebook-inloggning misslyckades eller avbröts av användaren.")
+                raise Exception("The Facebook login failed or was aborted by the user.")
         else:
             print("[Facebook Scraper] Session verified (c_user exists). Direct load.")
             
@@ -200,10 +202,11 @@ async def download_facebook_photos_impl(profile_url: str, limit: int = 1000, pro
                         state_path.unlink()
                 except Exception:
                     pass
-                raise Exception("Facebook-sessionen har gått ut eller är ogiltig. Kör 'python save_session.py' för att logga in på nytt.")
+                raise Exception("The Facebook session has expired or is invalid. Run 'python save_session.py' to log in again.")
 
             
-            # Dismiss cookie consent dialogs
+            # Dismiss cookie consent dialogs. Facebook's own button labels, matched by visible
+            # text, so both English and Swedish variants are needed. Not our UI copy.
             cookie_buttons = [
                 "Decline optional cookies",
                 "Decline all",

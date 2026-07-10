@@ -86,10 +86,10 @@ async def post_keys(request: Request):
             if key_value in ("[MASKED]", "configured") or (key_value and key_value.startswith("••••")):
                 continue
             set_api_key(key_name, key_value)
-        add_system_log("INFO", "Inställningar sparades i databasen.")
+        add_system_log("INFO", "Settings saved to the database.")
         return {'status': 'success'}
     except Exception as e:
-        add_system_log("ERROR", f"Fel vid sparning av inställningar: {e}")
+        add_system_log("ERROR", f"Error while saving settings: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
 async def _delayed_restart():
@@ -101,7 +101,7 @@ async def _delayed_restart():
 async def update_from_github():
     """Executes `git pull` from GitHub and restarts the server."""
     try:
-        add_system_log("INFO", "Startar uppdatering från GitHub (git pull)...")
+        add_system_log("INFO", "Starting update from GitHub (git pull)...")
         result = subprocess.run(
             ["git", "pull"],
             cwd=str(PROJECT_ROOT),
@@ -114,22 +114,22 @@ async def update_from_github():
         full_log = output + ("\n" + errors if errors else "")
 
         if result.returncode != 0:
-            add_system_log("ERROR", f"Git pull misslyckades: {full_log}")
+            add_system_log("ERROR", f"Git pull failed: {full_log}")
             return {
                 "status": "error",
-                "message": f"Git pull misslyckades (felkod {result.returncode})",
+                "message": f"Git pull failed (exit code {result.returncode})",
                 "log": full_log
             }
 
-        add_system_log("INFO", f"Git pull genomförd: {output}")
-        add_system_log("INFO", "Servern startar om...")
+        add_system_log("INFO", f"Git pull completed: {output}")
+        add_system_log("INFO", "The server is restarting...")
 
         # Trigger delayed process exit so systemd/uvicorn restarts the server
         asyncio.create_task(_delayed_restart())
 
         return {
             "status": "success",
-            "message": "Uppdatering hämtad från GitHub! Servern startar om...",
+            "message": "Update downloaded from GitHub. The server is restarting...",
             "log": full_log
         }
     except Exception as e:
@@ -150,7 +150,7 @@ async def clear_system_logs():
             os.remove(LOG_FILE)
         except Exception:
             pass
-    add_system_log("INFO", "Logghistorik rensad.")
+    add_system_log("INFO", "Log history cleared.")
     return {"status": "success"}
 
 
@@ -178,7 +178,7 @@ async def client_heartbeat(request: Request):
     global LAST_HEARTBEAT_TIME, LAST_HEARTBEAT_INFO
     import time
     LAST_HEARTBEAT_TIME = time.time()
-    LAST_HEARTBEAT_INFO = request.headers.get("user-agent", "Okänd webbläsare")
+    LAST_HEARTBEAT_INFO = request.headers.get("user-agent", "Unknown browser")
     return {"status": "ok"}
 
 

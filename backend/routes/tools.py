@@ -11,7 +11,7 @@ router = APIRouter()
 TOOL_TASKS = {}
 
 # Short-lived, single-use "allow this call only" grants issued by the frontend's
-# permission-gateway prompt (the "Tillåt denna gång" button). Keeps the authoritative
+# permission-gateway prompt (the "allow once" button). Keeps the authoritative
 # permission check server-side instead of trusting a client-supplied flag, while still
 # allowing one-off approvals that aren't persisted to the permanent allow-list.
 ONE_TIME_GRANTS = {}
@@ -133,12 +133,12 @@ async def post_execute_tool(request: Request, background_tasks: BackgroundTasks)
         args = body.get("args", {})
         
         if not name:
-            raise HTTPException(status_code=400, detail="Verktygsnamn saknas (name).")
+            raise HTTPException(status_code=400, detail="The tool name (name) is missing.")
 
         if not is_tool_execution_authorized(name, args):
             raise HTTPException(
                 status_code=403,
-                detail=f"Behörighet saknas för verktyget '{name}'. Godkänn det i Inställningar eller via behörighetsförfrågan."
+                detail=f"Permission is missing for the tool '{name}'. Approve it in Settings or via the permission prompt."
             )
 
         _prune_tool_tasks()
@@ -163,7 +163,7 @@ async def get_tool_status(task_id: str):
     """Returns the status and result/error of a background task."""
     task = TOOL_TASKS.get(task_id)
     if not task:
-        raise HTTPException(status_code=404, detail="Uppgiften hittades inte (Task not found).")
+        raise HTTPException(status_code=404, detail="Task not found.")
     return task
 
 @router.post("/api/tools/grant_once")
@@ -171,14 +171,14 @@ async def post_grant_once(request: Request):
     """Issues a short-lived, single-use execution grant for one tool call.
 
     Called by the frontend's permission-gateway modal when the user clicks
-    "Tillåt denna gång" (allow once), so the following /api/tools/execute
+    "allow once", so the following /api/tools/execute
     call is authorized server-side without persisting a permanent allow-list entry.
     """
     body = await request.json()
     name = body.get("name")
     args = body.get("args", {})
     if not name:
-        raise HTTPException(status_code=400, detail="Verktygsnamn saknas (name).")
+        raise HTTPException(status_code=400, detail="The tool name (name) is missing.")
     grant_key = _grant_key(name, args)
     ONE_TIME_GRANTS[grant_key] = time.time() + ONE_TIME_GRANT_TTL_SECONDS
     return {"status": "granted", "name": name, "expires_in": ONE_TIME_GRANT_TTL_SECONDS}

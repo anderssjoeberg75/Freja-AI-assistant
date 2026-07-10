@@ -36,7 +36,7 @@ async def post_telegram_config(request: Request):
         set_api_key('freja_telegram_bot_token', token)
         set_api_key('freja_telegram_chat_id', chat_id)
 
-        return {"status": "success", "message": "Telegram inställningar sparade."}
+        return {"status": "success", "message": "Telegram settings saved."}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

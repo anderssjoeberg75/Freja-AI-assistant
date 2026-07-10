@@ -248,12 +248,12 @@ async def get_withings_sync(
     if not client_id or not client_secret or not refresh_token:
         raise HTTPException(
             status_code=400,
-            detail="Withings API-uppgifter saknas. Ange Client ID, Client Secret och Refresh Token i Inställningar."
+            detail="Withings API credentials are missing. Enter the Client ID, Client Secret and Refresh Token in Settings."
         )
         
     set_sync_state("withings", "syncing")
     background_tasks.add_task(run_withings_sync_task, client_id, client_secret, refresh_token, days)
-    return {'status': 'syncing', 'message': "Withings-synkronisering påbörjad i bakgrunden."}
+    return {'status': 'syncing', 'message': "Withings sync started in the background."}
 
 @router.get("/api/withings/delete")
 async def delete_withings_log(date: str = Query(..., description="Date to delete")):
@@ -265,7 +265,7 @@ async def delete_withings_log(date: str = Query(..., description="Date to delete
             cursor = conn.cursor()
             cursor.execute('DELETE FROM withings_measurements WHERE date = ?', (date_to_delete,))
             conn.commit()
-        return {'status': 'success', 'message': f"Mätning för {date_to_delete} borttagen."}
+        return {'status': 'success', 'message': f"The measurement for {date_to_delete} was deleted."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

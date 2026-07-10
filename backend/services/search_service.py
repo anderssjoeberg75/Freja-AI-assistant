@@ -107,13 +107,18 @@ async def perform_search(query: str):
     except Exception as e:
         print(f"[Search Service] Primary search failed for '{query}': {e}")
 
-    # 2. Build secondary query for enrichment (sports, news, facts, translation)
+    # 2. Build a secondary query for enrichment (sports, news, facts, translation).
+    #
+    # The user speaks Swedish to Freja, but the English-language web has far more results for
+    # factual questions. So when the query opens with a Swedish question word, we translate the
+    # question stem to English and run a second search, then merge both result sets below.
+    # The Swedish keys below are matched against user input - they are data, not UI copy.
     secondary_query = ""
     lower = query.lower()
     if "tour de france" in lower:
         secondary_query = "who is leading tour de france 2025 2026 yellow jersey winner"
     elif any(w in lower for w in ["vem", "vad", "hur", "när"]):
-        translations = {
+        swedish_question_stems = {
             "vem leder": "who is leading",
             "vem vann": "who won",
             "vem är": "who is",
@@ -122,9 +127,9 @@ async def perform_search(query: str):
             "hur mycket": "how much",
             "senaste": "latest news"
         }
-        for k, v in translations.items():
-            if k in lower:
-                secondary_query = lower.replace(k, v)
+        for swedish_stem, english_stem in swedish_question_stems.items():
+            if swedish_stem in lower:
+                secondary_query = lower.replace(swedish_stem, english_stem)
                 break
 
     secondary_results = []

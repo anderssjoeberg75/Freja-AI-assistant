@@ -42,7 +42,7 @@ async def call_gemini_learning_api(prompt: str, system_instruction: str = "") ->
     """Helper to query official Gemini API for learning synthesis."""
     api_key = get_api_key('freja_gemini_apikey') or ""
     if not api_key:
-        raise Exception("Gemini API-nyckel saknas i databasen. Konfigurera den i Inställningar.")
+        raise Exception("The Gemini API key is missing from the database. Configure it in Settings.")
         
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
     
@@ -73,15 +73,15 @@ async def learn_topic_impl(topic: str, progress_callback=None) -> dict:
     ABORT_LEARNING = False
     
     if progress_callback:
-        progress_callback(5, 100, f"Söker på nätet efter '{topic}'...")
+        progress_callback(5, 100, f"Searching the web for '{topic}'...")
         
     # 1. Search the web
     search_results = await perform_search(topic)
     if isinstance(search_results, dict) and "error" in search_results:
-        raise Exception(f"Sökning misslyckades: {search_results['error']}")
+        raise Exception(f"Search failed: {search_results['error']}")
         
     if not search_results:
-        raise Exception("Hittade inga sökresultat på webben för detta ämne.")
+        raise Exception("Found no web search results for this topic.")
         
     top_results = search_results[:3]
     scraped_data = []
@@ -96,7 +96,7 @@ async def learn_topic_impl(topic: str, progress_callback=None) -> dict:
                 await browser.close()
                 return {"status": "cancelled"}
                 
-            title = res.get("title", "Källa")
+            title = res.get("title", "Source")
             link = res.get("link", "")
             if not link:
                 continue
@@ -105,7 +105,7 @@ async def learn_topic_impl(topic: str, progress_callback=None) -> dict:
             sources.append({"title": title, "url": link})
             
             if progress_callback:
-                progress_callback(20 + idx * 20, 100, f"Läser in: {domain}...")
+                progress_callback(20 + idx * 20, 100, f"Reading: {domain}...")
                 
             try:
                 page = await browser.new_page()
@@ -136,7 +136,7 @@ async def learn_topic_impl(topic: str, progress_callback=None) -> dict:
                 # Extract text cap to 8000 characters
                 text_content = await page.evaluate("() => document.body.innerText")
                 clean_text = re.sub(r'\s+', ' ', text_content).strip()
-                scraped_data.append(f"KÄLLA: {title} ({link})\nINNEHÅLL:\n{clean_text[:8000]}")
+                scraped_data.append(f"SOURCE: {title} ({link})\nCONTENT:\n{clean_text[:8000]}")
                 
                 await page.close()
                 ACTIVE_PAGE = None
@@ -150,23 +150,26 @@ async def learn_topic_impl(topic: str, progress_callback=None) -> dict:
         return {"status": "cancelled"}
         
     if not scraped_data:
-        raise Exception("Kunde inte läsa eller extrahera text från någon av sökresultaten.")
+        raise Exception("Could not read or extract text from any of the search results.")
         
     # 3. Call Gemini to synthesize
     if progress_callback:
-        progress_callback(80, 100, "Syntetiserar information med Gemini AI...")
+        progress_callback(80, 100, "Synthesizing information with Gemini AI...")
         
-    system_prompt = """Du är Frejas inlärningsmodul. Analysera följande text som samlats in från nätet om ämnet.
-Syntetisera informationen och generera en högkvalitativ, välstrukturerad sammanfattning och detaljerade anteckningar på SVENSKA.
+    # The notes are stored and later read back to the user, so the model must write Swedish.
+    # The response is parsed with json.loads(), hence the strict "valid JSON object" wording.
+    system_prompt = """You are Freja's learning module. Analyse the following text collected from the web
+about the topic. Synthesize the information and produce a high-quality, well-structured summary and
+detailed notes, written in SWEDISH.
 
-Du MÅSTE svara med ett giltigt JSON-objekt som har exakt följande fält:
+You MUST answer with a valid JSON object having exactly the following fields:
 {
-  "summary": "En kort och kärnfull sammanfattning (2-4 meningar).",
-  "detailed_notes": "Detaljerade strukturerade anteckningar med tips, råd, steg-för-steg-instruktioner och viktig fakta (Markdown-format på svenska)."
+  "summary": "A short, dense summary (2-4 sentences), in Swedish.",
+  "detailed_notes": "Detailed structured notes with tips, advice, step-by-step instructions and key facts (Markdown format, in Swedish)."
 }
 """
-    
-    prompt = f"Ämne: {topic}\n\nInsamlad källinformation:\n\n" + "\n\n---\n\n".join(scraped_data)
+
+    prompt = f"Topic: {topic}\n\nCollected source information:\n\n" + "\n\n---\n\n".join(scraped_data)
     
     try:
         response_text = await call_gemini_learning_api(prompt, system_prompt)
@@ -183,11 +186,11 @@ Du MÅSTE svara med ett giltigt JSON-objekt som har exakt följande fält:
         summary = data.get("summary", "")
         detailed_notes = data.get("detailed_notes", "")
     except Exception as gemini_err:
-        raise Exception(f"Gemini-analys misslyckades: {gemini_err}")
+        raise Exception(f"Gemini analysis failed: {gemini_err}")
         
     # 4. Save to Database
     if progress_callback:
-        progress_callback(95, 100, "Sparar inlärd kunskap till databasen...")
+        progress_callback(95, 100, "Saving learned knowledge to the database...")
         
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     sources_json = json.dumps(sources)
@@ -206,7 +209,7 @@ Du MÅSTE svara med ett giltigt JSON-objekt som har exakt följande fält:
         conn.commit()
         
     if progress_callback:
-        progress_callback(100, 100, "Inlärning klar!")
+        progress_callback(100, 100, "Learning complete.")
         
     return {
         "status": "success",

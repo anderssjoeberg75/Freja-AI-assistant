@@ -555,6 +555,8 @@ async def exec_garmin_health(args):
             total_sleep += day.get('sleep_hours', 0.0) or 0.0
             total_hr += day.get('resting_hr', 0) or 0
             total_calories += day.get('active_calories', 0) or 0
+            # "Ingen" is the Swedish placeholder get_garmin_data() substitutes for a NULL
+            # workout_type, i.e. a rest day. Anything else counts as a real workout.
             if day.get('workout_type') and day.get('workout_type') != "Ingen":
                 workout_days += 1
                 total_workout_min += day.get('workout_duration', 0) or 0

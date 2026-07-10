@@ -8,7 +8,7 @@ async def get_strava_access_token():
     client_secret = get_api_key('freja_strava_client_secret') or ''
     refresh_token = get_api_key('freja_strava_refresh_token') or ''
     if not client_id or not client_secret or (not refresh_token):
-        raise Exception('Strava API-uppgifter saknas i inställningarna.')
+        raise Exception('Strava API credentials are missing from the settings.')
     if client_id == '123456' or refresh_token == 'refreshtokentoken':
         return 'MOCK_ACCESS_TOKEN'
     try:
@@ -26,7 +26,7 @@ async def get_strava_access_token():
         access_token = res_body.get('access_token')
         new_refresh_token = res_body.get('refresh_token')
         if not access_token:
-            raise Exception('Inget access_token returnerades från Strava OAuth.')
+            raise Exception('No access_token was returned from Strava OAuth.')
         if new_refresh_token and new_refresh_token != refresh_token:
             set_api_key('freja_strava_refresh_token', new_refresh_token)
         return access_token

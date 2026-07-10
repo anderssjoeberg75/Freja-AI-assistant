@@ -69,7 +69,14 @@ def markdown_to_html(text):
     return escaped
 
 async def query_gemini_with_tools(contents, api_key, system_prompt):
-    """Executes the conversational loop with Gemini including Python-side tools."""
+    """Executes the conversational loop with Gemini including Python-side tools.
+
+    Runs up to 5 turns: each turn either yields text (which we return) or a functionCall,
+    which we execute and feed back as a function response. The strings returned from this
+    function are delivered straight to the user's chat, so they are written in Swedish.
+
+    Note that tool calls here bypass the permission gate in backend/routes/tools.py - the
+    Telegram channel is protected instead by the chat_id authorization check below."""
     tools = [{"functionDeclarations": TOOL_DECLARATIONS}]
     
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
@@ -242,7 +249,8 @@ async def telegram_worker_loop():
                         await send_telegram_message(
                             token,
                             chat_id,
-                            "Error: Gemini API-nyckel saknas i serverns databas. Konfigurera den i Inställningar."
+                            # Swedish: this text is delivered to the user in the chat.
+                            "Fel: Gemini API-nyckel saknas i serverns databas. Konfigurera den i Inställningar."
                         )
                         continue
                         
@@ -262,38 +270,50 @@ async def telegram_worker_loop():
                         "parts": [{"text": text}]
                     })
                     
+                    # The prompt is written in English but tells the model to reply in Swedish,
+                    # because the reply is sent verbatim to the user's Telegram chat.
+                    # Telegram's HTML parse_mode only accepts a small tag subset - anything else
+                    # makes sendMessage fail with HTTP 400, hence the explicit formatting rule.
                     system_prompt = (
-                        "Du är FREJA, en intelligent och artig AI-assistent för hälsa och träning. "
-                        "Du kommunicerar med användaren via Telegram. Svara kortfattat och personligt på svenska. "
-                        "Formatera svaren med ren HTML (t.ex. <b>fet</b>, <i>kursiv</i>, <code>kod</code>, inga ogiltiga taggar).\n\n"
+                        "You are FREJA, an intelligent and polite AI assistant for health and training. "
+                        "You communicate with the user via Telegram. Answer concisely and personally, in Swedish. "
+                        "Format the answers with plain HTML (e.g. <b>bold</b>, <i>italic</i>, <code>code</code>, no invalid tags).\n\n"
                         "[DIRECTIVE: SYSTEM UPDATE]\n"
-                        "Om användaren ber dig att uppdatera dig, installera uppdateringar eller ladda ner ny kod från GitHub, ska du anropa verktyget 'system_update'. Berätta för användaren att du påbörjar uppdateringen och startar om.\n\n"
+                        "If the user asks you to update yourself, install updates or download new code from GitHub, "
+                        "call the 'system_update' tool. Tell the user that you are starting the update and restarting.\n\n"
                         "[DIRECTIVE: CODEBASE SELF-ANALYSIS]\n"
-                        "Om användaren ber dig att analysera din kod, göra en granskning (audit) eller komma med förbättringsförslag på källkoden, ska du anropa verktyget 'codex_audit_codebase'. När du får resultatet (som innehåller en sammanfattning och sökväg till Markdown-rapporten), kan du använda verktyget 'read_project_file' för att läsa rapporten eller källkodsfiler om du behöver mer detaljer för att svara.\n\n"
+                        "If the user asks you to analyse your code, perform an audit or suggest improvements to the source "
+                        "code, call the 'codex_audit_codebase' tool. When you get the result (which contains a summary and a "
+                        "path to the Markdown report), you may use the 'read_project_file' tool to read the report or source "
+                        "files if you need more detail in order to answer.\n\n"
                         "[DIRECTIVE: WINDOWS OS AUTOMATION]\n"
-                        "Om användaren ber dig att utföra saker på sin Windows-dator (t.ex. starta ett program som Notepad eller kalkylatorn, öppna en webbadress, utforska en mapp eller köra cmd-kommandon), ska du använda verktyget 'run_windows_command' med lämpliga argument (open_app, open_url, open_folder eller run_cmd)."
+                        "If the user asks you to do things on their Windows computer (e.g. launch a program such as Notepad "
+                        "or the calculator, open a web address, browse a folder or run cmd commands), use the "
+                        "'run_windows_command' tool with the appropriate arguments (open_app, open_url, open_folder or run_cmd)."
                     )
 
-
+                    # Tell the model whether the browser HUD is currently running, so it can answer
+                    # "which computer are you running on?" without guessing. See the heartbeat
+                    # endpoint in backend/routes/settings.py.
                     from backend.routes.settings import get_client_status
                     client_status = get_client_status()
-                    
+
                     if client_status["active"]:
                         status_directive = (
                             f"\n\n[CLIENT HUD STATUS]\n"
-                            f"- Webbklienten (HUD) är för närvarande AKTIV på datorn '{client_status['hostname']}' "
-                            f"({client_status['system']} {client_status['release']}). Webbklienten skickade senast en heartbeat "
-                            f"för {client_status['seconds_since_last']:.1f} sekunder sedan. Användaren kan ställa frågor här i Telegram "
-                            f"med vetskapen om att klienten är aktiv på den datorn."
+                            f"- The web client (HUD) is currently ACTIVE on the computer '{client_status['hostname']}' "
+                            f"({client_status['system']} {client_status['release']}). The web client last sent a heartbeat "
+                            f"{client_status['seconds_since_last']:.1f} seconds ago. The user can ask questions here in "
+                            f"Telegram knowing that the client is active on that computer."
                         )
                     else:
-                        seconds_str = f"{client_status['seconds_since_last']:.1f} sekunder sedan" if client_status['seconds_since_last'] else "aldrig"
+                        seconds_str = f"{client_status['seconds_since_last']:.1f} seconds ago" if client_status['seconds_since_last'] else "never"
                         status_directive = (
                             f"\n\n[CLIENT HUD STATUS]\n"
-                            f"- Webbklienten (HUD) är för närvarande INAKTIV. Ingen ansluten webbläsarsession upptäcktes nyligen "
-                            f"(senaste heartbeat var {seconds_str}). Den körs inte aktivt på någon dator för tillfället."
+                            f"- The web client (HUD) is currently INACTIVE. No connected browser session was detected recently "
+                            f"(the last heartbeat was {seconds_str}). It is not actively running on any computer right now."
                         )
-                    
+
                     system_prompt += status_directive
 
                     try:
