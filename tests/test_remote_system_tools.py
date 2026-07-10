@@ -24,14 +24,14 @@ async def test_read_project_file_blocked_sensitive():
     for blocked in ["keys.db", ".env", ".freja_secret.key"]:
         result = await execute_tool("read_project_file", {"file_path": blocked})
         assert "error" in result
-        assert "Säkerhetsfel" in result["error"]
+        assert "Security error" in result["error"]
 
 @pytest.mark.anyio
 async def test_read_project_file_blocked_traversal():
     # Attempting directory traversal should be blocked
     result = await execute_tool("read_project_file", {"file_path": "../keys.db"})
     assert "error" in result
-    assert "Säkerhetsfel" in result["error"]
+    assert "Security error" in result["error"]
 
 def test_serve_doc_report_auth_required():
     client = TestClient(app)
@@ -151,7 +151,7 @@ async def test_run_windows_command_open_url_invalid():
         "target": "file:///C:/Windows/System32/cmd.exe"
     })
     assert "error" in result
-    assert "Säkerhetsfel" in result["error"]
+    assert "Security error" in result["error"]
 
 @pytest.mark.anyio
 async def test_run_windows_command_open_folder_invalid():
@@ -162,7 +162,7 @@ async def test_run_windows_command_open_folder_invalid():
     })
     if os.name == "nt":
         assert "error" in result
-        assert "hittades inte" in result["error"]
+        assert "was not found" in result["error"]
 
 @pytest.mark.anyio
 async def test_run_windows_command_run_cmd_benign():
@@ -186,7 +186,7 @@ async def test_run_windows_command_run_cmd_blocked():
         })
         if os.name == "nt":
             assert "error" in result
-            assert "Säkerhetsfel" in result["error"]
+            assert "Security error" in result["error"]
 
 
 def test_client_heartbeat_flow(db_token):

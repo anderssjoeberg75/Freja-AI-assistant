@@ -34,7 +34,7 @@ def test_verify_safe_python_code_invalid_imports():
     for code in unsafe_codes:
         with pytest.raises(ValueError) as excinfo:
             verify_safe_python_code(code)
-        assert "Säkerhetsfel: Import" in str(excinfo.value)
+        assert "Security error: Importing" in str(excinfo.value)
 
 def test_verify_safe_python_code_invalid_calls():
     # Blocked function calls should raise ValueError
@@ -47,7 +47,7 @@ def test_verify_safe_python_code_invalid_calls():
     for code in unsafe_codes:
         with pytest.raises(ValueError) as excinfo:
             verify_safe_python_code(code)
-        assert "Säkerhetsfel: Anrop" in str(excinfo.value)
+        assert "Security error: Calling" in str(excinfo.value)
 
 def test_verify_safe_shell_command_valid():
     # Safe commands should pass
@@ -79,7 +79,7 @@ def test_verify_safe_shell_command_invalid():
     for cmd in unsafe_cmds:
         with pytest.raises(ValueError) as excinfo:
             verify_safe_shell_command(cmd)
-        assert "Säkerhetsfel" in str(excinfo.value)
+        assert "Security error" in str(excinfo.value)
 
 def test_verify_safe_shell_command_invalid_extended_blocklist():
     # Previously-missed bypasses: versioned interpreters and living-off-the-land binaries
@@ -96,7 +96,7 @@ def test_verify_safe_shell_command_invalid_extended_blocklist():
     for cmd in unsafe_cmds:
         with pytest.raises(ValueError) as excinfo:
             verify_safe_shell_command(cmd)
-        assert "Säkerhetsfel" in str(excinfo.value)
+        assert "Security error" in str(excinfo.value)
 
 def test_verify_safe_python_code_invalid_dunder_and_bypasses():
     # Attempted AST sandbox bypasses using reflection or dunder attributes
@@ -112,7 +112,7 @@ def test_verify_safe_python_code_invalid_dunder_and_bypasses():
     for code in unsafe_codes:
         with pytest.raises(ValueError) as excinfo:
             verify_safe_python_code(code)
-        assert "Säkerhetsfel" in str(excinfo.value)
+        assert "Security error" in str(excinfo.value)
 
 def test_verify_safe_shell_command_blocks_git_entirely():
     # `git` is fully blocked in the free-form shell channel: `-c core.pager=<cmd> -p` is a
@@ -126,7 +126,7 @@ def test_verify_safe_shell_command_blocks_git_entirely():
     for cmd in unsafe_cmds:
         with pytest.raises(ValueError) as excinfo:
             verify_safe_shell_command(cmd)
-        assert "Säkerhetsfel" in str(excinfo.value)
+        assert "Security error" in str(excinfo.value)
 
 def test_verify_safe_git_clone_url_valid():
     # Standard network transports should pass
@@ -150,7 +150,7 @@ def test_verify_safe_git_clone_url_blocks_remote_helpers():
     for url in unsafe_urls:
         with pytest.raises(ValueError) as excinfo:
             verify_safe_git_clone_url(url)
-        assert "Säkerhetsfel" in str(excinfo.value)
+        assert "Security error" in str(excinfo.value)
 
 def test_resolve_within_project_valid():
     resolved = resolve_within_project("tests/test_security.py")
@@ -164,7 +164,7 @@ def test_resolve_within_project_blocks_traversal():
     for path in unsafe_paths:
         with pytest.raises(ValueError) as excinfo:
             resolve_within_project(path)
-        assert "Säkerhetsfel" in str(excinfo.value)
+        assert "Security error" in str(excinfo.value)
 
 def test_resolve_within_project_blocks_absolute_path_outside_root():
     with pytest.raises(ValueError):
@@ -184,7 +184,7 @@ def test_verify_safe_shell_command_blocks_windows_builtins():
     for cmd in unsafe_cmds:
         with pytest.raises(ValueError) as excinfo:
             verify_safe_shell_command(cmd)
-        assert "Säkerhetsfel" in str(excinfo.value)
+        assert "Security error" in str(excinfo.value)
 
 
 def test_verify_safe_shell_command_blocks_env_expansion_and_absolute_paths():
@@ -199,7 +199,7 @@ def test_verify_safe_shell_command_blocks_env_expansion_and_absolute_paths():
     for cmd in unsafe_cmds:
         with pytest.raises(ValueError) as excinfo:
             verify_safe_shell_command(cmd)
-        assert "Säkerhetsfel" in str(excinfo.value)
+        assert "Security error" in str(excinfo.value)
 
 
 def test_verify_safe_shell_command_still_allows_relative_test_commands():
@@ -254,27 +254,27 @@ def test_git_push_requires_namespaced_one_time_grant():
 
 def test_codex_git_ops_blocks_option_injection():
     res = asyncio.run(codex_git_ops_impl({"action": "checkout", "argument": "--upload-pack=touch pwned"}))
-    assert "error" in res and "Säkerhetsfel" in res["error"]
+    assert "error" in res and "Security error" in res["error"]
 
 
 def test_codex_git_ops_blocks_remote_helper_clone():
     res = asyncio.run(codex_git_ops_impl({"action": "clone", "argument": "ext::sh -c id"}))
-    assert "error" in res and "Säkerhetsfel" in res["error"]
+    assert "error" in res and "Security error" in res["error"]
 
 
 # --- codex_run_and_fix guards --------------------------------------------------
 
 def test_run_and_fix_rejects_unsafe_command():
     res = asyncio.run(codex_run_and_fix_impl({"command": "rm -rf /", "file_path": "server.py"}))
-    assert "error" in res and "Säkerhetsfel" in res["error"]
+    assert "error" in res and "Security error" in res["error"]
 
 
 def test_run_and_fix_rejects_path_outside_project():
     res = asyncio.run(codex_run_and_fix_impl({"command": "pytest", "file_path": "../../etc/passwd"}))
-    assert "error" in res and "Säkerhetsfel" in res["error"]
+    assert "error" in res and "Security error" in res["error"]
 
 
 def test_run_and_fix_rejects_disallowed_file_extension():
     # .gitignore exists at the project root and has no allowlisted extension.
     res = asyncio.run(codex_run_and_fix_impl({"command": "pytest", "file_path": ".gitignore"}))
-    assert "error" in res and "Säkerhetsfel" in res["error"]
+    assert "error" in res and "Security error" in res["error"]

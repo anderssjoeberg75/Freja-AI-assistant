@@ -2,6 +2,22 @@
 
 Defines all tool declarations in Gemini format and implements their execution in Python.
 Used by both the web frontend (via API) and the Telegram bot.
+
+Layout of this module:
+  1. TOOL_DECLARATIONS    - the JSON schema Gemini sees when deciding which tool to call.
+  2. TOOL_PERMISSION_KEYS - maps each tool name to the settings flag that enables it.
+  3. Tool executors        - one `exec_*` coroutine per tool, doing the actual work.
+  4. EXECUTOR_MAP          - name -> executor lookup used by `execute_tool`.
+  5. execute_tool          - dispatch entry point used by the chat route and the Telegram bot.
+
+Note that `execute_tool` itself does NOT enforce permissions. The permission gate lives in
+`backend/routes/tools.py` (`is_tool_execution_authorized`), which runs before dispatch on the
+HTTP path. The Telegram bot calls `execute_tool` directly and therefore bypasses that gate.
+
+Language convention: every string in this file is English, including tool descriptions and
+tool results. Freja still answers the user in Swedish - that is enforced by the system prompts
+(see `client/gemini.js` and `backend/services/telegram_service.py`), which instruct the model to
+translate tool output into Swedish before replying.
 """
 
 import datetime
@@ -34,18 +50,28 @@ from backend.services.codex_service import (
     run_subprocess_exec,
 )
 from backend.services.facebook_service import download_facebook_photos_impl
+from backend.services.weather_codes import describe_weather_code
 
+# ---------------------------------------------------------------------------
 # 1. TOOL DECLARATIONS (Gemini JSON format)
+#
+# This list is sent verbatim to Gemini as `tools[0].functionDeclarations`. The model
+# picks a tool purely from the `name` and `description` fields, so keep descriptions
+# precise and mention sensible defaults - the model copies them when the user is vague.
+# Adding a tool here is not enough: it also needs an entry in EXECUTOR_MAP (otherwise
+# `execute_tool` returns "not registered") and normally one in TOOL_PERMISSION_KEYS
+# (a tool missing from that dict runs without any permission gate).
+# ---------------------------------------------------------------------------
 TOOL_DECLARATIONS = [
     {
         "name": "get_weather",
-        "description": "Hämtar aktuellt väder för en viss stad eller geografisk plats.",
+        "description": "Gets the current weather for a given city or geographic location.",
         "parameters": {
             "type": "OBJECT",
             "properties": {
                 "location": {
                     "type": "STRING",
-                    "description": "Namnet på staden eller platsen att söka efter, t.ex. Stockholm, Göteborg, London."
+                    "description": "Name of the city or place to look up, e.g. Stockholm, Gothenburg, London."
                 }
             },
             "required": ["location"]
@@ -53,13 +79,13 @@ TOOL_DECLARATIONS = [
     },
     {
         "name": "google_search",
-        "description": "Sök på webben efter information, nyheter eller fakta.",
+        "description": "Searches the web for information, news or facts.",
         "parameters": {
             "type": "OBJECT",
             "properties": {
                 "query": {
                     "type": "STRING",
-                    "description": "Sökfrågan att söka efter på Google."
+                    "description": "The query to search for on Google."
                 }
             },
             "required": ["query"]
@@ -67,52 +93,52 @@ TOOL_DECLARATIONS = [
     },
     {
         "name": "get_garmin_health",
-        "description": "Hämtar användarens senaste Garmin hälso- och träningsdata (steg, sömn, vilopuls, kalorier, body battery, HRV, återhämtningstid, träningsstatus och träningspass). Standard är 1 dag (enbart senaste dygnet) om inte användaren uttryckligen ber om en längre period som t.ex. senaste veckan.",
+        "description": "Gets the user's latest Garmin health and training data (steps, sleep, resting heart rate, calories, body battery, HRV, recovery time, training status and workouts). Defaults to 1 day (only the last 24 hours) unless the user explicitly asks for a longer period such as the last week.",
         "parameters": {
             "type": "OBJECT",
             "properties": {
                 "days": {
                     "type": "INTEGER",
-                    "description": "Antal dagar historik att hämta (standard är 1 för enbart senaste dagen)."
+                    "description": "Number of days of history to fetch (default is 1, i.e. only the most recent day)."
                 }
             }
         }
     },
     {
         "name": "get_withings_health",
-        "description": "Hämtar användarens senaste Withings mätningar inklusive vikt, kroppssammansättning, puls, sömnstatistik (score, duration) samt dagsaktivitet (steg, kalorier). Parameter 'days' anger antal dagar historik att hämta (standard 7).",
+        "description": "Gets the user's latest Withings measurements including weight, body composition, heart rate, sleep statistics (score, duration) and daily activity (steps, calories). The 'days' parameter sets how many days of history to fetch (default 7).",
         "parameters": {
             "type": "OBJECT",
             "properties": {
                 "days": {
                     "type": "INTEGER",
-                    "description": "Antal dagar historik att hämta (standard 7)."
+                    "description": "Number of days of history to fetch (default 7)."
                 }
             }
         }
     },
     {
         "name": "get_strava_data",
-        "description": "Hämtar användarens senaste Strava-aktiviteter (namn, typ, distans, träningstid, höjdmeter, genomsnittlig puls, maxpuls och kalorier). Standard är 7 dagar historik om inte användaren uttryckligen ber om en längre period som t.ex. 14 eller 30 dagar.",
+        "description": "Gets the user's latest Strava activities (name, type, distance, moving time, elevation gain, average heart rate, max heart rate and calories). Defaults to 7 days of history unless the user explicitly asks for a longer period such as 14 or 30 days.",
         "parameters": {
             "type": "OBJECT",
             "properties": {
                 "days": {
                     "type": "INTEGER",
-                    "description": "Antal dagar historik att hämta (standard är 7)."
+                    "description": "Number of days of history to fetch (default is 7)."
                 }
             }
         }
     },
     {
         "name": "get_strava_activity_analysis",
-        "description": "Hämtar varvtider (laps/splits) samt puls- och kraftzoner (heartrate/power distribution) för en specifik aktivitet med angivet ID. Detta gör det möjligt att analysera tempo, pacing, samt aerob och anaerob belastning under passet.",
+        "description": "Gets lap times (laps/splits) plus heart rate and power zone distributions for one specific activity ID. This makes it possible to analyse tempo, pacing and aerobic/anaerobic load during the session.",
         "parameters": {
             "type": "OBJECT",
             "properties": {
                 "activity_id": {
                     "type": "STRING",
-                    "description": "Det unika aktivitets-ID:t (från Strava, t.ex. hämtat via get_strava_data)."
+                    "description": "The unique activity ID (from Strava, e.g. obtained via get_strava_data)."
                 }
             },
             "required": ["activity_id"]
@@ -120,7 +146,7 @@ TOOL_DECLARATIONS = [
     },
     {
         "name": "get_strava_athlete_stats",
-        "description": "Hämtar användarens ackumulerade träningsmängder, inklusive årliga (YTD) och historiska totaler samt statistik för de senaste 4 veckorna uppdelat på löpning, cykling och simning.",
+        "description": "Gets the user's accumulated training volume, including year-to-date (YTD) and all-time totals plus statistics for the last 4 weeks broken down by running, cycling and swimming.",
         "parameters": {
             "type": "OBJECT",
             "properties": {}
@@ -128,42 +154,42 @@ TOOL_DECLARATIONS = [
     },
     {
         "name": "manage_google_calendar",
-        "description": "Hanterar användarens kalenderhändelser. Du kan boka/skapa nya händelser, ändra/editera befintliga händelser, radera/ta bort händelser eller lista händelser under en viss tidsperiod (dagar).",
+        "description": "Manages the user's calendar events. You can create new events, edit existing events, delete events, or list events within a given time window (days).",
         "parameters": {
             "type": "OBJECT",
             "properties": {
                 "action": {
                     "type": "STRING",
-                    "description": "Åtgärd att utföra: 'list', 'create', 'edit', eller 'delete'.",
+                    "description": "Action to perform: 'list', 'create', 'edit' or 'delete'.",
                     "enum": ["list", "create", "edit", "delete"]
                 },
                 "event_id": {
                     "type": "INTEGER",
-                    "description": "Det unika databas-ID:t för händelsen (krävs vid 'edit' och 'delete')."
+                    "description": "The unique database ID of the event (required for 'edit' and 'delete')."
                 },
                 "summary": {
                     "type": "STRING",
-                    "description": "Händelsens titel eller sammanfattning (krävs vid 'create' och 'edit')."
+                    "description": "The event title or summary (required for 'create' and 'edit')."
                 },
                 "start_time": {
                     "type": "STRING",
-                    "description": "Starttid i ISO-format (t.ex. '2026-06-12T14:00:00', krävs vid 'create' och 'edit')."
+                    "description": "Start time in ISO format (e.g. '2026-06-12T14:00:00', required for 'create' and 'edit')."
                 },
                 "end_time": {
                     "type": "STRING",
-                    "description": "Sluttid i ISO-format (t.ex. '2026-06-12T15:00:00', krävs vid 'create' och 'edit')."
+                    "description": "End time in ISO format (e.g. '2026-06-12T15:00:00', required for 'create' and 'edit')."
                 },
                 "description": {
                     "type": "STRING",
-                    "description": "Detaljerad beskrivning eller mötesanteckningar (valfritt)."
+                    "description": "Detailed description or meeting notes (optional)."
                 },
                 "location": {
                     "type": "STRING",
-                    "description": "Plats eller möteslänk (valfritt)."
+                    "description": "Location or meeting link (optional)."
                 },
                 "days": {
                     "type": "INTEGER",
-                    "description": "Antal dagar bakåt och framåt från idag att hämta vid 'list'. Standard är 30 dagar."
+                    "description": "Number of days before and after today to fetch when using 'list'. Default is 30 days."
                 }
             },
             "required": ["action"]
@@ -171,18 +197,18 @@ TOOL_DECLARATIONS = [
     },
     {
         "name": "execute_codex_code",
-        "description": "Kör Python-kod eller skalkommandon lokalt på värdmaskinen. Används för att köra skript, tester eller systemadministration.",
+        "description": "Runs Python code or shell commands locally on the host machine. Used to run scripts, tests or system administration tasks.",
         "parameters": {
             "type": "OBJECT",
             "properties": {
                 "language": {
                     "type": "STRING",
-                    "description": "Språket att köra: 'python' eller 'shell'.",
+                    "description": "The language to run: 'python' or 'shell'.",
                     "enum": ["python", "shell"]
                 },
                 "code": {
                     "type": "STRING",
-                    "description": "Koden eller kommandot som ska exekveras."
+                    "description": "The code or command to execute."
                 }
             },
             "required": ["language", "code"]
@@ -190,18 +216,18 @@ TOOL_DECLARATIONS = [
     },
     {
         "name": "run_code",
-        "description": "Alias för execute_codex_code. Kör Python-kod eller skalkommandon lokalt.",
+        "description": "Alias for execute_codex_code. Runs Python code or shell commands locally.",
         "parameters": {
             "type": "OBJECT",
             "properties": {
                 "language": {
                     "type": "STRING",
-                    "description": "Språket att köra: 'python' eller 'shell'.",
+                    "description": "The language to run: 'python' or 'shell'.",
                     "enum": ["python", "shell"]
                 },
                 "code": {
                     "type": "STRING",
-                    "description": "Koden eller kommandot som ska exekveras."
+                    "description": "The code or command to execute."
                 }
             },
             "required": ["language", "code"]
@@ -209,18 +235,18 @@ TOOL_DECLARATIONS = [
     },
     {
         "name": "codex_git_ops",
-        "description": "Hanterar git-operationer i den lokala källkodskatalogen (t.ex. status, commit, log, push, checkout).",
+        "description": "Performs git operations in the local source directory (e.g. status, commit, log, push, checkout).",
         "parameters": {
             "type": "OBJECT",
             "properties": {
                 "action": {
                     "type": "STRING",
-                    "description": "Git-åtgärden: 'status', 'log', 'push', 'checkout', 'clone' eller 'commit'.",
+                    "description": "The git action: 'status', 'log', 'push', 'checkout', 'clone' or 'commit'.",
                     "enum": ["status", "log", "push", "checkout", "clone", "commit"]
                 },
                 "argument": {
                     "type": "STRING",
-                    "description": "Argument för åtgärden (t.ex. branch-namn, commit-meddelande eller repolänk)."
+                    "description": "Argument for the action (e.g. branch name, commit message or repository URL)."
                 }
             },
             "required": ["action"]
@@ -228,7 +254,7 @@ TOOL_DECLARATIONS = [
     },
     {
         "name": "codex_audit_codebase",
-        "description": "Genomför en självanalys (audit) av källkoden för att identifiera buggar, prestandaproblem och kodförbättringar samt sparar en utförlig rapport.",
+        "description": "Performs a self-analysis (audit) of the source code to identify bugs, performance problems and code improvements, and saves a detailed report.",
         "parameters": {
             "type": "OBJECT",
             "properties": {}
@@ -236,7 +262,7 @@ TOOL_DECLARATIONS = [
     },
     {
         "name": "tool_analyze_code",
-        "description": "Alias för codex_audit_codebase. Genomför en självanalys (audit) av källkoden.",
+        "description": "Alias for codex_audit_codebase. Performs a self-analysis (audit) of the source code.",
         "parameters": {
             "type": "OBJECT",
             "properties": {}
@@ -244,21 +270,21 @@ TOOL_DECLARATIONS = [
     },
     {
         "name": "codex_run_and_fix",
-        "description": "Kör ett kommando och försöker automatiskt rätta källkoden i den angivna filen om kommandot/testet misslyckas.",
+        "description": "Runs a command and automatically tries to repair the source code in the given file if the command/test fails.",
         "parameters": {
             "type": "OBJECT",
             "properties": {
                 "command": {
                     "type": "STRING",
-                    "description": "Testkommandot som ska köras, t.ex. 'pytest tests/test_file.py'. Av säkerhetsskäl är direkta python-/skalinterpreter-anrop (python, python3, py) blockerade i denna kanal – använd en testrunner som pytest."
+                    "description": "The test command to run, e.g. 'pytest tests/test_file.py'. For security reasons, direct python/shell interpreter invocations (python, python3, py) are blocked in this channel - use a test runner such as pytest."
                 },
                 "file_path": {
                     "type": "STRING",
-                    "description": "Relativ sökväg till filen som ska auto-rättas vid fel, t.ex. 'backend/routes/sync.py'."
+                    "description": "Relative path to the file to auto-repair on failure, e.g. 'backend/routes/sync.py'."
                 },
                 "max_retries": {
                     "type": "INTEGER",
-                    "description": "Max antal försök att auto-rätta källkoden (standard 3)."
+                    "description": "Maximum number of auto-repair attempts (default 3)."
                 }
             },
             "required": ["command", "file_path"]
@@ -266,17 +292,17 @@ TOOL_DECLARATIONS = [
     },
     {
         "name": "download_facebook_photos",
-        "description": "Laddar ner foton från en användares Facebook-profil eller fotogalleri (t.ex. .../photos_by) med hjälp av Playwright. Hämtar bilder och sparar dem lokalt.",
+        "description": "Downloads photos from a user's Facebook profile or photo gallery (e.g. .../photos_by) using Playwright. Fetches the images and saves them locally.",
         "parameters": {
             "type": "OBJECT",
             "properties": {
                 "profile_url": {
                     "type": "STRING",
-                    "description": "Den fullständiga URL:en till Facebook-profilens bilder, t.ex. https://www.facebook.com/profile.php?id=61581510724534&sk=photos_by"
+                    "description": "The full URL to the Facebook profile's photos, e.g. https://www.facebook.com/profile.php?id=61581510724534&sk=photos_by"
                 },
                 "limit": {
                     "type": "INTEGER",
-                    "description": "Maximalt antal bilder att ladda ner (standard är 1000)."
+                    "description": "Maximum number of images to download (default is 1000)."
                 }
             },
             "required": ["profile_url"]
@@ -284,17 +310,17 @@ TOOL_DECLARATIONS = [
     },
     {
         "name": "get_personal_trainer_advice",
-        "description": "Hämtar användarens hälsodata och träningsdata (från Garmin, Strava och Withings) och sammanställer personliga träningsråd, tips och träningsprogram baserat på användarens angivna mål.",
+        "description": "Fetches the user's health and training data (from Garmin, Strava and Withings) and compiles personal training advice, tips and a training plan based on the user's stated goal.",
         "parameters": {
             "type": "OBJECT",
             "properties": {
                 "goal": {
                     "type": "STRING",
-                    "description": "Användarens träningsmål eller fokusområde (t.ex. 'gå ner i vikt', 'förbättra löpning', 'styrketräning')."
+                    "description": "The user's training goal or focus area (e.g. 'lose weight', 'improve running', 'strength training')."
                 },
                 "limitations": {
                     "type": "STRING",
-                    "description": "Eventuella skador, sjukdomar eller fysiska begränsningar (t.ex. 'ansträngningsastma', 'känsliga knän')."
+                    "description": "Any injuries, illnesses or physical limitations (e.g. 'exercise-induced asthma', 'sensitive knees')."
                 }
             },
             "required": ["goal"]
@@ -302,13 +328,13 @@ TOOL_DECLARATIONS = [
     },
     {
         "name": "learn_topic",
-        "description": "Söker på nätet och lär sig allt om ett visst ämne (t.ex. odling av lök). Sparar den inhämtade kunskapen i databasen för framtida bruk.",
+        "description": "Searches the web and learns everything about a given topic (e.g. growing onions). Stores the acquired knowledge in the database for future use.",
         "parameters": {
             "type": "OBJECT",
             "properties": {
                 "topic": {
                     "type": "STRING",
-                    "description": "Ämnet eller sökfrågan som Freja ska lära sig om (t.ex. 'odling av lök')."
+                    "description": "The topic or search query Freja should learn about (e.g. 'growing onions')."
                 }
             },
             "required": ["topic"]
@@ -316,20 +342,20 @@ TOOL_DECLARATIONS = [
     },
     {
         "name": "get_learned_knowledge",
-        "description": "Hämtar tidigare inlärd kunskap från databasen baserat på sökord eller ämne för att svara på användarens frågor.",
+        "description": "Retrieves previously learned knowledge from the database, filtered by keyword or topic, in order to answer the user's questions.",
         "parameters": {
             "type": "OBJECT",
             "properties": {
                 "query": {
                     "type": "STRING",
-                    "description": "Valfri sökfråga eller ämnesord för att filtrera sparad kunskap (t.ex. 'lök')."
+                    "description": "Optional search query or topic keyword used to filter stored knowledge (e.g. 'onions')."
                 }
             }
         }
     },
     {
         "name": "system_update",
-        "description": "Laddar ner den senaste koden från GitHub (git pull) och startar om F.R.E.J.A. för att tillämpa uppdateringarna.",
+        "description": "Downloads the latest code from GitHub (git pull) and restarts F.R.E.J.A. to apply the updates.",
         "parameters": {
             "type": "OBJECT",
             "properties": {}
@@ -337,13 +363,13 @@ TOOL_DECLARATIONS = [
     },
     {
         "name": "read_project_file",
-        "description": "Läser innehållet i en källkodsfil eller granskningsrapport inom projektet (t.ex. 'docs/code_audit_20260709.md' eller 'backend/routes/settings.py'). Blockeras för filer som innehåller känslig data som databaser eller .env-filer.",
+        "description": "Reads the contents of a source file or audit report inside the project (e.g. 'docs/code_audit_20260709.md' or 'backend/routes/settings.py'). Blocked for files holding sensitive data such as databases or .env files.",
         "parameters": {
             "type": "OBJECT",
             "properties": {
                 "file_path": {
                     "type": "STRING",
-                    "description": "Relativ sökväg till filen inom projektkatalogen."
+                    "description": "Relative path to the file inside the project directory."
                 }
             },
             "required": ["file_path"]
@@ -351,18 +377,18 @@ TOOL_DECLARATIONS = [
     },
     {
         "name": "run_windows_command",
-        "description": "Utför systemåtgärder på användarens Windows-dator, såsom att öppna program (open_app), webbadresser (open_url), mappar i Utforskaren (open_folder) eller köra Windows-kommandon (run_cmd).",
+        "description": "Performs system actions on the user's Windows computer, such as launching applications (open_app), opening web addresses (open_url), opening folders in Explorer (open_folder) or running Windows commands (run_cmd).",
         "parameters": {
             "type": "OBJECT",
             "properties": {
                 "action_type": {
                     "type": "STRING",
-                    "description": "Typ av åtgärd att utföra.",
+                    "description": "The type of action to perform.",
                     "enum": ["open_app", "open_url", "open_folder", "run_cmd"]
                 },
                 "target": {
                     "type": "STRING",
-                    "description": "Målet för åtgärden (t.ex. 'notepad.exe', 'https://google.com', 'C:\\Bilder', eller 'ipconfig')."
+                    "description": "The target of the action (e.g. 'notepad.exe', 'https://google.com', 'C:\\Pictures' or 'ipconfig')."
                 }
             },
             "required": ["action_type", "target"]
@@ -370,7 +396,14 @@ TOOL_DECLARATIONS = [
     }
 ]
 
-# Permission key mappings matching localStorage keys on frontend
+# ---------------------------------------------------------------------------
+# 2. TOOL PERMISSION KEYS
+#
+# Each tool is gated by a settings row named here. The keys mirror the localStorage keys
+# used by the frontend toggles. `backend/routes/tools.py` reads the row and only treats the
+# literal string "true" as permission granted - a missing row means DENIED, and the user is
+# prompted to allow the call once. A tool absent from this dict entirely has no gate at all.
+# ---------------------------------------------------------------------------
 TOOL_PERMISSION_KEYS = {
     "get_weather": "freja_tool_get_weather_allowed",
     "google_search": "freja_tool_google_search_allowed",
@@ -395,64 +428,49 @@ TOOL_PERMISSION_KEYS = {
     "run_windows_command": "freja_tool_run_windows_command_allowed",
 }
 
-# 2. TOOL EXECUTORS IMPLEMENTATION
+# ---------------------------------------------------------------------------
+# 3. TOOL EXECUTORS
+#
+# Every executor takes the raw `args` dict Gemini produced and returns a JSON-serialisable
+# dict that is fed straight back to the model as the function response. Executors never
+# raise: an unexpected failure is reported as {"error": "..."} so the model can explain
+# the problem to the user instead of the whole turn dying.
+# ---------------------------------------------------------------------------
+
 async def exec_weather(args):
+    """Resolves a place name to coordinates, then reads the current conditions there."""
     location = args.get("location", "Stockholm")
     try:
+        # Step 1: geocode the free-text place name into lat/lon.
         geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={urllib.parse.quote(location)}&count=1&language=sv&format=json"
         async with httpx.AsyncClient() as client:
             res = await client.get(geo_url, timeout=8.0)
             res.raise_for_status()
             geo_data = res.json()
-            
+
         results = geo_data.get('results')
         if not results:
-            return {"error": f"Kunde inte hitta platsen: '{location}'."}
-        
+            return {"error": f"Could not find the location: '{location}'."}
+
         first = results[0]
         lat = first['latitude']
         lon = first['longitude']
         name = first['name']
         country = first.get('country', '')
-        
+
+        # Step 2: read current conditions at those coordinates.
         weather_url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,weather_code,wind_speed_10m&wind_speed_unit=ms&timezone=auto"
         async with httpx.AsyncClient() as client:
             res = await client.get(weather_url, timeout=8.0)
             res.raise_for_status()
             weather_data = res.json()
-            
+
         current = weather_data.get('current')
         if not current:
-            return {"error": "Ingen väderdata returnerades."}
-            
-        wmo_codes = {
-            0: "Klart väder och molnfritt",
-            1: "Mestadels klart",
-            2: "Växlande molnighet",
-            3: "Mulet",
-            45: "Dimma",
-            48: "Rimfrost-dimma",
-            51: "Lätt duggregn",
-            53: "Måttligt duggregn",
-            55: "Tätt duggregn",
-            61: "Lätt regn",
-            63: "Måttligt regn",
-            65: "Kraftigt regn",
-            71: "Lätt snöfall",
-            73: "Måttligt snöfall",
-            75: "Kraftigt snöfall",
-            77: "Snökorn",
-            80: "Lätta regnskurar",
-            81: "Måttliga regnskurar",
-            82: "Kraftiga regnskurar",
-            85: "Lätta snöskurar",
-            86: "Kraftiga snöskurar",
-            95: "Åska",
-            96: "Åska med lätt hagel",
-            99: "Åska med kraftigt hagel"
-        }
-        desc = wmo_codes.get(current.get('weather_code', 0), "Atmosfäriska fluktuationer")
-        
+            return {"error": "No weather data was returned."}
+
+        desc = describe_weather_code(current.get('weather_code', 0))
+
         return {
             "location": f"{name}, {country}",
             "temperature": f"{current.get('temperature_2m')}°C",
@@ -460,15 +478,15 @@ async def exec_weather(args):
             "description": desc,
             "humidity": f"{current.get('relative_humidity_2m')}%",
             "wind_speed": f"{current.get('wind_speed_10m')} m/s",
-            "is_day": "Dag" if current.get('is_day') == 1 else "Natt"
+            "is_day": "Day" if current.get('is_day') == 1 else "Night"
         }
     except Exception as e:
-        return {"error": f"Misslyckades att hämta väderdata: {str(e)}"}
+        return {"error": f"Failed to fetch weather data: {str(e)}"}
 
 async def exec_google_search(args):
     query = args.get("query", "")
     if not query:
-        return {"error": "Sökfråga saknas."}
+        return {"error": "Search query is missing."}
     results = await perform_search(query)
     return {"results": results}
 
@@ -486,7 +504,7 @@ def is_sync_recent(provider: str, max_age_hours: int = 12) -> bool:
 
 async def exec_garmin_health(args):
     days = int(args.get("days", 1) or 1)
-    sync_status = "inte genomförd"
+    sync_status = "not performed"
     sync_message = ""
     
     # 1. Retrieve keys and sync synchronously
@@ -496,14 +514,14 @@ async def exec_garmin_health(args):
     if email and password:
         if is_sync_recent("garmin"):
             sync_status = "success"
-            sync_message = "Garmin-synkronisering hoppades över (nyligen uppdaterad)."
+            sync_message = "Garmin sync skipped (recently updated)."
             print("[Garmin Tool] Recent sync found. Skipping API sync, using cached DB data.")
         else:
             try:
                 # Garmin Connect sync is CPU/network intensive sync, run in ThreadPool
                 await run_in_threadpool(run_garmin_sync_task, email, password, days)
                 sync_status = "success"
-                sync_message = "Garmin-synkronisering slutförd."
+                sync_message = "Garmin sync completed."
             except Exception as sync_err:
                 sync_status = "failed"
                 sync_message = str(sync_err)
@@ -515,7 +533,7 @@ async def exec_garmin_health(args):
             return {
                 "sync_status": sync_status,
                 "sync_message": sync_message,
-                "message": "Ingen Garmin-data hittades i databasen."
+                "message": "No Garmin data was found in the database."
             }
             
         # 3. Calculate summary stats
@@ -581,11 +599,11 @@ async def exec_garmin_health(args):
             "daily_logs": data
         }
     except Exception as e:
-        return {"error": f"Kunde inte hämta Garmin-data: {str(e)}"}
+        return {"error": f"Could not fetch Garmin data: {str(e)}"}
 
 async def exec_withings_health(args):
     days = int(args.get("days", 7) or 7)
-    sync_status = "inte genomförd"
+    sync_status = "not performed"
     sync_message = ""
     
     # 1. Retrieve keys and sync synchronously
@@ -596,13 +614,13 @@ async def exec_withings_health(args):
     if client_id and client_secret and refresh_token:
         if is_sync_recent("withings"):
             sync_status = "success"
-            sync_message = "Withings-synkronisering hoppades över (nyligen uppdaterad)."
+            sync_message = "Withings sync skipped (recently updated)."
             print("[Withings Tool] Recent sync found. Skipping API sync, using cached DB data.")
         else:
             try:
                 await run_withings_sync_task(client_id, client_secret, refresh_token, days)
                 sync_status = "success"
-                sync_message = "Withings-synkronisering slutförd."
+                sync_message = "Withings sync completed."
             except Exception as sync_err:
                 sync_status = "failed"
                 sync_message = str(sync_err)
@@ -614,7 +632,7 @@ async def exec_withings_health(args):
             return {
                 "sync_status": sync_status,
                 "sync_message": sync_message,
-                "message": "Ingen Withings-data hittades i databasen."
+                "message": "No Withings data was found in the database."
             }
             
         # Calculate averages
@@ -695,11 +713,11 @@ async def exec_withings_health(args):
             "measurements": formatted_measurements
         }
     except Exception as e:
-        return {"error": f"Kunde inte hämta Withings-data: {str(e)}"}
+        return {"error": f"Could not fetch Withings data: {str(e)}"}
 
 async def exec_strava_data(args):
     days = int(args.get("days", 7) or 7)
-    sync_status = "inte genomförd"
+    sync_status = "not performed"
     sync_message = ""
     
     # 1. Retrieve keys and sync synchronously
@@ -710,13 +728,13 @@ async def exec_strava_data(args):
     if client_id and client_secret and refresh_token:
         if is_sync_recent("strava"):
             sync_status = "success"
-            sync_message = "Strava-synkronisering hoppades över (nyligen uppdaterad)."
+            sync_message = "Strava sync skipped (recently updated)."
             print("[Strava Tool] Recent sync found. Skipping API sync, using cached DB data.")
         else:
             try:
                 await run_strava_sync_task(client_id, client_secret, refresh_token, days)
                 sync_status = "success"
-                sync_message = "Strava-synkronisering slutförd."
+                sync_message = "Strava sync completed."
             except Exception as sync_err:
                 sync_status = "failed"
                 sync_message = str(sync_err)
@@ -728,7 +746,7 @@ async def exec_strava_data(args):
             return {
                 "sync_status": sync_status,
                 "sync_message": sync_message,
-                "message": "Inga Strava-aktiviteter hittades i databasen."
+                "message": "No Strava activities were found in the database."
             }
             
         # Calculate summary statistics
@@ -774,12 +792,12 @@ async def exec_strava_data(args):
             "activities": data
         }
     except Exception as e:
-        return {"error": f"Kunde inte hämta Strava-aktiviteter: {str(e)}"}
+        return {"error": f"Could not fetch Strava activities: {str(e)}"}
 
 async def exec_strava_activity_analysis(args):
     activity_id = args.get("activity_id", "")
     if not activity_id:
-        return {"error": "Aktivitets-ID saknas."}
+        return {"error": "Activity ID is missing."}
     return await get_strava_activity_details(id=activity_id)
 
 async def exec_strava_athlete_stats(args):
@@ -795,7 +813,7 @@ async def exec_manage_google_calendar(args):
             days = int(args.get("days", 30) or 30)
             events = core_get_calendar_data(days=days)
             return {
-                "message": f"Hittade {len(events)} kalenderhändelser.",
+                "message": f"Found {len(events)} calendar events.",
                 "events": events
             }
         elif action in ("create", "edit"):
@@ -807,7 +825,7 @@ async def exec_manage_google_calendar(args):
             db_id = args.get("event_id")
             
             if not summary or not start_time or not end_time:
-                return {"error": "Titel (summary), starttid och sluttid krävs."}
+                return {"error": "Title (summary), start_time and end_time are required."}
                 
             return await core_save_calendar_event(
                 summary=summary,
@@ -820,24 +838,31 @@ async def exec_manage_google_calendar(args):
         elif action == "delete":
             db_id = args.get("event_id")
             if not db_id:
-                return {"error": "Händelse-ID (event_id) krävs för att radera."}
+                return {"error": "The event ID (event_id) is required in order to delete."}
             return await core_delete_calendar_event(db_id=db_id)
         else:
-            return {"error": f"Okänd åtgärd: {action}"}
+            return {"error": f"Unknown action: {action}"}
     except Exception as e:
-        return {"error": f"Fel vid kalenderhantering: {str(e)}"}
+        return {"error": f"Calendar operation failed: {str(e)}"}
 
 async def exec_download_facebook_photos(args, progress_callback=None):
     profile_url = args.get("profile_url", "")
     limit = int(args.get("limit", 1000) or 1000)
     if not profile_url:
-        return {"error": "Facebook-profilens URL saknas."}
+        return {"error": "The Facebook profile URL is missing."}
     return await download_facebook_photos_impl(profile_url, limit, progress_callback)
 
 async def exec_trainer_advice(args):
-    goal = args.get("goal", "hälsa och motion")
+    """Gathers the raw health/training/weather context the model needs to write a plan.
+
+    This tool deliberately returns data, not advice: Gemini composes the actual coaching
+    text (in Swedish) from the payload. The `/api/trainer/*` routes are the ones that call
+    a second model pass with a structured JSON schema."""
+    goal = args.get("goal", "health and fitness")
     limitations = args.get("limitations", "")
-    
+
+    # Imported lazily: backend.routes.trainer imports google_calendar, which would
+    # otherwise pull a heavier import chain in at module load.
     from backend.routes.trainer import fetch_7day_weather_forecast
     weather_forecast = await fetch_7day_weather_forecast("Stockholm")
 
@@ -889,7 +914,7 @@ async def exec_trainer_advice(args):
 async def exec_learn_topic(args, progress_callback=None):
     topic = args.get("topic", "")
     if not topic:
-        return {"error": "Ämne saknas."}
+        return {"error": "Topic is missing."}
     from backend.services.learning_service import learn_topic_impl
     return await learn_topic_impl(topic, progress_callback=progress_callback)
 
@@ -930,11 +955,16 @@ async def exec_get_learned_knowledge(args):
             })
         return {"learned_knowledge": results}
     except Exception as e:
-        return {"error": f"Misslyckades att hämta inlärd kunskap: {str(e)}"}
+        return {"error": f"Failed to fetch learned knowledge: {str(e)}"}
 
 
 async def exec_system_update(args):
-    """Executes git pull from GitHub and schedules a process exit/restart."""
+    """Executes git pull from GitHub and schedules a process exit/restart.
+
+    The restart is deliberately delayed ~1.5s so this function can return its result to
+    Gemini (and the user can be told an update is starting) before the process dies.
+    Coming back up is the supervisor's job - systemd `Restart=always` on Linux, or the
+    Task Scheduler restart settings on Windows. Without a supervisor, Freja stays down."""
     import os
     import asyncio
     from backend.config import PROJECT_ROOT
@@ -947,7 +977,7 @@ async def exec_system_update(args):
     full_log = output + ("\n" + errors if errors else "")
 
     if res.get("exit_code", -1) != 0:
-        return {"error": f"Git pull misslyckades (felkod {res.get('exit_code')}): {full_log}"}
+        return {"error": f"Git pull failed (exit code {res.get('exit_code')}): {full_log}"}
 
     print("[SYSTEM UPDATE] Git pull successful. Scheduling uvicorn process restart.")
 
@@ -958,7 +988,7 @@ async def exec_system_update(args):
     asyncio.create_task(_delayed_restart())
     return {
         "status": "success",
-        "message": "Uppdatering hämtad från GitHub! F.R.E.J.A. startar om för att tillämpa ändringarna...",
+        "message": "Update downloaded from GitHub. F.R.E.J.A. is restarting to apply the changes...",
         "log": full_log
     }
 
@@ -975,34 +1005,37 @@ async def exec_read_project_file(args):
 
     file_path = args.get("file_path", "").strip()
     if not file_path:
-        return {"error": "Filnamn/sökväg saknas."}
+        return {"error": "File name/path is missing."}
 
     lower_path = file_path.lower()
-    # Check suffix/prefix security blockers
+    # First gate: reject on the requested name before touching the filesystem, so a
+    # secret-bearing path is refused even if it does not exist yet.
     if (
         any(marker in lower_path for marker in SENSITIVE_FILENAME_MARKERS) or
         lower_path.endswith(('.db', '.db-wal', '.db-shm', '.key', '.env'))
     ):
-        return {"error": "Säkerhetsfel: Åtkomst till denna fil är blockerad av säkerhetsskäl."}
+        return {"error": "Security error: Access to this file is blocked for security reasons."}
 
     try:
+        # Second gate: resolve_within_project() raises if the path escapes PROJECT_ROOT
+        # (e.g. via '..' or a symlink), which is what stops directory traversal.
         abs_path = resolve_within_project(file_path)
         if not os.path.exists(abs_path):
-            return {"error": f"Filen '{file_path}' hittades inte."}
+            return {"error": f"The file '{file_path}' was not found."}
         if os.path.isdir(abs_path):
-            return {"error": f"Sökvägen '{file_path}' är en katalog, inte en fil."}
+            return {"error": f"The path '{file_path}' is a directory, not a file."}
 
         with open(abs_path, "r", encoding="utf-8", errors="ignore") as f:
             content = f.read()
 
-        # Mask secrets dynamically just in case
+        # Third gate: even an allowed file may embed a key, so scrub before returning.
         safe_content = redact_secrets(content)
         return {
             "file_path": file_path,
             "content": safe_content
         }
     except Exception as e:
-        return {"error": f"Misslyckades att läsa filen: {str(e)}"}
+        return {"error": f"Failed to read the file: {str(e)}"}
 
 
 async def exec_run_windows_command(args):
@@ -1014,48 +1047,50 @@ async def exec_run_windows_command(args):
     import asyncio
 
     if os.name != "nt":
-        return {"error": "Detta verktyg är för närvarande endast tillgängligt på Windows-system."}
+        return {"error": "This tool is currently only available on Windows systems."}
 
     action_type = args.get("action_type", "").strip()
     target = args.get("target", "").strip()
 
     if not action_type or not target:
-        return {"error": "Parametrarna 'action_type' och 'target' krävs."}
+        return {"error": "The 'action_type' and 'target' parameters are required."}
 
     if action_type == "open_app":
-        # Launch app natively on Windows
+        # os.startfile launches files, executables and registered protocol handlers.
         try:
-            # os.startfile runs files, executables, or register handlers
             os.startfile(target)
-            return {"status": "success", "message": f"Startade programmet '{target}'."}
+            return {"status": "success", "message": f"Launched the application '{target}'."}
         except Exception as e:
-            return {"error": f"Kunde inte starta programmet '{target}': {str(e)}"}
+            return {"error": f"Could not launch the application '{target}': {str(e)}"}
 
     elif action_type == "open_url":
-        # Launch URL in default browser safely
+        # Restrict the scheme: 'file:' or 'javascript:' would turn this into a local-file
+        # read or script execution primitive via the default browser.
         target_lower = target.lower()
         if not (target_lower.startswith("http://") or target_lower.startswith("https://") or target_lower.startswith("mailto:")):
-            return {"error": "Säkerhetsfel: Endast http://, https:// och mailto: adresser är tillåtna."}
+            return {"error": "Security error: Only http://, https:// and mailto: addresses are allowed."}
         try:
             webbrowser.open(target)
-            return {"status": "success", "message": f"Öppnade webbadressen '{target}'."}
+            return {"status": "success", "message": f"Opened the web address '{target}'."}
         except Exception as e:
-            return {"error": f"Kunde inte öppna webbadressen '{target}': {str(e)}"}
+            return {"error": f"Could not open the web address '{target}': {str(e)}"}
 
     elif action_type == "open_folder":
-        # Open directory path in Windows Explorer
+        # Open a directory path in Windows Explorer.
         if not os.path.exists(target):
-            return {"error": f"Sökvägen '{target}' hittades inte."}
+            return {"error": f"The path '{target}' was not found."}
         if not os.path.isdir(target):
-            return {"error": f"Sökvägen '{target}' är inte en mapp/katalog."}
+            return {"error": f"The path '{target}' is not a folder/directory."}
         try:
             os.startfile(target)
-            return {"status": "success", "message": f"Öppnade mappen '{target}' i Utforskaren."}
+            return {"status": "success", "message": f"Opened the folder '{target}' in Explorer."}
         except Exception as e:
-            return {"error": f"Kunde inte öppna mappen '{target}': {str(e)}"}
+            return {"error": f"Could not open the folder '{target}': {str(e)}"}
 
     elif action_type == "run_cmd":
-        # Execute PowerShell/CMD command safely
+        # The command is passed to a shell, so this is a substring denylist, not a parser.
+        # It blocks the obvious destructive verbs (wiping disks, deleting files, changing
+        # accounts/ACLs, powering the machine off) before the string ever reaches cmd.exe.
         FORBIDDEN_KEYWORDS = {
             "format", "del", "rmdir", "rd", "erase", "mkfs", "dd",
             "shutdown", "restart", "logoff", "abort",
@@ -1066,7 +1101,7 @@ async def exec_run_windows_command(args):
         cmd_lower = target.lower()
         for forbidden in FORBIDDEN_KEYWORDS:
             if forbidden in cmd_lower:
-                return {"error": f"Säkerhetsfel: Kommandot innehåller blockerat sökord '{forbidden}'."}
+                return {"error": f"Security error: The command contains the blocked keyword '{forbidden}'."}
 
         try:
             proc = await asyncio.create_subprocess_shell(
@@ -1085,14 +1120,20 @@ async def exec_run_windows_command(args):
                 "stderr": err_str
             }
         except Exception as e:
-            return {"error": f"Kunde inte köra kommandot: {str(e)}"}
+            return {"error": f"Could not run the command: {str(e)}"}
 
     else:
-        return {"error": f"Okänd åtgärdstyp '{action_type}'."}
+        return {"error": f"Unknown action type '{action_type}'."}
 
 
 
-# 3. DISPATCH EXECUTOR MAP
+# ---------------------------------------------------------------------------
+# 4. DISPATCH EXECUTOR MAP
+#
+# Tool name -> executor. Aliases point at the same implementation on purpose:
+# `run_code`/`execute_codex_code` and `tool_analyze_code`/`codex_audit_codebase` exist
+# because Gemini reaches for both names, but they still have separate permission keys.
+# ---------------------------------------------------------------------------
 EXECUTOR_MAP = {
     "get_weather": exec_weather,
     "google_search": exec_google_search,
@@ -1118,20 +1159,32 @@ EXECUTOR_MAP = {
 }
 
 
+# ---------------------------------------------------------------------------
+# 5. DISPATCH ENTRY POINT
+# ---------------------------------------------------------------------------
 async def execute_tool(name: str, args: dict, progress_callback=None) -> dict:
-    """Invokes the appropriate executor function for the given tool name."""
+    """Invokes the appropriate executor function for the given tool name.
+
+    Long-running tools (Facebook download, learn_topic) accept a `progress_callback` used
+    by /api/tools/status polling. We introspect the signature rather than passing it
+    unconditionally, so the short tools can keep a plain `(args)` signature."""
     executor = EXECUTOR_MAP.get(name)
     if not executor:
         return {"error": f"Tool '{name}' is not registered in the system registry."}
-    
+
     import inspect
     sig = inspect.signature(executor)
     if "progress_callback" in sig.parameters:
         return await executor(args, progress_callback=progress_callback)
     return await executor(args)
 
-# HELPER MATHEMATICAL ROUNDING FUNCTION
+
 def Math_round(val):
+    """Rounds half away from zero, matching JavaScript's Math.round() on the frontend.
+
+    Python's built-in round() uses banker's rounding (round-half-to-even), so round(0.5)
+    is 0 and round(2.5) is 2. Health averages are rendered client-side too, and the two
+    must agree."""
     if val is None:
         return None
     return int(val + 0.5) if val >= 0 else int(val - 0.5)
