@@ -10,6 +10,19 @@ router = APIRouter()
 # Global dict to store status and results of background tasks
 TOOL_TASKS = {}
 
+# Finished task entries older than this are pruned so TOOL_TASKS can't grow
+# without bound over a long-running server session.
+TOOL_TASK_MAX_AGE_SECONDS = 3600
+
+
+def prune_old_tool_tasks():
+    """Drops finished task entries older than TOOL_TASK_MAX_AGE_SECONDS."""
+    cutoff = time.time() - TOOL_TASK_MAX_AGE_SECONDS
+    for task_id in list(TOOL_TASKS.keys()):
+        task = TOOL_TASKS.get(task_id) or {}
+        if task.get("status") != "processing" and task.get("created", 0) < cutoff:
+            del TOOL_TASKS[task_id]
+
 # Short-lived, single-use "allow this call only" grants issued by the frontend's
 # permission-gateway prompt (the "allow once" button). Keeps the authoritative
 # permission check server-side instead of trusting a client-supplied flag, while still
@@ -104,7 +117,7 @@ async def run_tool_background(task_id: str, name: str, args: dict):
             "status": status,
             "progress": 100,
             "result": result,
-            "ts": time.time()
+            "created": (TOOL_TASKS.get(task_id) or {}).get("created", time.time())
         }
         if status == "cancelled":
             print(f"[Tool Background] Task {task_id} ('{name}') was cancelled.")
@@ -115,7 +128,7 @@ async def run_tool_background(task_id: str, name: str, args: dict):
             "status": "failed",
             "progress": 100,
             "error": str(e),
-            "ts": time.time()
+            "created": (TOOL_TASKS.get(task_id) or {}).get("created", time.time())
         }
         print(f"[Tool Background] Task {task_id} ('{name}') failed: {e}")
 
@@ -141,14 +154,14 @@ async def post_execute_tool(request: Request, background_tasks: BackgroundTasks)
                 detail=f"Permission is missing for the tool '{name}'. Approve it in Settings or via the permission prompt."
             )
 
-        _prune_tool_tasks()
+        prune_old_tool_tasks()
 
         task_id = str(uuid.uuid4())
         TOOL_TASKS[task_id] = {
             "status": "processing",
             "progress": 0,
             "result": None,
-            "ts": time.time()
+            "created": time.time()
         }
         
         # Enqueue the background task

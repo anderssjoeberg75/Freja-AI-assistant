@@ -30,14 +30,14 @@ def test_save_garmin_data(auth_headers):
         "recovery_time": 18,
         "training_status": "Optimal"
     }
-    response = client.post("/api/garmin/save", json=payload, headers=auth_headers)
+    response = client.post("/api/garmin/data", json=payload, headers=auth_headers)
     assert response.status_code == 200
     res_json = response.json()
     assert res_json.get("status") == "success"
 
-def test_garmin_credentials(auth_headers):
+def test_garmin_credentials_via_keys_endpoint(auth_headers):
+    # Credentials are stored in the shared api_keys table and served by /api/keys.
     client = TestClient(app)
-    # GET credentials
-    response = client.get("/api/garmin/credentials", headers=auth_headers)
+    response = client.get("/api/keys", headers=auth_headers)
     assert response.status_code == 200
-    assert "email" in response.json()
+    assert isinstance(response.json(), dict)

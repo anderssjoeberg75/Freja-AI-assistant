@@ -34,8 +34,8 @@ downloads/
 .env
 .env.*
 
-# Auto-generated codex audit reports (may embed code/secret excerpts)
+# Generated codex artifacts (audit reports, auto-fix backups)
 docs/code_audit_*.md
-
-# codex_run_and_fix backups
 *.bak
+*.codex_backup
+

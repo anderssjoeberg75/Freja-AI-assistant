@@ -234,19 +234,18 @@ TOOL_DECLARATIONS = [
         }
     },
     {
-        "name": "codex_git_ops",
-        "description": "Performs git operations in the local source directory (e.g. status, commit, log, push, checkout).",
+        "description": "Performs git operations in the local source directory (e.g. status, log, diff, branch, pull, commit, push, checkout).",
         "parameters": {
             "type": "OBJECT",
             "properties": {
                 "action": {
                     "type": "STRING",
-                    "description": "The git action: 'status', 'log', 'push', 'checkout', 'clone' or 'commit'.",
-                    "enum": ["status", "log", "push", "checkout", "clone", "commit"]
+                    "description": "The git action: 'status', 'log', 'diff', 'branch', 'pull', 'push', 'checkout' (existing local branches only), 'clone' (https only, clones to separate workspace) or 'commit'.",
+                    "enum": ["status", "log", "diff", "branch", "pull", "push", "checkout", "clone", "commit"]
                 },
                 "argument": {
                     "type": "STRING",
-                    "description": "Argument for the action (e.g. branch name, commit message or repository URL)."
+                    "description": "Argument for the action (e.g. branch name, commit message or https repository URL)."
                 }
             },
             "required": ["action"]

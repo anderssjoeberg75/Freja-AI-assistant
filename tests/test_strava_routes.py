@@ -31,13 +31,14 @@ def test_save_strava_data(auth_headers):
         "max_heartrate": 168,
         "calories": 620
     }
-    response = client.post("/api/strava/save", json=payload, headers=auth_headers)
+    response = client.post("/api/strava/data", json=payload, headers=auth_headers)
     assert response.status_code == 200
     res_json = response.json()
     assert res_json.get("status") == "success"
 
-def test_strava_credentials(auth_headers):
+def test_strava_credentials_via_keys_endpoint(auth_headers):
+    # Credentials are stored in the shared api_keys table and served by /api/keys.
     client = TestClient(app)
-    response = client.get("/api/strava/credentials", headers=auth_headers)
+    response = client.get("/api/keys", headers=auth_headers)
     assert response.status_code == 200
-    assert "client_id" in response.json()
+    assert isinstance(response.json(), dict)

@@ -140,6 +140,16 @@ def init_db():
         )
     ''')
     cursor.execute('''
+        CREATE TABLE IF NOT EXISTS codex_audit_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT,
+            tool TEXT,
+            command TEXT,
+            exit_code INTEGER,
+            detail TEXT
+        )
+    ''')
+    cursor.execute('''
         CREATE TABLE IF NOT EXISTS learned_knowledge (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             topic TEXT UNIQUE,
