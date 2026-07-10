@@ -73,6 +73,22 @@ class FrejaAuthMiddleware(BaseHTTPMiddleware):
 
         ip = _client_ip(request)
 
+        # 1.5 IP whitelist check (Always allow loopback, otherwise check allowed_ips whitelist)
+        try:
+            allowed_ips_str = get_api_key('freja_allowed_ips')
+        except Exception:
+            allowed_ips_str = None
+
+        if allowed_ips_str:
+            allowed_ips = [x.strip() for x in allowed_ips_str.split(',') if x.strip()]
+            if allowed_ips:
+                if ip not in ("127.0.0.1", "::1", "localhost") and ip not in allowed_ips:
+                    logger.warning("Freja auth: rejected request from non-whitelisted IP %s", ip)
+                    return JSONResponse(
+                        status_code=403,
+                        content={"detail": f"Forbidden: IP address {ip} is not in the allowed list."}
+                    )
+
         # 2. Reject outright if this client has too many recent failed attempts.
         if _is_locked_out(ip):
             return JSONResponse(
