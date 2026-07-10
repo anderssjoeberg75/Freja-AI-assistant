@@ -64,6 +64,7 @@ KEY_ALIASES = {
     'google_calendar_client_id': 'freja_google_calendar_client_id',
     'google_calendar_client_secret': 'freja_google_calendar_client_secret',
     'google_calendar_refresh_token': 'freja_google_calendar_refresh_token',
+    'claude_api_key': 'freja_claude_apikey',
 }
 
 REVERSE_KEY_ALIASES = {v: k for k, v in KEY_ALIASES.items()}
@@ -115,6 +116,7 @@ def get_all_api_keys() -> dict:
         'gemini_api_key', 'freja_gemini_apikey',
         'elevenlabs_api_key', 'freja_eleven_apikey',
         'mem0_api_key', 'freja_mem0_apikey',
+        'claude_api_key', 'freja_claude_apikey',
         'garmin_password', 'freja_garmin_password',
         'strava_client_secret', 'freja_strava_client_secret',
         'strava_refresh_token', 'freja_strava_refresh_token',
