@@ -155,15 +155,163 @@ You can run the Client HUD standalone or via bundled mode:
   ```bash
   python run_client.py
   ```
-  Open **Client HUD Interface**: `http://localhost:5000/`
+  This starts a small static web server for the `client/` folder on port `5000`, proxies every `/api/` request to the backend, and automatically opens `http://localhost:5000/` in your default browser. Stop it with `Ctrl+C`.
+
+  If you cloned into a virtual environment, activate it first (`.\venv\Scripts\Activate.ps1` on Windows, `source venv/bin/activate` on Linux), or call the venv interpreter directly:
+  ```bash
+  # Windows
+  .\venv\Scripts\python.exe run_client.py
+  # Linux
+  ./venv/bin/python run_client.py
+  ```
 
 * **Bundled Mode:**
   Access the client directly from the backend server at: `http://localhost:8000/client/`
 
-3. **Connect Client to Backend:**
-   - In the Client HUD, click the **gear icon** (Settings).
-   - Enter your **Backend API URL** (e.g. `http://localhost:8000`) and **Freja Access Token**.
-   - Use the **Backend Admin Portal** link in settings to manage server-side API keys and integration settings.
+#### Client Environment Variables
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `CLIENT_PORT` | `5000` | Port the standalone client server listens on. |
+| `BACKEND_URL` | `http://localhost:8000` | Backend target that `/api/` requests are proxied to. |
+
+```powershell
+# Windows (PowerShell) – client on port 5500 against a remote backend
+$env:CLIENT_PORT = "5500"; $env:BACKEND_URL = "http://192.168.1.50:8000"; python run_client.py
+```
+```bash
+# Linux
+CLIENT_PORT=5500 BACKEND_URL=http://192.168.1.50:8000 python3 run_client.py
+```
+
+> [!NOTE]
+> The client binds to `0.0.0.0`, so other machines on your network can reach the HUD at `http://<your-ip>:5000/`. The browser auto-open is best-effort and is silently skipped on headless machines.
+
+### 3. Connect Client to Backend
+- In the Client HUD, click the **gear icon** (Settings).
+- Enter your **Backend API URL** (e.g. `http://localhost:8000`) and **Freja Access Token**.
+- Use the **Backend Admin Portal** link in settings to manage server-side API keys and integration settings.
+
+---
+
+## 🔁 Autostart on Boot
+
+Both the backend (`server.py`) and the client (`run_client.py`) are long-running processes, so each needs its own autostart entry. The backend must be running before the client is useful, but the client tolerates a backend that is not up yet — it simply returns `502 Bad Gateway` on `/api/` calls until the backend answers.
+
+> [!IMPORTANT]
+> Always use **absolute paths** in autostart configuration, and point at the virtual environment's Python (`venv\Scripts\python.exe` / `venv/bin/python`) — not the bare `python` on `PATH`, which may resolve differently or not at all in a service context.
+
+### 🪟 Windows Autostart
+
+#### Option A: Startup folder (simplest, requires the user to be logged in)
+
+This runs Freja when *you* log in, in your own desktop session — which is what you want for the Client HUD, since it opens a browser window and reports the **Client Activity Heartbeat**.
+
+1. Create `start-freja.bat` in the project root:
+   ```bat
+   @echo off
+   cd /d "C:\path\to\Freja-AI-assistant"
+   start "FREJA Backend" /min "%CD%\venv\Scripts\python.exe" server.py
+   timeout /t 5 /nobreak >nul
+   start "FREJA Client" /min "%CD%\venv\Scripts\python.exe" run_client.py
+   ```
+   The `timeout` gives the backend a few seconds head start before the client (and the browser it opens) connects.
+
+2. Press `Win + R`, type `shell:startup`, and press Enter. This opens your per-user Startup folder.
+
+3. Place a shortcut to `start-freja.bat` in that folder (right-click the `.bat` → **Copy**, then right-click inside the Startup folder → **Paste shortcut**).
+
+4. Reboot, or double-click the shortcut to test. Two minimized console windows should appear and the HUD should open in your browser.
+
+Swap `python.exe` for `pythonw.exe` if you want no console windows at all — you then lose the live console log output.
+
+#### Option B: Task Scheduler (runs before/without login, survives crashes)
+
+Run PowerShell **as Administrator** from the project directory:
+
+```powershell
+$root   = "C:\path\to\Freja-AI-assistant"
+$python = "$root\venv\Scripts\python.exe"
+
+# Backend – starts at boot, no login needed
+$action  = New-ScheduledTaskAction -Execute $python -Argument "server.py" -WorkingDirectory $root
+$trigger = New-ScheduledTaskTrigger -AtStartup
+$settings = New-ScheduledTaskSettingsSet -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
+Register-ScheduledTask -TaskName "FREJA Backend" -Action $action -Trigger $trigger -Settings $settings -User "SYSTEM" -RunLevel Highest
+
+# Client – starts at logon, in your desktop session so the browser can open
+$action  = New-ScheduledTaskAction -Execute $python -Argument "run_client.py" -WorkingDirectory $root
+$trigger = New-ScheduledTaskTrigger -AtLogOn
+Register-ScheduledTask -TaskName "FREJA Client" -Action $action -Trigger $trigger -Settings $settings
+```
+
+Verify and control the tasks:
+```powershell
+Get-ScheduledTask -TaskName "FREJA *"
+Start-ScheduledTask -TaskName "FREJA Backend"     # test without rebooting
+Get-ScheduledTaskInfo -TaskName "FREJA Backend"   # LastRunTime / LastTaskResult
+Unregister-ScheduledTask -TaskName "FREJA Client" -Confirm:$false   # remove
+```
+
+> [!TIP]
+> **Windows troubleshooting:**
+> - Task result `0x1`: usually a wrong `-WorkingDirectory` or a missing `venv`. Run the exact `ExecStart` command manually to see the traceback.
+> - The **Windows OS Automation** (`run_windows_command`) and **Client Activity Heartbeat** features need the process in an interactive desktop session. Do not run the client as `SYSTEM`.
+> - Port `5000` may be occupied by another app; set `CLIENT_PORT` (see the table above) or free the port with `Get-NetTCPConnection -LocalPort 5000`.
+
+### 🐧 Linux Autostart (systemd)
+
+The backend service is documented above under **Autostart Backend on Ubuntu (systemd Service)**. Add the client with a second unit.
+
+1. **Create the service file:**
+   ```bash
+   sudo nano /etc/systemd/system/freja-client.service
+   ```
+
+2. **Add the following configuration** (replace `YOUR_USERNAME` from `whoami` and the path from `pwd`):
+   ```ini
+   [Unit]
+   Description=F.R.E.J.A. Client HUD Server
+   After=network.target freja-backend.service
+   Wants=freja-backend.service
+
+   [Service]
+   Type=simple
+   User=YOUR_USERNAME
+   WorkingDirectory=/path/to/Freja-AI-assistant
+   ExecStart=/path/to/Freja-AI-assistant/venv/bin/python run_client.py
+   Environment=CLIENT_PORT=5000
+   Environment=BACKEND_URL=http://localhost:8000
+   Restart=always
+   RestartSec=5
+
+   [Install]
+   WantedBy=multi-user.target
+   ```
+
+3. **Enable and start both services:**
+   ```bash
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now freja-backend freja-client
+   ```
+
+4. **Verify status and follow logs:**
+   ```bash
+   systemctl status freja-backend freja-client
+   sudo journalctl -u freja-client -f
+   ```
+
+5. **Stop or disable:**
+   ```bash
+   sudo systemctl stop freja-client
+   sudo systemctl disable freja-client
+   ```
+
+> [!TIP]
+> **Linux troubleshooting:**
+> - `Address already in use`: another process holds port 5000. Check with `sudo ss -ltnp | grep 5000` and change `CLIENT_PORT` in the unit file.
+> - On a headless server the client's browser auto-open silently does nothing — open `http://<server-ip>:5000/` from your own machine instead.
+> - Running Freja on a desktop Linux session where you *want* the browser to open? Use a **user** service instead: put the same unit in `~/.config/systemd/user/freja-client.service` (drop the `User=` line), then run `systemctl --user enable --now freja-client`.
 
 ---
 
