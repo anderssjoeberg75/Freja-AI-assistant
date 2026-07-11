@@ -67,8 +67,8 @@ class FrejaAuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
 
-        # 1. Bypass auth for non-API endpoints (static HTML/JS/CSS assets) and OAuth redirects.
-        if not path.startswith("/api/") or path in AUTH_EXEMPT_PATHS:
+        # 1. Bypass auth for CORS preflight (OPTIONS), non-API endpoints, and OAuth redirects.
+        if request.method == "OPTIONS" or not path.startswith("/api/") or path in AUTH_EXEMPT_PATHS:
             return await call_next(request)
 
         ip = _client_ip(request)

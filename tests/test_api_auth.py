@@ -60,3 +60,11 @@ def test_api_auth_lockout_after_repeated_failures(db_token):
     finally:
         auth_module._failed_attempts.pop("testclient", None)
         auth_module._locked_until.pop("testclient", None)
+
+
+def test_api_auth_options_preflight():
+    client = TestClient(app)
+    # OPTIONS requests (CORS preflight) must bypass authentication and return success/not 401
+    response = client.options("/api/keys")
+    assert response.status_code != 401
+
