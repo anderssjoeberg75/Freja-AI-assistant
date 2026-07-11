@@ -20,7 +20,10 @@ window.fetch = async function(url, options = {}) {
     
     // Get backend base URL from localStorage (strip trailing slash if present)
     // Default to port 8000 if client is running standalone on port 5000
-    let backendUrl = (localStorage.getItem('freja_backend_url') || '').replace(/\/$/, '');
+    let backendUrl = (localStorage.getItem('freja_backend_url') || '').replace(/\/$/, '').trim();
+    if (backendUrl && !backendUrl.startsWith('http://') && !backendUrl.startsWith('https://') && !backendUrl.startsWith('//')) {
+        backendUrl = window.location.protocol + '//' + backendUrl;
+    }
     if (!backendUrl && window.location.port === '5000') {
         backendUrl = window.location.protocol + '//' + window.location.hostname + ':8000';
     }

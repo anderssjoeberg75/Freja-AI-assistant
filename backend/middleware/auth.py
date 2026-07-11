@@ -63,6 +63,18 @@ def _record_success(ip: str):
     _locked_until.pop(ip, None)
 
 
+def _cors_response(request: Request, status_code: int, content: dict, headers: dict = None) -> JSONResponse:
+    origin = request.headers.get("origin", "*")
+    res_headers = {
+        "Access-Control-Allow-Origin": origin,
+        "Access-Control-Allow-Methods": "*",
+        "Access-Control-Allow-Headers": "*",
+    }
+    if headers:
+        res_headers.update(headers)
+    return JSONResponse(status_code=status_code, content=content, headers=res_headers)
+
+
 class FrejaAuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
@@ -84,14 +96,16 @@ class FrejaAuthMiddleware(BaseHTTPMiddleware):
             if allowed_ips:
                 if ip not in ("127.0.0.1", "::1", "localhost") and ip not in allowed_ips:
                     logger.warning("Freja auth: rejected request from non-whitelisted IP %s", ip)
-                    return JSONResponse(
+                    return _cors_response(
+                        request=request,
                         status_code=403,
                         content={"detail": f"Forbidden: IP address {ip} is not in the allowed list."}
                     )
 
         # 2. Reject outright if this client has too many recent failed attempts.
         if _is_locked_out(ip):
-            return JSONResponse(
+            return _cors_response(
+                request=request,
                 status_code=429,
                 content={"detail": "Too many failed authentication attempts. Try again later."},
                 headers={"Retry-After": str(LOCKOUT_SECONDS)}
@@ -113,7 +127,8 @@ class FrejaAuthMiddleware(BaseHTTPMiddleware):
 
         if not expected_token or not token or token.strip() != expected_token:
             _record_failure(ip, path)
-            return JSONResponse(
+            return _cors_response(
+                request=request,
                 status_code=401,
                 content={"detail": "Unauthorized: Invalid or missing Freja Access Token."}
             )

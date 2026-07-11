@@ -1289,9 +1289,13 @@ FrejaUIController.prototype.bindEvents = function() {
         soundSynth.playClick();
         
         const inputBackendUrl = document.getElementById('input-backend-url');
-        const backendUrlVal = inputBackendUrl ? inputBackendUrl.value.trim() : "";
+        let backendUrlVal = inputBackendUrl ? inputBackendUrl.value.trim() : "";
         if (backendUrlVal) {
+            if (!backendUrlVal.startsWith('http://') && !backendUrlVal.startsWith('https://') && !backendUrlVal.startsWith('//')) {
+                backendUrlVal = window.location.protocol + '//' + backendUrlVal;
+            }
             localStorage.setItem("freja_backend_url", backendUrlVal);
+            if (inputBackendUrl) inputBackendUrl.value = backendUrlVal;
         }
 
         const inputAccessToken = document.getElementById('input-access-token');
