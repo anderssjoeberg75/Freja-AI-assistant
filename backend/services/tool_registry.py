@@ -234,6 +234,7 @@ TOOL_DECLARATIONS = [
         }
     },
     {
+        "name": "codex_git_ops",
         "description": "Performs git operations in the local source directory (e.g. status, log, diff, branch, pull, commit, push, checkout).",
         "parameters": {
             "type": "OBJECT",
