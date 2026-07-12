@@ -64,7 +64,15 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_error(405, f"Method {method} Not Allowed")
 
     def do_GET(self):
-        if self.path.startswith("/api/"):
+        if self.path == "/local-hostname":
+            import json
+            import socket
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps({"hostname": socket.gethostname()}).encode("utf-8"))
+        elif self.path.startswith("/api/"):
             self.do_PROXY("GET")
         else:
             super().do_GET()

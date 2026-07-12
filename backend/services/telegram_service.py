@@ -300,9 +300,10 @@ async def telegram_worker_loop():
                     client_status = get_client_status()
 
                     if client_status["active"]:
+                        client_name_info = f" named '{client_status['client_hostname']}'" if client_status.get("client_hostname") and client_status["client_hostname"] != "Unknown" else ""
                         status_directive = (
                             f"\n\n[CLIENT HUD STATUS]\n"
-                            f"- The web client (HUD) is currently ACTIVE. It is running in a browser on a client machine "
+                            f"- The web client (HUD) is currently ACTIVE. It is running in a browser on a client machine{client_name_info} "
                             f"with OS: {client_status['client_os']}. The backend server host is '{client_status['hostname']}' "
                             f"({client_status['system']} {client_status['release']}). The web client last sent a heartbeat "
                             f"{client_status['seconds_since_last']:.1f} seconds ago. The user can ask questions here in "

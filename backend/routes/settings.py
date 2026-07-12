@@ -170,15 +170,25 @@ async def serve_doc_report(filename: str):
 
 LAST_HEARTBEAT_TIME = 0.0
 LAST_HEARTBEAT_INFO = ""
+LAST_CLIENT_HOSTNAME = "Unknown"
 
 
 @router.post("/api/client/heartbeat")
 async def client_heartbeat(request: Request):
     """Periodic endpoint called by the Web HUD client to report activity."""
-    global LAST_HEARTBEAT_TIME, LAST_HEARTBEAT_INFO
+    global LAST_HEARTBEAT_TIME, LAST_HEARTBEAT_INFO, LAST_CLIENT_HOSTNAME
     import time
     LAST_HEARTBEAT_TIME = time.time()
     LAST_HEARTBEAT_INFO = request.headers.get("user-agent", "Unknown browser")
+    
+    # Try parsing hostname from request body
+    try:
+        data = await request.json()
+        if data and "hostname" in data:
+            LAST_CLIENT_HOSTNAME = data["hostname"]
+    except Exception:
+        pass
+
     return {"status": "ok"}
 
 
@@ -206,6 +216,7 @@ def get_client_status():
     return {
         "active": active,
         "hostname": socket.gethostname(),
+        "client_hostname": LAST_CLIENT_HOSTNAME,
         "system": platform.system(),
         "release": platform.release(),
         "client_os": client_os,

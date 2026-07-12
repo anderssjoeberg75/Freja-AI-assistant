@@ -506,7 +506,21 @@ class FrejaUIController {
     /**
      * Periodically reports client HUD activity to the backend server.
      */
-    startHeartbeatLoop() {
+    async startHeartbeatLoop() {
+        let clientHostname = "Unknown";
+        if (window.location.port === "5000") {
+            try {
+                const localUrl = window.location.protocol + "//" + window.location.hostname + ":" + window.location.port + "/local-hostname";
+                const res = await fetch(localUrl);
+                if (res.ok) {
+                    const data = await res.json();
+                    clientHostname = data.hostname || "Unknown";
+                }
+            } catch (err) {
+                console.warn("Could not retrieve local client hostname:", err);
+            }
+        }
+
         const sendHeartbeat = async () => {
             try {
                 const token = localStorage.getItem("freja_access_token") || "";
@@ -516,7 +530,8 @@ class FrejaUIController {
                 
                 await fetch("/api/client/heartbeat", {
                     method: "POST",
-                    headers: headers
+                    headers: headers,
+                    body: JSON.stringify({ hostname: clientHostname })
                 });
             } catch (e) {
                 // Fail silently

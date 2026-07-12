@@ -38,9 +38,10 @@ async def proxy_gemini_generate(
                 elif "iPhone" in ua or "iPad" in ua:
                     client_os = "iOS"
 
+                client_name_info = f" (Computer Name/Hostname: '{client_status['client_hostname']}')" if client_status.get("client_hostname") and client_status["client_hostname"] != "Unknown" else ""
                 system_info = (
                     f"\n\n[SYSTEM & PLATFORM INFO]\n"
-                    f"- The web client (HUD) is running in a browser on the user's local machine (Client OS: {client_os}).\n"
+                    f"- The web client (HUD) is running in a browser on the user's local machine{client_name_info} (Client OS: {client_os}).\n"
                     f"- The backend server is running on a host named '{client_status['hostname']}' (Backend OS: {client_status['system']} {client_status['release']})."
                 )
                 parts[0]["text"] += system_info
