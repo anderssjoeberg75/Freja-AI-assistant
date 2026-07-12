@@ -311,12 +311,14 @@ async def telegram_worker_loop():
                         )
                     else:
                         seconds_str = f"{client_status['seconds_since_last']:.1f} seconds ago" if client_status['seconds_since_last'] else "never"
+                        client_name_info = f" named '{client_status['client_hostname']}'" if client_status.get("client_hostname") and client_status["client_hostname"] != "Unknown" else ""
                         status_directive = (
                             f"\n\n[CLIENT HUD STATUS]\n"
                             f"- The web client (HUD) is currently INACTIVE. No connected browser session was detected recently "
-                            f"(the last heartbeat was {seconds_str}). It is not actively running on any computer right now."
+                            f"(the last heartbeat was {seconds_str}). It is not actively running right now. "
+                            f"However, when active, it runs on the client machine{client_name_info} with OS: {client_status['client_os']}."
                         )
-
+ 
                     system_prompt += status_directive
 
                     try:

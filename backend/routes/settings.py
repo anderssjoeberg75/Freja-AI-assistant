@@ -181,25 +181,17 @@ async def client_heartbeat(request: Request):
     LAST_HEARTBEAT_TIME = time.time()
     LAST_HEARTBEAT_INFO = request.headers.get("user-agent", "Unknown browser")
     
-    # Try parsing hostname from request body
+    # Try parsing hostname from request body and store in DB if valid
     try:
         data = await request.json()
-        if data and "hostname" in data:
+        if data and "hostname" in data and data["hostname"] != "Unknown":
             LAST_CLIENT_HOSTNAME = data["hostname"]
+            from backend.database import set_api_key
+            set_api_key("freja_client_hostname", data["hostname"])
     except Exception:
         pass
 
-    return {"status": "ok"}
-
-
-def get_client_status():
-    """Helper to retrieve active status of the client and the host computer name."""
-    import time
-    import socket
-    import platform
-    active = (time.time() - LAST_HEARTBEAT_TIME) < 30.0
-    
-    # Parse client OS from stored User-Agent heartbeat info
+    # Parse and store client OS in DB if valid
     ua = LAST_HEARTBEAT_INFO or ""
     client_os = "Unknown"
     if "Windows" in ua:
@@ -213,10 +205,28 @@ def get_client_status():
     elif "iPhone" in ua or "iPad" in ua:
         client_os = "iOS"
 
+    if client_os != "Unknown":
+        from backend.database import set_api_key
+        set_api_key("freja_client_os", client_os)
+
+    return {"status": "ok"}
+
+
+def get_client_status():
+    """Helper to retrieve active status of the client and the host computer name."""
+    import time
+    import socket
+    import platform
+    from backend.database import get_api_key
+    active = (time.time() - LAST_HEARTBEAT_TIME) < 30.0
+    
+    client_hostname = get_api_key("freja_client_hostname") or LAST_CLIENT_HOSTNAME
+    client_os = get_api_key("freja_client_os") or "Unknown"
+
     return {
         "active": active,
         "hostname": socket.gethostname(),
-        "client_hostname": LAST_CLIENT_HOSTNAME,
+        "client_hostname": client_hostname,
         "system": platform.system(),
         "release": platform.release(),
         "client_os": client_os,
