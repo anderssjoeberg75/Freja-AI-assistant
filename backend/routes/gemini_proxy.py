@@ -16,27 +16,43 @@ async def proxy_gemini_generate(
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON payload")
 
-    # Inject host system information into system prompt so the model is aware of the OS (e.g. Windows 11)
+    # Inject detailed system information into the prompt instruction so Gemini knows about client and backend hosts
     if "systemInstruction" in payload and "parts" in payload["systemInstruction"]:
         parts = payload["systemInstruction"]["parts"]
         if parts and isinstance(parts, list) and len(parts) > 0 and "text" in parts[0]:
             try:
                 from backend.routes.settings import get_client_status
                 client_status = get_client_status()
-                host_info = (
-                    f"\n\n[HOST SYSTEM INFO]\n"
-                    f"- The host computer running the application is '{client_status['hostname']}' "
-                    f"({client_status['system']} {client_status['release']})."
+                
+                # Parse request User-Agent to detect client OS
+                ua = request.headers.get("user-agent", "")
+                client_os = "Unknown"
+                if "Windows" in ua:
+                    client_os = "Windows (likely Windows 11)"
+                elif "Macintosh" in ua or "Mac OS X" in ua:
+                    client_os = "macOS"
+                elif "Linux" in ua:
+                    client_os = "Linux"
+                elif "Android" in ua:
+                    client_os = "Android"
+                elif "iPhone" in ua or "iPad" in ua:
+                    client_os = "iOS"
+
+                system_info = (
+                    f"\n\n[SYSTEM & PLATFORM INFO]\n"
+                    f"- The web client (HUD) is running in a browser on the user's local machine (Client OS: {client_os}).\n"
+                    f"- The backend server is running on a host named '{client_status['hostname']}' (Backend OS: {client_status['system']} {client_status['release']})."
                 )
-                parts[0]["text"] += host_info
+                parts[0]["text"] += system_info
+                
                 # Log system info injection for traceability
                 import logging
                 logging.getLogger("freja").info(
-                    f"Injected host system info into Gemini systemInstruction: {client_status['hostname']} ({client_status['system']} {client_status['release']})"
+                    f"Injected system info: Client OS={client_os}, Backend Host={client_status['hostname']} ({client_status['system']})"
                 )
             except Exception as e:
                 import logging
-                logging.getLogger("freja").warning(f"Failed to inject host system info: {e}")
+                logging.getLogger("freja").warning(f"Failed to inject system info into prompt: {e}")
 
     api_key = gemini_client.get_gemini_api_key()
     if not api_key:
