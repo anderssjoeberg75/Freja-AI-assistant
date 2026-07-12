@@ -46,8 +46,6 @@ async def proxy_gemini_generate(
                 )
                 parts[0]["text"] += system_info
                 
-                print(f"[DEBUG PROMPT INJECTION] System prompt text is now:\n{parts[0]['text']}")
-                
                 # Log system info injection for traceability
                 import logging
                 logging.getLogger("freja").info(
