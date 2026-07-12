@@ -188,11 +188,27 @@ def get_client_status():
     import socket
     import platform
     active = (time.time() - LAST_HEARTBEAT_TIME) < 30.0
+    
+    # Parse client OS from stored User-Agent heartbeat info
+    ua = LAST_HEARTBEAT_INFO or ""
+    client_os = "Unknown"
+    if "Windows" in ua:
+        client_os = "Windows (likely Windows 11)"
+    elif "Macintosh" in ua or "Mac OS X" in ua:
+        client_os = "macOS"
+    elif "Linux" in ua:
+        client_os = "Linux"
+    elif "Android" in ua:
+        client_os = "Android"
+    elif "iPhone" in ua or "iPad" in ua:
+        client_os = "iOS"
+
     return {
         "active": active,
         "hostname": socket.gethostname(),
         "system": platform.system(),
         "release": platform.release(),
+        "client_os": client_os,
         "seconds_since_last": time.time() - LAST_HEARTBEAT_TIME if LAST_HEARTBEAT_TIME > 0 else None,
         "client_info": LAST_HEARTBEAT_INFO
     }
