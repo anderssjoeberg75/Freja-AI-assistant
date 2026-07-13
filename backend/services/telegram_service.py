@@ -290,7 +290,9 @@ async def telegram_worker_loop():
                         "[DIRECTIVE: WINDOWS OS AUTOMATION]\n"
                         "If the user asks you to do things on their Windows computer (e.g. launch a program such as Notepad "
                         "or the calculator, open a web address, browse a folder or run cmd commands), use the "
-                        "'run_windows_command' tool with the appropriate arguments (open_app, open_url, open_folder or run_cmd)."
+                        "'run_windows_command' tool with the appropriate arguments (open_app, open_url, open_folder or run_cmd).\n\n"
+                        "[DIRECTIVE: HEALTH AND FITNESS STATUS]\n"
+                        "If the user asks how they are doing, how they slept, their steps, recovery, training status, or general well-being (e.g., 'Hur mår jag', 'Hur har jag sovit', 'Mina steg', 'Visa min hälsodata'), you must immediately call the 'get_garmin_health' tool (and/or 'get_personal_trainer_advice' with a general wellness goal like 'allmänt välmående') to retrieve their actual data from the database instead of asking them for permission first in a chat message. Once you have the tool results, analyze the data and answer the user's question directly."
                     )
 
                     # Tell the model whether the browser HUD is currently running, so it can answer

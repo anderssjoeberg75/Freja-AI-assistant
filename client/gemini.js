@@ -296,6 +296,9 @@ class GeminiClient {
         // Inject directive for Windows automation
         dynamicSystemPrompt += "\n\n[DIRECTIVE: WINDOWS OS AUTOMATION]\nIf the user asks you to perform actions on their Windows computer (e.g. 'Öppna notepad', 'öppna kalkylatorn', 'visa mina bilder i C:\\Bilder', 'öppna google.com', or to run commands), you must ALWAYS use the 'run_windows_command' tool with suitable arguments ('open_app', 'open_url', 'open_folder' or 'run_cmd').";
 
+        // Inject directive for Health and Fitness status queries
+        dynamicSystemPrompt += "\n\n[DIRECTIVE: HEALTH AND FITNESS STATUS]\nIf the user asks how they are doing, how they slept, their steps, recovery, training status, or general well-being (e.g., 'Hur mår jag', 'Hur har jag sovit', 'Mina steg', 'Visa min hälsodata'), you must immediately call the 'get_garmin_health' tool (and/or 'get_personal_trainer_advice' with a general wellness goal like 'allmänt välmående') to retrieve their actual data from the database instead of asking them for permission first in a chat message. Once you have the tool results, analyze the data and answer the user's question directly.";
+
 
 
         // Invoke Google API via local FastAPI proxy
