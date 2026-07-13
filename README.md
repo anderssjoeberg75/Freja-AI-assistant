@@ -206,10 +206,27 @@ CLIENT_PORT=5500 BACKEND_URL=http://192.168.1.50:8000 python3 run_client.py
 > [!NOTE]
 > The client binds to `0.0.0.0`, so other machines on your network can reach the HUD at `http://<your-ip>:5000/`. The browser auto-open is best-effort and is silently skipped on headless machines.
 
-### 3. Connect Client to Backend
-- In the Client HUD, click the **gear icon** (Settings).
-- Enter your **Backend API URL** (e.g. `http://localhost:8000`) and **Freja Access Token**.
-- Use the **Backend Admin Portal** link in settings to manage server-side API keys and integration settings.
+### 3. Connect the Client to the Backend
+
+The first time you open the HUD, tell it where the backend is and give it the access token. You only need to do this once:
+
+1. **Open Settings** — click the **gear icon** (⚙️) at the top of the HUD to open **Interface Settings**.
+
+2. **Find your access token** — look in the terminal where the backend is running (from step 1). On startup it prints a line like:
+   ```
+   Active Access Token: <your-token>
+   ```
+   Copy that value. (On the very first run the backend generates one automatically.)
+
+3. **Enter the Backend API URL** — in the **Backend API URL** field, type your backend address, e.g. `http://localhost:8000`.
+   > Leave it empty if you opened the HUD in **Bundled Mode** (`http://localhost:8000/client/`) — it then uses the current address automatically.
+
+4. **Paste the access token** — put the value from step 2 into the **Freja Access Token** field (click the 👁 icon to reveal it while typing).
+   > Client and backend on the **same machine via `localhost`** work even without a token; a token is **required for remote access**.
+
+5. **Save** — click **SAVE CONFIGURATION**. The HUD is now connected and can talk to the backend.
+
+6. **(Optional) Open the Admin Portal** — use the **Open the Backend Admin Portal** link in Settings to manage server-side API keys and integrations (Gemini, Garmin, Strava, Withings, Instagram, …).
 
 ---
 
