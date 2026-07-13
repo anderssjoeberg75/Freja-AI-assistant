@@ -946,10 +946,13 @@
             } catch (e) {}
         }
 
-        function linkInstagram() {
-            saveAllSettings().then(() => {
-                window.location.href = "/api/instagram/auth";
-            });
+        async function linkInstagram() {
+            const saved = await saveAllSettings();
+            if (saved) {
+                setTimeout(() => {
+                    window.location.href = "/api/instagram/auth";
+                }, 300);
+            }
         }
 
         async function disconnectInstagram() {
@@ -999,15 +1002,19 @@
                     hideAuthOverlay();
                     showToast('All backend settings were saved successfully.');
                     checkTelegramStatus();
+                    return true;
                 } else if (res.status === 401) {
                     showAuthOverlay();
                     showToast('Save failed: access denied (invalid access token)', true);
+                    return false;
                 } else {
                     showToast('Fel vid sparning: ' + res.statusText, true);
+                    return false;
                 }
             } catch (err) {
                 console.error(err);
                 showToast('A network error occurred while saving.', true);
+                return false;
             }
         }
 
