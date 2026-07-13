@@ -16,13 +16,13 @@ async def get_garmin_data(days: int = Query(7, description="Number of days to re
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                SELECT date, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status 
-                FROM garmin_health 
-                ORDER BY date DESC 
+                SELECT date, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status, stress_avg, stress_max, sleep_deep_hours, sleep_light_hours, sleep_rem_hours, sleep_awake_hours
+                FROM garmin_health
+                ORDER BY date DESC
                 LIMIT ?
             ''', (days,))
             rows = cursor.fetchall()
-        
+
         results = []
         for row in rows:
             results.append({
@@ -36,7 +36,13 @@ async def get_garmin_data(days: int = Query(7, description="Number of days to re
                 'body_battery': row[7],
                 'hrv': row[8],
                 'recovery_time': row[9],
-                'training_status': row[10]
+                'training_status': row[10],
+                'stress_avg': row[11],
+                'stress_max': row[12],
+                'sleep_deep_hours': row[13],
+                'sleep_light_hours': row[14],
+                'sleep_rem_hours': row[15],
+                'sleep_awake_hours': row[16]
             })
         return results
     except Exception as e:
@@ -74,20 +80,46 @@ def run_garmin_sync_task_blocking(email, password, days):
             hrv = None
             recovery_time = None
             training_status = None
-            
+            stress_avg = None
+            stress_max = None
+            sleep_deep_hours = None
+            sleep_light_hours = None
+            sleep_rem_hours = None
+            sleep_awake_hours = None
+
             for date_str in dates_to_sync:
+                # Reset the per-day fields so a failed fetch leaves NULL instead of carrying
+                # over the previous day's value.
+                stress_avg = None
+                stress_max = None
+                sleep_deep_hours = None
+                sleep_light_hours = None
+                sleep_rem_hours = None
+                sleep_awake_hours = None
                 try:
                     stats = client.get_stats(date_str)
                     if stats:
                         steps = int(stats.get('totalSteps', 0) or 0)
                         active_calories = int(stats.get('activeCalories', 0) or 0)
+                        # All-day stress. Garmin returns -1 (no data) / -2 (too little data)
+                        # when there is no valid reading, so only keep non-negative values.
+                        avg_s = stats.get('averageStressLevel')
+                        max_s = stats.get('maxStressLevel')
+                        stress_avg = int(avg_s) if isinstance(avg_s, (int, float)) and avg_s >= 0 else None
+                        stress_max = int(max_s) if isinstance(max_s, (int, float)) and max_s >= 0 else None
                 except Exception as stats_err:
                     print(f"Error fetching stats for {date_str}: {stats_err}")
                 try:
                     sleep_data = client.get_sleep_data(date_str)
                     if sleep_data:
-                        sleep_time_sec = sleep_data.get('dailySleepDTO', {}).get('sleepTimeSeconds', 0) or 0
+                        dto = sleep_data.get('dailySleepDTO', {}) or {}
+                        sleep_time_sec = dto.get('sleepTimeSeconds', 0) or 0
                         sleep_hours = round(sleep_time_sec / 3600.0, 1)
+                        # Sleep stages (seconds -> hours) from the same nightly record.
+                        sleep_deep_hours = round((dto.get('deepSleepSeconds') or 0) / 3600.0, 2)
+                        sleep_light_hours = round((dto.get('lightSleepSeconds') or 0) / 3600.0, 2)
+                        sleep_rem_hours = round((dto.get('remSleepSeconds') or 0) / 3600.0, 2)
+                        sleep_awake_hours = round((dto.get('awakeSleepSeconds') or 0) / 3600.0, 2)
                 except Exception as sleep_err:
                     print(f"Error fetching sleep for {date_str}: {sleep_err}")
                 try:
@@ -178,8 +210,8 @@ def run_garmin_sync_task_blocking(email, password, days):
                         print(f"Error fetching training readiness for {date_str}: {tr_err}")
                         
                 cursor.execute('''
-                    INSERT INTO garmin_health (date, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO garmin_health (date, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status, stress_avg, stress_max, sleep_deep_hours, sleep_light_hours, sleep_rem_hours, sleep_awake_hours)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(date) DO UPDATE SET
                         steps = excluded.steps,
                         sleep_hours = excluded.sleep_hours,
@@ -190,8 +222,14 @@ def run_garmin_sync_task_blocking(email, password, days):
                         body_battery = excluded.body_battery,
                         hrv = excluded.hrv,
                         recovery_time = excluded.recovery_time,
-                        training_status = excluded.training_status
-                ''', (date_str, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status))
+                        training_status = excluded.training_status,
+                        stress_avg = excluded.stress_avg,
+                        stress_max = excluded.stress_max,
+                        sleep_deep_hours = excluded.sleep_deep_hours,
+                        sleep_light_hours = excluded.sleep_light_hours,
+                        sleep_rem_hours = excluded.sleep_rem_hours,
+                        sleep_awake_hours = excluded.sleep_awake_hours
+                ''', (date_str, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status, stress_avg, stress_max, sleep_deep_hours, sleep_light_hours, sleep_rem_hours, sleep_awake_hours))
                 
             conn.commit()
     except Exception as e:

@@ -47,6 +47,14 @@ class GarminHealth(Base):
     hrv = Column(Integer)
     recovery_time = Column(Integer)
     training_status = Column(String)
+    # Stress (Garmin all-day stress; Garmin returns -1/-2 for "no reading", stored as NULL)
+    stress_avg = Column(Integer)
+    stress_max = Column(Integer)
+    # Sleep stages (hours), from the same nightly sleep record as sleep_hours
+    sleep_deep_hours = Column(Float)
+    sleep_light_hours = Column(Float)
+    sleep_rem_hours = Column(Float)
+    sleep_awake_hours = Column(Float)
 
 class StravaActivity(Base):
     __tablename__ = 'strava_activities'

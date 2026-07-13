@@ -637,7 +637,9 @@ async def exec_garmin_health(args):
         hrv_count = 0
         total_recovery = 0
         recovery_count = 0
-        
+        total_stress = 0
+        stress_count = 0
+
         for day in data:
             total_steps += day.get('steps', 0) or 0
             total_sleep += day.get('sleep_hours', 0.0) or 0.0
@@ -657,7 +659,10 @@ async def exec_garmin_health(args):
             if day.get('recovery_time') is not None:
                 total_recovery += day['recovery_time']
                 recovery_count += 1
-                
+            if day.get('stress_avg') is not None:
+                total_stress += day['stress_avg']
+                stress_count += 1
+
         num_days = len(data)
         avg_steps = Math_round(total_steps / num_days) if num_days > 0 else 0
         avg_sleep = round(total_sleep / num_days, 1) if num_days > 0 else 0.0
@@ -666,7 +671,8 @@ async def exec_garmin_health(args):
         avg_bb = Math_round(total_bb / bb_count) if bb_count > 0 else None
         avg_hrv = Math_round(total_hrv / hrv_count) if hrv_count > 0 else None
         avg_recovery = Math_round(total_recovery / recovery_count) if recovery_count > 0 else None
-        
+        avg_stress = Math_round(total_stress / stress_count) if stress_count > 0 else None
+
         return {
             "sync_status": sync_status,
             "sync_message": sync_message,
@@ -683,6 +689,7 @@ async def exec_garmin_health(args):
                 "avg_body_battery": avg_bb,
                 "avg_hrv": avg_hrv,
                 "avg_recovery_time_hours": avg_recovery,
+                "avg_stress": avg_stress,
                 "total_workouts": workout_days,
                 "total_workout_minutes": total_workout_min
             },

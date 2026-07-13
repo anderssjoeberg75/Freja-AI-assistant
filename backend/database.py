@@ -144,6 +144,20 @@ def get_all_api_keys() -> dict:
     return result
 
 
+def _ensure_columns(cursor, table: str, columns: list):
+    """Adds any missing columns to an existing table (SQLite ALTER ADD COLUMN).
+
+    `Base.metadata.create_all` creates missing tables but never alters existing ones, so
+    columns added to a model after a database already exists would otherwise be missing.
+    This backfills them idempotently. `columns` is a list of (name, sql_type) tuples."""
+    cursor.execute(f"PRAGMA table_info({table})")
+    existing = {row[1] for row in cursor.fetchall()}
+    for name, sql_type in columns:
+        if name not in existing:
+            cursor.execute(f"ALTER TABLE {table} ADD COLUMN {name} {sql_type}")
+            print(f"[FREJA] Added missing column {table}.{name} ({sql_type}).")
+
+
 def init_db():
     """Initializes the SQLite database and creates the keys and other tables if they don't exist."""
     from backend.models import Base
@@ -152,6 +166,16 @@ def init_db():
     conn = sqlite3.connect(DB_FILE, timeout=30)
     conn.execute("PRAGMA journal_mode=WAL")
     cursor = conn.cursor()
+
+    # Backfill columns added to garmin_health after the initial schema (stress + sleep stages).
+    _ensure_columns(cursor, "garmin_health", [
+        ("stress_avg", "INTEGER"),
+        ("stress_max", "INTEGER"),
+        ("sleep_deep_hours", "REAL"),
+        ("sleep_light_hours", "REAL"),
+        ("sleep_rem_hours", "REAL"),
+        ("sleep_awake_hours", "REAL"),
+    ])
 
     # Demo rows, inserted only into empty tables so the HUD dashboards render before any
     # provider is connected. The Swedish activity names mirror what a real sync writes
