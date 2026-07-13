@@ -16,7 +16,7 @@ async def get_garmin_data(days: int = Query(7, description="Number of days to re
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                SELECT date, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status, stress_avg, stress_max, sleep_deep_hours, sleep_light_hours, sleep_rem_hours, sleep_awake_hours
+                SELECT date, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status, stress_avg, stress_max, sleep_deep_hours, sleep_light_hours, sleep_rem_hours, sleep_awake_hours, vo2max, intensity_minutes, sleep_score
                 FROM garmin_health
                 ORDER BY date DESC
                 LIMIT ?
@@ -42,7 +42,10 @@ async def get_garmin_data(days: int = Query(7, description="Number of days to re
                 'sleep_deep_hours': row[13],
                 'sleep_light_hours': row[14],
                 'sleep_rem_hours': row[15],
-                'sleep_awake_hours': row[16]
+                'sleep_awake_hours': row[16],
+                'vo2max': row[17],
+                'intensity_minutes': row[18],
+                'sleep_score': row[19]
             })
         return results
     except Exception as e:
@@ -86,6 +89,9 @@ def run_garmin_sync_task_blocking(email, password, days):
             sleep_light_hours = None
             sleep_rem_hours = None
             sleep_awake_hours = None
+            vo2max = None
+            intensity_minutes = None
+            sleep_score = None
 
             for date_str in dates_to_sync:
                 # Reset the per-day fields so a failed fetch leaves NULL instead of carrying
@@ -96,6 +102,9 @@ def run_garmin_sync_task_blocking(email, password, days):
                 sleep_light_hours = None
                 sleep_rem_hours = None
                 sleep_awake_hours = None
+                vo2max = None
+                intensity_minutes = None
+                sleep_score = None
                 try:
                     stats = client.get_stats(date_str)
                     if stats:
@@ -107,6 +116,11 @@ def run_garmin_sync_task_blocking(email, password, days):
                         max_s = stats.get('maxStressLevel')
                         stress_avg = int(avg_s) if isinstance(avg_s, (int, float)) and avg_s >= 0 else None
                         stress_max = int(max_s) if isinstance(max_s, (int, float)) and max_s >= 0 else None
+                        # Intensity minutes toward the weekly goal: vigorous counts double,
+                        # the same weighting Garmin displays.
+                        mod = stats.get('moderateIntensityMinutes') or 0
+                        vig = stats.get('vigorousIntensityMinutes') or 0
+                        intensity_minutes = int(mod) + 2 * int(vig)
                 except Exception as stats_err:
                     print(f"Error fetching stats for {date_str}: {stats_err}")
                 try:
@@ -120,8 +134,22 @@ def run_garmin_sync_task_blocking(email, password, days):
                         sleep_light_hours = round((dto.get('lightSleepSeconds') or 0) / 3600.0, 2)
                         sleep_rem_hours = round((dto.get('remSleepSeconds') or 0) / 3600.0, 2)
                         sleep_awake_hours = round((dto.get('awakeSleepSeconds') or 0) / 3600.0, 2)
+                        # Overall sleep score (0-100), when Garmin provides one.
+                        score_val = (dto.get('sleepScores', {}) or {}).get('overall', {}).get('value')
+                        sleep_score = int(score_val) if isinstance(score_val, (int, float)) else None
                 except Exception as sleep_err:
                     print(f"Error fetching sleep for {date_str}: {sleep_err}")
+                try:
+                    # VO2max estimate (running). get_max_metrics returns a list; the value
+                    # lives under the 'generic' block.
+                    mm = client.get_max_metrics(date_str)
+                    if mm:
+                        entry = mm[0] if isinstance(mm, list) and mm else mm
+                        generic = (entry or {}).get('generic', {}) or {}
+                        vo2_val = generic.get('vo2MaxPreciseValue') or generic.get('vo2MaxValue')
+                        vo2max = round(float(vo2_val), 1) if isinstance(vo2_val, (int, float)) else None
+                except Exception as vo2_err:
+                    print(f"Error fetching VO2max for {date_str}: {vo2_err}")
                 try:
                     heart_rates = client.get_heart_rates(date_str)
                     if heart_rates:
@@ -210,8 +238,8 @@ def run_garmin_sync_task_blocking(email, password, days):
                         print(f"Error fetching training readiness for {date_str}: {tr_err}")
                         
                 cursor.execute('''
-                    INSERT INTO garmin_health (date, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status, stress_avg, stress_max, sleep_deep_hours, sleep_light_hours, sleep_rem_hours, sleep_awake_hours)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO garmin_health (date, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status, stress_avg, stress_max, sleep_deep_hours, sleep_light_hours, sleep_rem_hours, sleep_awake_hours, vo2max, intensity_minutes, sleep_score)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(date) DO UPDATE SET
                         steps = excluded.steps,
                         sleep_hours = excluded.sleep_hours,
@@ -228,8 +256,11 @@ def run_garmin_sync_task_blocking(email, password, days):
                         sleep_deep_hours = excluded.sleep_deep_hours,
                         sleep_light_hours = excluded.sleep_light_hours,
                         sleep_rem_hours = excluded.sleep_rem_hours,
-                        sleep_awake_hours = excluded.sleep_awake_hours
-                ''', (date_str, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status, stress_avg, stress_max, sleep_deep_hours, sleep_light_hours, sleep_rem_hours, sleep_awake_hours))
+                        sleep_awake_hours = excluded.sleep_awake_hours,
+                        vo2max = excluded.vo2max,
+                        intensity_minutes = excluded.intensity_minutes,
+                        sleep_score = excluded.sleep_score
+                ''', (date_str, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status, stress_avg, stress_max, sleep_deep_hours, sleep_light_hours, sleep_rem_hours, sleep_awake_hours, vo2max, intensity_minutes, sleep_score))
                 
             conn.commit()
     except Exception as e:

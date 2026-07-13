@@ -55,6 +55,10 @@ class GarminHealth(Base):
     sleep_light_hours = Column(Float)
     sleep_rem_hours = Column(Float)
     sleep_awake_hours = Column(Float)
+    # Fitness / activity extras
+    vo2max = Column(Float)                 # latest VO2max estimate
+    intensity_minutes = Column(Integer)    # daily intensity minutes (vigorous weighted x2, Garmin style)
+    sleep_score = Column(Integer)          # Garmin overall sleep score (0-100)
 
 class StravaActivity(Base):
     __tablename__ = 'strava_activities'

@@ -639,6 +639,10 @@ async def exec_garmin_health(args):
         recovery_count = 0
         total_stress = 0
         stress_count = 0
+        total_sleep_score = 0
+        sleep_score_count = 0
+        total_intensity = 0
+        intensity_count = 0
 
         for day in data:
             total_steps += day.get('steps', 0) or 0
@@ -662,6 +666,12 @@ async def exec_garmin_health(args):
             if day.get('stress_avg') is not None:
                 total_stress += day['stress_avg']
                 stress_count += 1
+            if day.get('sleep_score') is not None:
+                total_sleep_score += day['sleep_score']
+                sleep_score_count += 1
+            if day.get('intensity_minutes') is not None:
+                total_intensity += day['intensity_minutes']
+                intensity_count += 1
 
         num_days = len(data)
         avg_steps = Math_round(total_steps / num_days) if num_days > 0 else 0
@@ -672,6 +682,8 @@ async def exec_garmin_health(args):
         avg_hrv = Math_round(total_hrv / hrv_count) if hrv_count > 0 else None
         avg_recovery = Math_round(total_recovery / recovery_count) if recovery_count > 0 else None
         avg_stress = Math_round(total_stress / stress_count) if stress_count > 0 else None
+        avg_sleep_score = Math_round(total_sleep_score / sleep_score_count) if sleep_score_count > 0 else None
+        latest_vo2max = data[0].get('vo2max') if data else None
 
         return {
             "sync_status": sync_status,
@@ -679,7 +691,8 @@ async def exec_garmin_health(args):
             "period_days": num_days,
             "latest_metrics": {
                 "training_status": data[0].get('training_status') if data else None,
-                "recovery_time_hours": data[0].get('recovery_time') if data else None
+                "recovery_time_hours": data[0].get('recovery_time') if data else None,
+                "vo2max": latest_vo2max
             },
             "averages": {
                 "avg_daily_steps": avg_steps,
@@ -690,6 +703,8 @@ async def exec_garmin_health(args):
                 "avg_hrv": avg_hrv,
                 "avg_recovery_time_hours": avg_recovery,
                 "avg_stress": avg_stress,
+                "avg_sleep_score": avg_sleep_score,
+                "total_intensity_minutes": total_intensity if intensity_count > 0 else None,
                 "total_workouts": workout_days,
                 "total_workout_minutes": total_workout_min
             },

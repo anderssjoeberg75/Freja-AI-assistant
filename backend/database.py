@@ -175,6 +175,9 @@ def init_db():
         ("sleep_light_hours", "REAL"),
         ("sleep_rem_hours", "REAL"),
         ("sleep_awake_hours", "REAL"),
+        ("vo2max", "REAL"),
+        ("intensity_minutes", "INTEGER"),
+        ("sleep_score", "INTEGER"),
     ])
 
     # Demo rows, inserted only into empty tables so the HUD dashboards render before any
