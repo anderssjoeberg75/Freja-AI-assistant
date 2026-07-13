@@ -15,7 +15,12 @@ logger = logging.getLogger("freja.auth")
 # from the provider (Google/Strava), so no custom X-Freja-Token header can be attached.
 # These are safe to exempt: they only accept a one-time authorization `code` and exchange
 # it server-side; they don't expose or mutate secrets by themselves.
-AUTH_EXEMPT_PATHS = {"/api/strava/callback", "/api/google_calendar/callback"}
+AUTH_EXEMPT_PATHS = {
+    "/api/strava/callback",
+    "/api/google_calendar/callback",
+    "/api/instagram/auth",
+    "/api/instagram/callback"
+}
 
 # In-memory sliding-window rate limiter for failed auth attempts, keyed by client IP.
 # Freja runs as a single local/self-hosted process, so a non-persistent, non-distributed

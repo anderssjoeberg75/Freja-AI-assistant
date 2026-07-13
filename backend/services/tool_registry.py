@@ -393,6 +393,69 @@ TOOL_DECLARATIONS = [
             },
             "required": ["action_type", "target"]
         }
+    },
+    {
+        "name": "publish_instagram_post",
+        "description": "Publishes a single photo with a caption to the user's linked Instagram Business/Creator account. Image URL must be a publicly accessible direct image link.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "image_url": {
+                    "type": "STRING",
+                    "description": "The public URL of the photo to publish."
+                },
+                "caption": {
+                    "type": "STRING",
+                    "description": "The caption/text description for the Instagram post."
+                }
+            },
+            "required": ["image_url", "caption"]
+        }
+    },
+    {
+        "name": "get_instagram_feed",
+        "description": "Fetches the latest published media posts from the linked Instagram account feed.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "limit": {
+                    "type": "INTEGER",
+                    "description": "Maximum number of media items to return (default 5)."
+                }
+            }
+        }
+    },
+    {
+        "name": "get_instagram_post_comments",
+        "description": "Retrieves comments on a specific Instagram media post.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "media_id": {
+                    "type": "STRING",
+                    "description": "The unique ID of the media post."
+                }
+            },
+            "required": ["media_id"]
+        }
+    },
+    {
+        "name": "reply_to_instagram_comment",
+        "description": "Posts a reply comment to an existing comment on an Instagram post.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "comment_id": {
+                    "type": "STRING",
+                    "description": "The unique ID of the comment to reply to."
+                },
+                "text": {
+                    "type": "STRING",
+                    "description": "The reply comment text message."
+                }
+            },
+            "required": ["comment_id", "text"]
+        }
     }
 ]
 
@@ -426,6 +489,10 @@ TOOL_PERMISSION_KEYS = {
     "system_update": "freja_tool_system_update_allowed",
     "read_project_file": "freja_tool_read_project_file_allowed",
     "run_windows_command": "freja_tool_run_windows_command_allowed",
+    "publish_instagram_post": "freja_tool_publish_instagram_post_allowed",
+    "get_instagram_feed": "freja_tool_get_instagram_feed_allowed",
+    "get_instagram_post_comments": "freja_tool_get_instagram_post_comments_allowed",
+    "reply_to_instagram_comment": "freja_tool_reply_to_instagram_comment_allowed",
 }
 
 # ---------------------------------------------------------------------------
@@ -1147,6 +1214,31 @@ async def exec_run_windows_command(args):
 
 # ---------------------------------------------------------------------------
 # 4. DISPATCH EXECUTOR MAP
+async def exec_publish_instagram_post(args):
+    from backend.services.instagram_service import publish_photo
+    image_url = args.get("image_url", "").strip()
+    caption = args.get("caption", "").strip()
+    return await publish_photo(image_url, caption)
+
+async def exec_get_instagram_feed(args):
+    from backend.services.instagram_service import get_recent_media
+    limit = int(args.get("limit", 5) or 5)
+    return await get_recent_media(limit)
+
+async def exec_get_instagram_post_comments(args):
+    from backend.services.instagram_service import get_comments
+    media_id = args.get("media_id", "").strip()
+    return await get_comments(media_id)
+
+async def exec_reply_to_instagram_comment(args):
+    from backend.services.instagram_service import post_comment_reply
+    comment_id = args.get("comment_id", "").strip()
+    text = args.get("text", "").strip()
+    return await post_comment_reply(comment_id, text)
+
+
+# ---------------------------------------------------------------------------
+# 4. DISPATCH EXECUTOR MAP
 #
 # Tool name -> executor. Aliases point at the same implementation on purpose:
 # `run_code`/`execute_codex_code` and `tool_analyze_code`/`codex_audit_codebase` exist
@@ -1174,6 +1266,10 @@ EXECUTOR_MAP = {
     "system_update": exec_system_update,
     "read_project_file": exec_read_project_file,
     "run_windows_command": exec_run_windows_command,
+    "publish_instagram_post": exec_publish_instagram_post,
+    "get_instagram_feed": exec_get_instagram_feed,
+    "get_instagram_post_comments": exec_get_instagram_post_comments,
+    "reply_to_instagram_comment": exec_reply_to_instagram_comment,
 }
 
 

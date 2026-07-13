@@ -663,6 +663,30 @@
                         <input type="text" id="key-telegram_chat_id" class="input-control" placeholder="t.ex. 123456789">
                     </div>
 
+                    <hr class="divider">
+
+                    <!-- Meta/Instagram Integration -->
+                    <div class="form-group">
+                        <label for="key-freja_instagram_client_id">Instagram/Facebook Client ID</label>
+                        <input type="text" id="key-freja_instagram_client_id" class="input-control" placeholder="App-ID from Meta developers portal...">
+                    </div>
+                    <div class="form-group">
+                        <label for="key-freja_instagram_client_secret">Instagram/Facebook Client Secret</label>
+                        <div class="input-wrapper">
+                            <input type="password" id="key-freja_instagram_client_secret" class="input-control" placeholder="App Secret...">
+                            <button type="button" class="toggle-btn" onclick="toggleVisibility('key-freja_instagram_client_secret')"><i class="fa-solid fa-eye"></i></button>
+                        </div>
+                    </div>
+                    <div class="form-group" style="margin-top: 8px;">
+                        <label>Instagram Link Status</label>
+                        <div style="display: flex; align-items: center; justify-content: space-between; background: rgba(7, 9, 19, 0.4); border: 1px solid var(--color-border); border-radius: 6px; padding: 10px 14px;">
+                            <span id="val-instagram-status" style="font-family: var(--font-mono); font-size: 12px; color: var(--color-text-muted);">NOT CONNECTED</span>
+                            <div id="instagram-actions">
+                                <button type="button" onclick="linkInstagram()" class="btn btn-primary" style="padding: 4px 10px; font-size: 11px;"><i class="fa-solid fa-link"></i> Link Account</button>
+                            </div>
+                        </div>
+                    </div>
+
                     <p style="font-size: 11px; color: var(--color-text-muted); line-height: 1.5; margin-top: 12px; background: rgba(0, 240, 255, 0.05); border: 1px solid rgba(0, 240, 255, 0.2); border-radius: 6px; padding: 12px;">
                         <i class="fa-solid fa-circle-info" style="color: var(--color-primary); margin-right: 6px;"></i>
                         <strong>NOTE:</strong> Health and calendar accounts (Garmin, Strava, Withings and Google Calendar) are configured directly in the client GUI, under their respective dashboards.
@@ -865,6 +889,8 @@
 
                 // Update Telegram status
                 checkTelegramStatus();
+                // Update Instagram status
+                checkInstagramStatus();
             } catch (err) {
                 console.error(err);
                 showToast('Could not reach the backend API.', true);
@@ -890,6 +916,57 @@
                     }
                 }
             } catch (e) {}
+        }
+
+        async function checkInstagramStatus() {
+            const token = getActiveToken();
+            const headers = {};
+            if (token) headers['X-Freja-Token'] = token;
+
+            try {
+                const res = await fetch('/api/instagram/status', { headers: headers });
+                if (res.ok) {
+                    const data = await res.json();
+                    const statusEl = document.getElementById('val-instagram-status');
+                    const actionsEl = document.getElementById('instagram-actions');
+                    if (data.status === 'connected') {
+                        statusEl.innerText = `CONNECTED (@${data.username})`;
+                        statusEl.style.color = 'var(--color-success)';
+                        actionsEl.innerHTML = `
+                            <button type="button" onclick="disconnectInstagram()" class="btn" style="padding: 4px 10px; font-size: 11px; color: var(--color-error); border-color: var(--color-error); background: transparent;"><i class="fa-solid fa-link-slash"></i> Disconnect</button>
+                        `;
+                    } else {
+                        statusEl.innerText = 'DISCONNECTED';
+                        statusEl.style.color = 'var(--color-text-muted)';
+                        actionsEl.innerHTML = `
+                            <button type="button" onclick="linkInstagram()" class="btn btn-primary" style="padding: 4px 10px; font-size: 11px;"><i class="fa-solid fa-link"></i> Link Account</button>
+                        `;
+                    }
+                }
+            } catch (e) {}
+        }
+
+        function linkInstagram() {
+            saveAllSettings().then(() => {
+                window.location.href = "/api/instagram/auth";
+            });
+        }
+
+        async function disconnectInstagram() {
+            if (!confirm("Are you sure you want to disconnect Instagram?")) return;
+            const token = getActiveToken();
+            const headers = {};
+            if (token) headers['X-Freja-Token'] = token;
+
+            try {
+                const res = await fetch('/api/instagram/status', { method: 'DELETE', headers: headers });
+                if (res.ok) {
+                    showToast("Instagram disconnected successfully.");
+                    checkInstagramStatus();
+                }
+            } catch (e) {
+                showToast("Failed to disconnect Instagram.", true);
+            }
         }
 
         async function saveAllSettings() {
