@@ -332,7 +332,18 @@ class GeminiClient {
             let hasFunctionCall = true;
             let finalReply = "";
 
+            // Cap the tool-calling loop so a model that keeps requesting function calls
+            // (or a tool that always triggers another) can't spin forever, hang the HUD,
+            // and burn API quota. After the cap we stop feeding tools and take the text.
+            const MAX_TOOL_TURNS = 8;
+            let toolTurns = 0;
+
             while (hasFunctionCall) {
+                if (toolTurns >= MAX_TOOL_TURNS) {
+                    console.warn(`[GEMINI] Reached MAX_TOOL_TURNS (${MAX_TOOL_TURNS}); stopping tool loop.`);
+                    delete payload.tools;
+                }
+
                 const response = await fetch(endpoint, {
                     method: "POST",
                     headers: {
@@ -354,6 +365,7 @@ class GeminiClient {
                 if (functionCallPart && functionCallPart.functionCall) {
                     const call = functionCallPart.functionCall;
                     console.log("[GEMINI] Function Call Requested:", call);
+                    toolTurns++;
 
                     // 1. Append model functionCall message to history
                     this.history.push(candidate.content);

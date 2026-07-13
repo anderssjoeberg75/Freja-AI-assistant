@@ -30,19 +30,6 @@ def prune_old_tool_tasks():
 ONE_TIME_GRANTS = {}
 ONE_TIME_GRANT_TTL_SECONDS = 120
 
-# TOOL_TASKS entries are kept only long enough for the frontend to poll the result;
-# after this TTL they are pruned so the dict can't grow without bound over the process
-# lifetime.
-TASK_TTL_SECONDS = 3600
-
-
-def _prune_tool_tasks():
-    """Removes tool-task entries older than TASK_TTL_SECONDS."""
-    now = time.time()
-    stale = [tid for tid, t in TOOL_TASKS.items() if now - t.get("ts", now) > TASK_TTL_SECONDS]
-    for tid in stale:
-        TOOL_TASKS.pop(tid, None)
-
 
 def is_tool_permanently_allowed(name: str) -> bool:
     """Checks the persisted (server-side) permission flag for a tool, set via Settings."""
@@ -166,8 +153,13 @@ async def post_execute_tool(request: Request, background_tasks: BackgroundTasks)
         
         # Enqueue the background task
         background_tasks.add_task(run_tool_background, task_id, name, args)
-        
+
         return {"task_id": task_id, "status": "processing"}
+    except HTTPException:
+        # Preserve intentional 400/403 responses; without this the generic handler
+        # below would re-wrap them as 500 and the frontend's permission prompt
+        # (which keys off a 403) would never trigger.
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

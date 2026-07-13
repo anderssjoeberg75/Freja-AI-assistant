@@ -123,7 +123,11 @@ def get_all_api_keys() -> dict:
         'withings_client_secret', 'freja_withings_client_secret',
         'withings_refresh_token', 'freja_withings_refresh_token',
         'google_calendar_client_secret', 'freja_google_calendar_client_secret',
-        'google_calendar_refresh_token', 'freja_google_calendar_refresh_token'
+        'google_calendar_refresh_token', 'freja_google_calendar_refresh_token',
+        # Meta/Instagram OAuth secrets and the long-lived access token were previously
+        # returned in the clear by the settings endpoint; mask them like every other secret.
+        'freja_instagram_client_secret', 'freja_facebook_client_secret',
+        'freja_instagram_access_token',
     }
     with get_db_connection() as conn:
         cursor = conn.cursor()
