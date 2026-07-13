@@ -235,3 +235,63 @@ def get_client_status():
     }
 
 
+@router.get("/api/system/gemini-models")
+async def get_gemini_models():
+    """Fetches list of available Gemini models from the Google API if the API key is configured.
+    Otherwise returns a fallback list of popular models.
+    """
+    import httpx
+    from backend.services.gemini_client import get_gemini_api_key
+
+    api_key = get_gemini_api_key()
+    
+    fallback_models = [
+        {"id": "gemini-2.5-flash", "name": "Gemini 2.5 Flash"},
+        {"id": "gemini-2.5-pro", "name": "Gemini 2.5 Pro"},
+        {"id": "gemini-2.0-flash", "name": "Gemini 2.0 Flash"},
+        {"id": "gemini-1.5-flash", "name": "Gemini 1.5 Flash"},
+        {"id": "gemini-1.5-pro", "name": "Gemini 1.5 Pro"}
+    ]
+
+    if not api_key:
+        return fallback_models
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(url, timeout=5.0)
+            if resp.status_code == 200:
+                data = resp.json()
+                models = data.get("models", [])
+                result = []
+                for m in models:
+                    name = m.get("name", "")
+                    if name.startswith("models/"):
+                        model_id = name.split("models/")[1]
+                    else:
+                        model_id = name
+                    
+                    display_name = m.get("displayName", model_id)
+                    methods = m.get("supportedGenerationMethods", [])
+                    
+                    if "generateContent" in methods:
+                        result.append({"id": model_id, "name": display_name})
+                
+                if result:
+                    # Sort so newest/important models are first
+                    result.sort(key=lambda x: (
+                        0 if "2.5-flash" in x["id"] else
+                        1 if "2.5-pro" in x["id"] else
+                        2 if "2.0-flash" in x["id"] else
+                        3,
+                        x["id"]
+                    ))
+                    return result
+    except Exception as e:
+        import logging
+        logging.getLogger("freja").warning(f"Could not fetch models dynamically from Gemini API: {e}")
+        
+    return fallback_models
+
+
+

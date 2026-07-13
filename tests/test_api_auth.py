@@ -68,3 +68,16 @@ def test_api_auth_options_preflight():
     response = client.options("/api/keys")
     assert response.status_code != 401
 
+
+def test_get_gemini_models(db_token):
+    client = TestClient(app)
+    response = client.get("/api/system/gemini-models", headers={"X-Freja-Token": db_token})
+    assert response.status_code == 200
+    models = response.json()
+    assert isinstance(models, list)
+    assert len(models) > 0
+    for m in models:
+        assert "id" in m
+        assert "name" in m
+
+

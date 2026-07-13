@@ -24,7 +24,7 @@ from backend.services.weather_codes import describe_weather_code
 router = APIRouter()
 
 # --- Configuration constants -------------------------------------------------
-GEMINI_MODEL = "gemini-2.5-flash"
+from backend.services.gemini_client import get_gemini_model, build_generate_url
 DEFAULT_LOCATION = "Stockholm"
 RHR_ALERT_PCT = 5.0        # Resting HR increase that warrants an "ease off" nudge
 HRV_ALERT_PCT = -10.0      # HRV drop that warrants an "ease off" nudge
@@ -492,7 +492,7 @@ Instructions for the answer:
 """
 
         # 7. Call Gemini
-        google_url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={api_key}"
+        google_url = build_generate_url(get_gemini_model(), api_key)
         payload = {
             "contents": [
                 {
@@ -806,7 +806,7 @@ Rules for the briefing:
 """
 
         # 9. Call Gemini with a structured schema
-        google_url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={api_key}"
+        google_url = build_generate_url(get_gemini_model(), api_key)
         payload = {
             "contents": [{"parts": [{"text": prompt_content}]}],
             "generationConfig": {
@@ -1018,7 +1018,7 @@ Rules:
   why (or that everything can stay as it is).
 """
 
-    google_url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={api_key}"
+    google_url = build_generate_url(get_gemini_model(), api_key)
     payload = {
         "contents": [{"parts": [{"text": prompt_content}]}],
         "generationConfig": {

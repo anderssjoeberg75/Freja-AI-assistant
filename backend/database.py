@@ -141,129 +141,14 @@ def get_all_api_keys() -> dict:
 
 
 def init_db():
-    """Initializes the SQLite database and creates the keys and garmin_health tables if they don't exist."""
+    """Initializes the SQLite database and creates the keys and other tables if they don't exist."""
     from backend.models import Base
     Base.metadata.create_all(bind=engine)
 
     conn = sqlite3.connect(DB_FILE, timeout=30)
     conn.execute("PRAGMA journal_mode=WAL")
     cursor = conn.cursor()
-    cursor.execute('\n        CREATE TABLE IF NOT EXISTS api_keys (\n            key_name TEXT PRIMARY KEY,\n            key_value TEXT\n        )\n    ')
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS chat_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            sender TEXT,
-            content TEXT,
-            timestamp TEXT,
-            channel TEXT
-        )
-    ''')
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS codex_audit_log (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp TEXT,
-            tool TEXT,
-            command TEXT,
-            exit_code INTEGER,
-            detail TEXT
-        )
-    ''')
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS learned_knowledge (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            topic TEXT UNIQUE,
-            summary TEXT,
-            detailed_notes TEXT,
-            sources TEXT,
-            timestamp TEXT
-        )
-    ''')
-    cursor.execute('\n        CREATE TABLE IF NOT EXISTS garmin_health (\n            date TEXT PRIMARY KEY,\n            steps INTEGER,\n            sleep_hours REAL,\n            resting_hr INTEGER,\n            active_calories INTEGER,\n            workout_type TEXT,\n            workout_duration INTEGER,\n            body_battery INTEGER,\n            hrv INTEGER,\n            recovery_time INTEGER,\n            training_status TEXT\n        )\n    ')
-    cursor.execute('\n        CREATE TABLE IF NOT EXISTS strava_activities (\n            id INTEGER PRIMARY KEY AUTOINCREMENT,\n            name TEXT,\n            type TEXT,\n            date TEXT,\n            distance REAL,\n            moving_time INTEGER,\n            elapsed_time INTEGER,\n            total_elevation_gain REAL,\n            average_speed REAL,\n            max_speed REAL,\n            average_heartrate REAL,\n            max_heartrate REAL,\n            calories REAL\n        )\n    ')
-    cursor.execute('\n        CREATE TABLE IF NOT EXISTS withings_measurements (\n            date TEXT PRIMARY KEY,\n            weight REAL,\n            fat_ratio REAL,\n            bone_mass REAL,\n            heart_pulse REAL,\n            sleep_duration INTEGER,\n            sleep_deep INTEGER,\n            sleep_rem INTEGER,\n            steps INTEGER,\n            distance REAL,\n            calories REAL,\n            elevation REAL,\n            sleep_score INTEGER\n        )\n    ')
-    cursor.execute('\n        CREATE TABLE IF NOT EXISTS google_calendar_events (\n            id INTEGER PRIMARY KEY AUTOINCREMENT,\n            google_event_id TEXT UNIQUE,\n            summary TEXT,\n            description TEXT,\n            start_time TEXT,\n            end_time TEXT,\n            location TEXT\n        )\n    ')
-    cursor.execute('\n        CREATE TABLE IF NOT EXISTS trainer_plans (\n            id INTEGER PRIMARY KEY AUTOINCREMENT,\n            date TEXT,\n            goal TEXT,\n            advice_text TEXT,\n            limitations TEXT\n        )\n    ')
-    try:
-        cursor.execute('ALTER TABLE trainer_plans ADD COLUMN limitations TEXT')
-    except sqlite3.OperationalError:
-        pass
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS trainer_profile (
-            id INTEGER PRIMARY KEY CHECK (id = 1),
-            event TEXT,
-            event_date TEXT,
-            fitness_level TEXT,
-            availability TEXT,
-            goals TEXT,
-            limitations TEXT,
-            location TEXT,
-            baseline_resting_hr REAL,
-            baseline_sleep_hours REAL,
-            baseline_hrv REAL,
-            updated_at TEXT
-        )
-    ''')
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS trainer_bookings (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            plan_id INTEGER,
-            event_id INTEGER,
-            workout_date TEXT,
-            week INTEGER DEFAULT 0
-        )
-    ''')
-    try:
-        cursor.execute('ALTER TABLE trainer_profile ADD COLUMN auto_adjust INTEGER DEFAULT 1')
-    except sqlite3.OperationalError:
-        pass
-    try:
-        cursor.execute('ALTER TABLE garmin_health ADD COLUMN body_battery INTEGER')
-    except sqlite3.OperationalError:
-        pass
-    try:
-        cursor.execute('ALTER TABLE garmin_health ADD COLUMN hrv INTEGER')
-    except sqlite3.OperationalError:
-        pass
-    try:
-        cursor.execute('ALTER TABLE garmin_health ADD COLUMN recovery_time INTEGER')
-    except sqlite3.OperationalError:
-        pass
-    try:
-        cursor.execute('ALTER TABLE garmin_health ADD COLUMN training_status TEXT')
-    except sqlite3.OperationalError:
-        pass
-    try:
-        cursor.execute('ALTER TABLE withings_measurements ADD COLUMN sleep_duration INTEGER')
-    except sqlite3.OperationalError:
-        pass
-    try:
-        cursor.execute('ALTER TABLE withings_measurements ADD COLUMN sleep_deep INTEGER')
-    except sqlite3.OperationalError:
-        pass
-    try:
-        cursor.execute('ALTER TABLE withings_measurements ADD COLUMN sleep_rem INTEGER')
-    except sqlite3.OperationalError:
-        pass
-    try:
-        cursor.execute('ALTER TABLE withings_measurements ADD COLUMN steps INTEGER')
-    except sqlite3.OperationalError:
-        pass
-    try:
-        cursor.execute('ALTER TABLE withings_measurements ADD COLUMN distance REAL')
-    except sqlite3.OperationalError:
-        pass
-    try:
-        cursor.execute('ALTER TABLE withings_measurements ADD COLUMN calories REAL')
-    except sqlite3.OperationalError:
-        pass
-    try:
-        cursor.execute('ALTER TABLE withings_measurements ADD COLUMN elevation REAL')
-    except sqlite3.OperationalError:
-        pass
-    try:
-        cursor.execute('ALTER TABLE withings_measurements ADD COLUMN sleep_score INTEGER')
-    except sqlite3.OperationalError:
-        pass
+
     # Demo rows, inserted only into empty tables so the HUD dashboards render before any
     # provider is connected. The Swedish activity names mirror what a real sync writes
     # (see the type_mapping in backend/routes/garmin.py), so the UI looks the same either way.

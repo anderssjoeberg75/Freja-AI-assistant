@@ -295,6 +295,11 @@
             box-shadow: 0 0 8px rgba(0, 240, 255, 0.2);
         }
 
+        select.input-control option {
+            background-color: var(--color-surface);
+            color: var(--color-text);
+        }
+
         .toggle-btn {
             position: absolute;
             right: 10px;
@@ -590,6 +595,17 @@
                         </div>
                     </div>
 
+                    <!-- Gemini Model -->
+                    <div class="form-group">
+                        <label for="key-freja_gemini_model">
+                            Google Gemini Model
+                            <span class="label-hint">Dynamic list of available models</span>
+                        </label>
+                        <select id="key-freja_gemini_model" class="input-control">
+                            <option value="gemini-2.5-flash">gemini-2.5-flash</option>
+                        </select>
+                    </div>
+
                     <!-- Anthropic Claude API Key -->
                     <div class="form-group">
                         <label for="key-claude_api_key">
@@ -773,6 +789,42 @@
             });
         }
 
+        async function loadGeminiModels(selectedModel = null) {
+            const token = getActiveToken();
+            const headers = {};
+            if (token) headers['X-Freja-Token'] = token;
+
+            try {
+                const res = await fetch('/api/system/gemini-models', { headers: headers });
+                if (res.ok) {
+                    const models = await res.json();
+                    const select = document.getElementById('key-freja_gemini_model');
+                    if (select) {
+                        select.innerHTML = '';
+                        models.forEach(model => {
+                            const opt = document.createElement('option');
+                            opt.value = model.id;
+                            opt.textContent = model.name;
+                            select.appendChild(opt);
+                        });
+                        
+                        if (selectedModel) {
+                            const hasSelected = models.some(m => m.id === selectedModel);
+                            if (!hasSelected) {
+                                const opt = document.createElement('option');
+                                opt.value = selectedModel;
+                                opt.textContent = selectedModel + " (Custom)";
+                                select.appendChild(opt);
+                            }
+                            select.value = selectedModel;
+                        }
+                    }
+                }
+            } catch (err) {
+                console.warn("Could not load dynamic models:", err);
+            }
+        }
+
         async function loadBackendSettings() {
             const token = getActiveToken();
             const headers = {};
@@ -790,6 +842,9 @@
 
                 hideAuthOverlay();
                 const data = await res.json();
+                
+                // Dynamically fetch and populate Gemini models list
+                await loadGeminiModels(data['freja_gemini_model']);
                 
                 // Populate inputs
                 Object.keys(data).forEach(key => {

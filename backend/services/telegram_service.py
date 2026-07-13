@@ -79,7 +79,8 @@ async def query_gemini_with_tools(contents, api_key, system_prompt):
     Telegram channel is protected instead by the chat_id authorization check below."""
     tools = [{"functionDeclarations": TOOL_DECLARATIONS}]
     
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+    from backend.services import gemini_client
+    url = gemini_client.build_generate_url(gemini_client.get_gemini_model(), api_key)
     
     # Copy contents so we don't pollute the long-term cache memory with raw function payloads
     local_contents = list(contents)
@@ -287,10 +288,14 @@ async def telegram_worker_loop():
                         "code, call the 'codex_audit_codebase' tool. When you get the result (which contains a summary and a "
                         "path to the Markdown report), you may use the 'read_project_file' tool to read the report or source "
                         "files if you need more detail in order to answer.\n\n"
-                        "[DIRECTIVE: WINDOWS OS AUTOMATION]\n"
-                        "If the user asks you to do things on their Windows computer (e.g. launch a program such as Notepad "
-                        "or the calculator, open a web address, browse a folder or run cmd commands), use the "
-                        "'run_windows_command' tool with the appropriate arguments (open_app, open_url, open_folder or run_cmd).\n\n"
+                        "[DIRECTIVE: WINDOWS OS AUTOMATION & ENVIRONMENT AWARENESS]\n"
+                        "If the user asks you to do things on their Windows computer (e.g. launch a program such as Notepad, "
+                        "the calculator, VLC, open a web address, browse a folder or run cmd commands), use the "
+                        "'run_windows_command' tool with the appropriate arguments (open_app, open_url, open_folder or run_cmd). "
+                        "Note that tools run on the backend server machine, not the client web browser. If the backend server is running on "
+                        "a different OS (e.g., Linux/Docker/WSL) than the client machine (which is Windows), or if the tool returns a platform "
+                        "error, you must explain this distinction clearly to the user: tell them that while their browser/client runs on Windows, "
+                        "the backend server runs on Linux/Docker/WSL, and program execution happens on the backend machine.\n\n"
                         "[DIRECTIVE: HEALTH AND FITNESS STATUS]\n"
                         "If the user asks how they are doing, how they slept, their steps, recovery, training status, or general well-being (e.g., 'Hur mår jag', 'Hur har jag sovit', 'Mina steg', 'Visa min hälsodata'), you must immediately call the 'get_garmin_health' tool (and/or 'get_personal_trainer_advice' with a general wellness goal like 'allmänt välmående') to retrieve their actual data from the database instead of asking them for permission first in a chat message. Once you have the tool results, analyze the data and answer the user's question directly."
                     )
@@ -314,11 +319,13 @@ async def telegram_worker_loop():
                     else:
                         seconds_str = f"{client_status['seconds_since_last']:.1f} seconds ago" if client_status['seconds_since_last'] else "never"
                         client_name_info = f" named '{client_status['client_hostname']}'" if client_status.get("client_hostname") and client_status["client_hostname"] != "Unknown" else ""
+                        # Explicitly instruct the model that the client is inactive so it does not falsely claim the client is running.
                         status_directive = (
                             f"\n\n[CLIENT HUD STATUS]\n"
                             f"- The web client (HUD) is currently INACTIVE. No connected browser session was detected recently "
                             f"(the last heartbeat was {seconds_str}). It is not actively running right now. "
-                            f"However, when active, it runs on the client machine{client_name_info} with OS: {client_status['client_os']}."
+                            f"If the user asks which computer the client is running on, you must answer that the client is not currently active or running. "
+                            f"You may mention that the last active session was on the machine{client_name_info} with OS: {client_status['client_os']}, but clearly state that it is offline."
                         )
  
                     system_prompt += status_directive
