@@ -4,6 +4,7 @@ import httpx
 import logging
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse
+from backend.config import GRAPH_API_VERSION, GRAPH_BASE_URL
 from backend.database import get_api_key, set_api_key
 
 router = APIRouter()
@@ -45,7 +46,7 @@ async def instagram_auth(request: Request):
     scope_str = ",".join(scopes)
     
     auth_url = (
-        f"https://www.facebook.com/v19.0/dialog/oauth?"
+        f"https://www.facebook.com/{GRAPH_API_VERSION}/dialog/oauth?"
         f"client_id={client_id}&"
         f"redirect_uri={redirect_uri}&"
         f"scope={scope_str}&"
@@ -65,7 +66,7 @@ async def instagram_callback(request: Request, code: str = Query(None)):
 
     try:
         # Step 1: Exchange code for short-lived user token
-        token_url = "https://graph.facebook.com/v19.0/oauth/access_token"
+        token_url = f"{GRAPH_BASE_URL}/oauth/access_token"
         params = {
             "client_id": client_id,
             "redirect_uri": redirect_uri,
@@ -82,7 +83,7 @@ async def instagram_callback(request: Request, code: str = Query(None)):
             short_token = resp.json().get("access_token")
             
             # Step 2: Exchange short-lived token for long-lived user token (60 days)
-            long_token_url = "https://graph.facebook.com/v19.0/oauth/access_token"
+            long_token_url = f"{GRAPH_BASE_URL}/oauth/access_token"
             long_params = {
                 "grant_type": "fb_exchange_token",
                 "client_id": client_id,
@@ -98,7 +99,7 @@ async def instagram_callback(request: Request, code: str = Query(None)):
             long_token = long_resp.json().get("access_token")
             
             # Step 3: Query linked Pages and retrieve the linked Instagram Business/Creator Account ID
-            accounts_url = "https://graph.facebook.com/v19.0/me/accounts"
+            accounts_url = f"{GRAPH_BASE_URL}/me/accounts"
             accounts_params = {
                 "fields": "instagram_business_account{id,username},name",
                 "access_token": long_token

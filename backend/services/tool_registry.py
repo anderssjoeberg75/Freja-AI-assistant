@@ -396,20 +396,25 @@ TOOL_DECLARATIONS = [
     },
     {
         "name": "publish_instagram_post",
-        "description": "Publishes a single photo with a caption to the user's linked Instagram Business/Creator account. Image URL must be a publicly accessible direct image link.",
+        "description": "Publishes a photo or a reel/video with a caption to the user's linked Instagram Business/Creator account. The media URL must be a publicly accessible direct link (image for a photo, video for a reel).",
         "parameters": {
             "type": "OBJECT",
             "properties": {
-                "image_url": {
+                "media_url": {
                     "type": "STRING",
-                    "description": "The public URL of the photo to publish."
+                    "description": "The public URL of the photo or video to publish."
                 },
                 "caption": {
                     "type": "STRING",
                     "description": "The caption/text description for the Instagram post."
+                },
+                "media_type": {
+                    "type": "STRING",
+                    "description": "The kind of media being published: 'IMAGE' for a photo (default) or 'REELS' for a video/reel.",
+                    "enum": ["IMAGE", "REELS"]
                 }
             },
-            "required": ["image_url", "caption"]
+            "required": ["media_url", "caption"]
         }
     },
     {
@@ -1211,14 +1216,14 @@ async def exec_run_windows_command(args):
         return {"error": f"Unknown action type '{action_type}'."}
 
 
+# --- Instagram executors (thin wrappers over backend.services.instagram_service) ---
 
-# ---------------------------------------------------------------------------
-# 4. DISPATCH EXECUTOR MAP
 async def exec_publish_instagram_post(args):
-    from backend.services.instagram_service import publish_photo
-    image_url = args.get("image_url", "").strip()
+    from backend.services.instagram_service import publish_media
+    media_url = (args.get("media_url") or args.get("image_url") or "").strip()
     caption = args.get("caption", "").strip()
-    return await publish_photo(image_url, caption)
+    media_type = (args.get("media_type") or "IMAGE").strip().upper()
+    return await publish_media(media_url, caption, media_type=media_type)
 
 async def exec_get_instagram_feed(args):
     from backend.services.instagram_service import get_recent_media
