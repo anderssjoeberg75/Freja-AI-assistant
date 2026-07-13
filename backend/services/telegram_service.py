@@ -288,10 +288,14 @@ async def telegram_worker_loop():
                         "code, call the 'codex_audit_codebase' tool. When you get the result (which contains a summary and a "
                         "path to the Markdown report), you may use the 'read_project_file' tool to read the report or source "
                         "files if you need more detail in order to answer.\n\n"
-                        "[DIRECTIVE: WINDOWS OS AUTOMATION]\n"
-                        "If the user asks you to do things on their Windows computer (e.g. launch a program such as Notepad "
-                        "or the calculator, open a web address, browse a folder or run cmd commands), use the "
-                        "'run_windows_command' tool with the appropriate arguments (open_app, open_url, open_folder or run_cmd)."
+                        "[DIRECTIVE: WINDOWS OS AUTOMATION & ENVIRONMENT AWARENESS]\n"
+                        "If the user asks you to do things on their Windows computer (e.g. launch a program such as Notepad, "
+                        "the calculator, VLC, open a web address, browse a folder or run cmd commands), use the "
+                        "'run_windows_command' tool with the appropriate arguments (open_app, open_url, open_folder or run_cmd). "
+                        "Note that tools run on the backend server machine, not the client web browser. If the backend server is running on "
+                        "a different OS (e.g., Linux/Docker/WSL) than the client machine (which is Windows), or if the tool returns a platform "
+                        "error, you must explain this distinction clearly to the user: tell them that while their browser/client runs on Windows, "
+                        "the backend server runs on Linux/Docker/WSL, and program execution happens on the backend machine."
                     )
 
                     # Tell the model whether the browser HUD is currently running, so it can answer
