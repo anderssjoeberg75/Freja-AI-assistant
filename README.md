@@ -133,7 +133,7 @@ To run the F.R.E.J.A. Backend automatically in the background on system boot (e.
 ## 🌐 Client-Backend Architecture
 
 F.R.E.J.A. is strictly divided into a **Frontend Client HUD** and a **FastAPI Backend Server & Admin Control Panel**:
-- **Backend Admin GUI (`http://localhost:8000/`)**: Served by `server.py`. Contains strictly server-side configurations, API key database management, integration credentials (Telegram, Garmin, Strava, Withings, Google Calendar), backend tool permission toggles, and live server status.
+- **Backend Admin GUI (`http://localhost:8000/`)**: Served by `server.py`. Contains strictly server-side configurations, API key database management, integration credentials (Telegram, Garmin, Strava, Withings, Google Calendar, Instagram/Meta), backend tool permission toggles, and live server status.
 - **Client HUD (`http://localhost:5000/` or `http://localhost:8000/client/`)**: Holographic AI Assistant interface containing voice controls, speech synthesis, optics camera scanner, Arc Reactor visualizer, personal health & fitness dashboards, and neural memory vault.
 
 ---
@@ -338,6 +338,7 @@ To unlock F.R.E.J.A.'s full cognitive capabilities, configure your credentials i
 * 👁️ **Neural Optics Scanner**: Choose your webcam directly from the HUD panel. F.R.E.J.A. captures frames in the background to analyze objects, expressions, or visual queries via Gemini's multimodal vision model.
 * 🧠 **Neural Memory Vault**: Remembers personal details, names, cities, and habits across sessions. Open the Vault modal (brain icon in the header) to view, add, or purge engram cards manually.
 * 🏃 **Health & Fitness Dashboards**: Synchronize Garmin Fit metrics, Strava activity logs, Withings measurements, and Google Calendar events into an AI-powered Personal Trainer dashboard.
+* 📸 **Instagram Social Publishing**: Link an Instagram Business/Creator account via Meta OAuth, then have F.R.E.J.A. publish photos or reels/videos, read the latest feed, and fetch or reply to post comments — all through the official Instagram Graph API.
 * 🎨 **Accent Themes**: Swap between multiple cyberpunk neon color themes in real-time.
 * 🎛️ **Terminal Console Log**: Displays diagnostic startup indicators, network transaction payloads, and audio/webcam links in a live feed terminal at the bottom-right.
 * 📡 **Remote GitHub Updates**: Tell F.R.E.J.A. to "uppdatera dig" (or send it via Telegram) to pull the latest changes from GitHub and automatically restart.
