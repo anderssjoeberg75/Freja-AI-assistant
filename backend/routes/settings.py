@@ -163,7 +163,7 @@ async def serve_doc_report(filename: str):
 
     report_path = os.path.join(PROJECT_ROOT, "docs", filename)
     if not os.path.exists(report_path):
-        raise HTTPException(status_code=404, detail="Dokumentet hittades inte.")
+        raise HTTPException(status_code=404, detail="The document was not found.")
 
     return FileResponse(report_path, media_type="text/markdown")
 

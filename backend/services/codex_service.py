@@ -83,7 +83,7 @@ def verify_safe_python_code(code: str):
     try:
         root = ast.parse(code)
     except SyntaxError as e:
-        raise ValueError(f"Syntaxfel i Python-koden: {e}")
+        raise ValueError(f"Syntax error in the Python code: {e}")
         
     for node in ast.walk(root):
         if isinstance(node, ast.Import):
@@ -312,7 +312,7 @@ def log_codex_execution(tool: str, command: str, exit_code, detail: str = ""):
             )
             conn.commit()
     except Exception as e:
-        print(f"[CODEX AUDIT LOG] Kunde inte skriva till loggen: {e}")
+        print(f"[CODEX AUDIT LOG] Could not write to the log: {e}")
 
 
 def resolve_within_project(rel_path: str) -> str:
@@ -480,7 +480,7 @@ async def execute_codex_code_impl(args: dict) -> dict:
     code = args.get("code", "")
 
     if not code:
-        return {"error": "Ingen kod eller kommando angavs."}
+        return {"error": "No code or command was provided."}
 
     # The AST/blocklist validation always runs, even in docker mode (defense in depth).
     try:

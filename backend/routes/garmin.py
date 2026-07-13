@@ -262,7 +262,7 @@ async def get_garmin_sync(
 async def delete_garmin_log(date: str = Query(..., description="Date to delete")):
     date_to_delete = date.strip()
     if not date_to_delete:
-        raise HTTPException(status_code=400, detail="Datum saknas.")
+        raise HTTPException(status_code=400, detail="Date is missing.")
         
     try:
         with get_db_connection() as conn:
@@ -285,7 +285,7 @@ async def post_garmin_data(request: Request):
         data = await request.json()
         date_str = data.get('date')
         if not date_str:
-            raise ValueError('Datum saknas.')
+            raise ValueError('Date is missing.')
         steps = int(data.get('steps', 0) or 0)
         sleep_hours = float(data.get('sleep_hours', 0.0) or 0.0)
         resting_hr = int(data.get('resting_hr', 0) or 0)

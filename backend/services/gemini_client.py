@@ -33,7 +33,7 @@ async def generate_text(prompt: str, system_instruction: str = "",
     """Sends a single-turn text prompt to Gemini and returns the generated text."""
     api_key = get_gemini_api_key()
     if not api_key:
-        raise Exception("Gemini API-nyckel saknas i databasen.")
+        raise Exception("Gemini API key is missing from the database.")
 
     payload = {
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],

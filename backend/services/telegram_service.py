@@ -142,6 +142,7 @@ async def query_gemini_with_tools(contents, api_key, system_prompt):
                 }]
             })
             
+    # Swedish: delivered straight to the user's Telegram chat (matches Freja's persona).
     return "F.R.E.J.A. avbröt konversationen: för många funktionsanrop (loop limit nådd)."
 
 telegram_lock_file = None

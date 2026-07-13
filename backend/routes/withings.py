@@ -259,7 +259,7 @@ async def get_withings_sync(
 async def delete_withings_log(date: str = Query(..., description="Date to delete")):
     date_to_delete = date.strip()
     if not date_to_delete:
-        raise HTTPException(status_code=400, detail="Datum saknas.")
+        raise HTTPException(status_code=400, detail="Date is missing.")
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
@@ -275,7 +275,7 @@ async def post_withings_data(request: Request):
         data = await request.json()
         date_str = data.get('date')
         if not date_str:
-            raise ValueError('Datum saknas.')
+            raise ValueError('Date is missing.')
         weight = float(data.get('weight')) if data.get('weight') is not None else None
         fat_ratio = float(data.get('fat_ratio')) if data.get('fat_ratio') is not None else None
         bone_mass = float(data.get('bone_mass')) if data.get('bone_mass') is not None else None

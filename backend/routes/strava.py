@@ -92,7 +92,7 @@ async def get_strava_callback(code: str = Query("", description="Authorization c
         """
         return HTMLResponse(success_html, status_code=200)
     except Exception as e:
-        return HTMLResponse(f'<h3>Fel vid auktorisering: {str(e)}</h3>', status_code=500)
+        return HTMLResponse(f'<h3>Authorization error: {str(e)}</h3>', status_code=500)
 
 async def run_strava_sync_task(client_id, client_secret, refresh_token, days: int = 14):
     try:
@@ -341,7 +341,7 @@ async def get_strava_data(days: int = Query(7, description="Number of days to re
 async def delete_strava_log(id: str = Query(..., description="ID of activity to delete")):
     id_to_delete = id.strip()
     if not id_to_delete:
-        raise HTTPException(status_code=400, detail="ID saknas.")
+        raise HTTPException(status_code=400, detail="ID is missing.")
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
@@ -355,7 +355,7 @@ async def delete_strava_log(id: str = Query(..., description="ID of activity to 
 async def get_strava_activity_details(id: str = Query(..., description="ID of activity")):
     activity_id = id.strip()
     if not activity_id:
-        raise HTTPException(status_code=400, detail="Aktivitets-ID saknas.")
+        raise HTTPException(status_code=400, detail="Activity ID is missing.")
         
     def serve_mock_details():
         mock_details = {
@@ -576,7 +576,7 @@ async def post_strava_data(request: Request):
         data = await request.json()
         date_str = data.get('date')
         if not date_str:
-            raise ValueError('Datum saknas.')
+            raise ValueError('Date is missing.')
         name = data.get('name', '').strip() or 'Träningspass'
         act_type = data.get('type', '').strip() or 'Löpning'
         distance = float(data.get('distance', 0.0) or 0.0)
