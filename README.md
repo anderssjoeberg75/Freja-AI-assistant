@@ -147,26 +147,45 @@ python server.py
 ```
 - Open **Backend Admin Control Panel**: `http://localhost:8000/`
 
-### 2. Start the Client Assistant HUD
-You can run the Client HUD standalone or via bundled mode:
+### 2. Start the Client Assistant HUD (Standalone — Recommended)
 
-* **Standalone Mode (Recommended):**
-  Run the dedicated client launcher:
-  ```bash
-  python run_client.py
-  ```
-  This starts a small static web server for the `client/` folder on port `5000`, proxies every `/api/` request to the backend, and automatically opens `http://localhost:5000/` in your default browser. Stop it with `Ctrl+C`.
+Leave the backend running from step 1 and follow these steps in a **second** terminal:
 
-  If you cloned into a virtual environment, activate it first (`.\venv\Scripts\Activate.ps1` on Windows, `source venv/bin/activate` on Linux), or call the venv interpreter directly:
-  ```bash
-  # Windows
-  .\venv\Scripts\python.exe run_client.py
-  # Linux
-  ./venv/bin/python run_client.py
-  ```
+1. **Go to the project folder:**
+   ```bash
+   cd Freja-AI-assistant
+   ```
 
-* **Bundled Mode:**
-  Access the client directly from the backend server at: `http://localhost:8000/client/`
+2. **Activate the same virtual environment** you created during installation:
+   ```powershell
+   # Windows (PowerShell)
+   .\venv\Scripts\Activate.ps1
+   ```
+   ```bash
+   # Linux / macOS
+   source venv/bin/activate
+   ```
+
+3. **Start the client:**
+   ```bash
+   python run_client.py
+   ```
+
+4. **Open the HUD.** Your browser opens automatically at **`http://localhost:5000/`**. If it doesn't, open that address yourself.
+
+5. **Stop the client** at any time by pressing `Ctrl+C` in this terminal.
+
+> [!TIP]
+> Don't want to activate the venv? Call its Python directly instead of step 3:
+> ```bash
+> .\venv\Scripts\python.exe run_client.py   # Windows
+> ./venv/bin/python run_client.py           # Linux / macOS
+> ```
+
+> [!NOTE]
+> **What `run_client.py` does:** starts a small static web server for the `client/` folder on port `5000` and proxies every `/api/` request to the backend.
+
+**Alternative — Bundled Mode (no second terminal):** with the backend running, just open **`http://localhost:8000/client/`** in your browser.
 
 #### Client Environment Variables
 
