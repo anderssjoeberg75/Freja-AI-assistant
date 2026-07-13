@@ -93,7 +93,7 @@ async def query_gemini_with_tools(contents, api_key, system_prompt):
         "tools": tools,
         "generationConfig": {
             "temperature": 0.5,
-            "maxOutputTokens": 1000
+            "maxOutputTokens": 2048
         }
     }
     
