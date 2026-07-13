@@ -44,7 +44,8 @@ async def call_gemini_learning_api(prompt: str, system_instruction: str = "") ->
     if not api_key:
         raise Exception("The Gemini API key is missing from the database. Configure it in Settings.")
         
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+    from backend.services import gemini_client
+    url = gemini_client.build_generate_url(gemini_client.get_gemini_model(), api_key)
     
     payload = {
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],

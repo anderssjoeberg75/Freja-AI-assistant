@@ -79,7 +79,8 @@ async def query_gemini_with_tools(contents, api_key, system_prompt):
     Telegram channel is protected instead by the chat_id authorization check below."""
     tools = [{"functionDeclarations": TOOL_DECLARATIONS}]
     
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+    from backend.services import gemini_client
+    url = gemini_client.build_generate_url(gemini_client.get_gemini_model(), api_key)
     
     # Copy contents so we don't pollute the long-term cache memory with raw function payloads
     local_contents = list(contents)
