@@ -507,12 +507,28 @@ async def exec_garmin_health(args):
     sync_status = "not performed"
     sync_message = ""
     
-    # 1. Retrieve keys and sync synchronously
+    # 1. Retrieve keys and sync
     email = get_api_key('freja_garmin_email') or ""
     password = get_api_key('freja_garmin_password') or ""
     
     if email and password:
-        if is_sync_recent("garmin"):
+        # Check if today's data already exists in the database
+        has_today_data = False
+        try:
+            today_str = datetime.date.today().strftime('%Y-%m-%d')
+            with get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT COUNT(*) FROM garmin_health WHERE date = ?", (today_str,))
+                if cursor.fetchone()[0] > 0:
+                    has_today_data = True
+        except Exception as db_err:
+            print(f"[Garmin Tool] Error checking db for today's Garmin data: {db_err}")
+
+        if has_today_data:
+            sync_status = "success"
+            sync_message = "Garmin sync skipped (data already exists in database)."
+            print("[Garmin Tool] Today's data already exists in database. Skipping API sync.")
+        elif is_sync_recent("garmin"):
             sync_status = "success"
             sync_message = "Garmin sync skipped (recently updated)."
             print("[Garmin Tool] Recent sync found. Skipping API sync, using cached DB data.")
