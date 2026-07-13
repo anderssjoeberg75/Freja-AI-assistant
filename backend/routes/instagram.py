@@ -12,7 +12,13 @@ logger = logging.getLogger("freja.instagram.router")
 def get_oauth_config(request: Request):
     """Retrieves client ID, secret and callback redirect URL."""
     base_url = str(request.base_url).rstrip("/")
-    redirect_uri = f"{base_url}/api/instagram/callback"
+    
+    # If accessing via local IP or loopback, force redirect_uri to localhost to satisfy Meta's HTTPS whitelist exemption
+    if "localhost" in base_url or "127.0.0.1" in base_url or "192.168." in base_url or "10." in base_url:
+        port = request.url.port or 8000
+        redirect_uri = f"http://localhost:{port}/api/instagram/callback"
+    else:
+        redirect_uri = f"{base_url}/api/instagram/callback"
     
     client_id = get_api_key("freja_instagram_client_id") or get_api_key("freja_facebook_client_id") or ""
     client_secret = get_api_key("freja_instagram_client_secret") or get_api_key("freja_facebook_client_secret") or ""
