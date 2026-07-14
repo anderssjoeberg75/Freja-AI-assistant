@@ -1188,24 +1188,33 @@ async def exec_run_windows_command(args):
             return {"error": f"Could not open the folder '{target}': {str(e)}"}
 
     elif action_type == "run_cmd":
-        # The command is passed to a shell, so this is a substring denylist, not a parser.
-        # It blocks the obvious destructive verbs (wiping disks, deleting files, changing
-        # accounts/ACLs, powering the machine off) before the string ever reaches cmd.exe.
-        FORBIDDEN_KEYWORDS = {
-            "format", "del", "rmdir", "rd", "erase", "mkfs", "dd",
-            "shutdown", "restart", "logoff", "abort",
-            "net user", "net localgroup", "net share",
-            "reg delete", "reg add", "reg import",
-            "attrib", "cacls", "takeown", "icacls", "rm -rf"
-        }
-        cmd_lower = target.lower()
-        for forbidden in FORBIDDEN_KEYWORDS:
-            if forbidden in cmd_lower:
-                return {"error": f"Security error: The command contains the blocked keyword '{forbidden}'."}
+        import shlex
+        try:
+            # Parse the command safely as a structured argument list
+            args_list = shlex.split(target, posix=False)
+        except Exception as pe:
+            return {"error": f"Invalid command format: {str(pe)}"}
+
+        if not args_list:
+            return {"error": "Empty command string."}
+
+        # Clean/sanitize arguments (strip enclosing quotes if posix=False preserved them)
+        cmd_args = [arg.strip('"\'') for arg in args_list]
+        base_cmd = cmd_args[0].lower()
+        
+        # Strip path / file extension (e.g. C:\Windows\System32\ping.exe -> ping)
+        base_cmd_name = os.path.basename(base_cmd).rstrip(".exe")
+
+        # Strict allowlist of safe executables to prevent arbitrary command execution
+        SAFE_EXECUTABLES = {"ping", "ipconfig", "systeminfo", "hostname", "whoami", "tasklist", "netstat", "git", "echo"}
+        if base_cmd_name not in SAFE_EXECUTABLES:
+            return {"error": f"Security error: The executable '{base_cmd_name}' is not in the list of approved commands."}
 
         try:
-            proc = await asyncio.create_subprocess_shell(
-                target,
+            # Execute command directly with safe structured argument array (bypassing the shell)
+            proc = await asyncio.create_subprocess_exec(
+                cmd_args[0],
+                *cmd_args[1:],
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )

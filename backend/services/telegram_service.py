@@ -127,9 +127,12 @@ async def query_gemini_with_tools(contents, api_key, system_prompt):
             func_name = func_call.get("name")
             func_args = func_call.get("args", {})
             
-            print(f"[TELEGRAM BOT] Gemini calling tool: {func_name} with args: {func_args}")
-            
-            result = await execute_tool(func_name, func_args)
+            from backend.routes.tools import is_tool_execution_authorized
+            if not is_tool_execution_authorized(func_name, func_args):
+                print(f"[TELEGRAM BOT] Tool execution denied: {func_name} (unauthorized)")
+                result = {"error": f"Tool execution unauthorized: {func_name} is disabled by the owner."}
+            else:
+                result = await execute_tool(func_name, func_args)
                 
             # Append function response to payload contents
             payload["contents"].append({

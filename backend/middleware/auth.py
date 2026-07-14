@@ -116,8 +116,9 @@ class FrejaAuthMiddleware(BaseHTTPMiddleware):
                 headers={"Retry-After": str(LOCKOUT_SECONDS)}
             )
 
-        # 3. Allow local loopback requests (127.0.0.1 / ::1 / localhost) without requiring header.
-        if ip in ("127.0.0.1", "::1", "localhost"):
+        # 3. Allow local loopback requests (127.0.0.1 / ::1 / localhost) only if bypass is explicitly enabled.
+        import os
+        if ip in ("127.0.0.1", "::1", "localhost") and os.environ.get("FREJA_ALLOW_LOCALHOST_BYPASS", "").lower() == "true":
             _record_success(ip)
             return await call_next(request)
 

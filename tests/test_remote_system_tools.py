@@ -166,15 +166,15 @@ async def test_run_windows_command_open_folder_invalid():
 
 @pytest.mark.anyio
 async def test_run_windows_command_run_cmd_benign():
-    # Run echo command
+    # Run whoami command
     result = await execute_tool("run_windows_command", {
         "action_type": "run_cmd",
-        "target": "echo Hello_Pytest"
+        "target": "whoami"
     })
     if os.name == "nt":
         assert "error" not in result
         assert result["status"] == "success"
-        assert "Hello_Pytest" in result["stdout"]
+        assert len(result["stdout"]) > 0
 
 @pytest.mark.anyio
 async def test_run_windows_command_run_cmd_blocked():

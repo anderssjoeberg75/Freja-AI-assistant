@@ -43,8 +43,22 @@ def test_ip_whitelist_blocked(clean_whitelists):
 
 def test_ip_whitelist_loopback_always_allowed(clean_whitelists):
     set_api_key('freja_allowed_ips', '192.168.1.100, 10.0.0.5')
+    token = get_api_key('freja_access_token') or "freja1234"
     
-    # Loopback client (localhost) bypasses authentication and whitelisting
+    # Loopback client (localhost) must authenticate by default
     client = TestClient(app, client=("127.0.0.1", 50000))
     response = client.get("/api/keys")
+    assert response.status_code == 401
+    
+    # Loopback client bypasses IP whitelisting when authenticated
+    response = client.get("/api/keys", headers={"X-Freja-Token": token})
     assert response.status_code == 200
+    
+    # Loopback client bypasses authentication and IP whitelisting when FREJA_ALLOW_LOCALHOST_BYPASS=true is set
+    import os
+    os.environ["FREJA_ALLOW_LOCALHOST_BYPASS"] = "true"
+    try:
+        response = client.get("/api/keys")
+        assert response.status_code == 200
+    finally:
+        del os.environ["FREJA_ALLOW_LOCALHOST_BYPASS"]
