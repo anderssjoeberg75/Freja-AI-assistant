@@ -983,7 +983,7 @@ async def exec_trainer_advice(args):
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                SELECT date, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status
+                SELECT date, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status, sleep_deep_hours, sleep_light_hours, sleep_rem_hours, sleep_awake_hours, sleep_score
                 FROM garmin_health ORDER BY date DESC LIMIT 7
             ''')
             garmin_data = [dict(zip([d[0] for d in cursor.description], row)) for row in cursor.fetchall()]

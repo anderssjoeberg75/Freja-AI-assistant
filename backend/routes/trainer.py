@@ -395,14 +395,14 @@ async def generate_trainer_plan(request: Request):
             cursor = conn.cursor()
 
             cursor.execute('''
-                SELECT date, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status
+                SELECT date, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status, sleep_deep_hours, sleep_light_hours, sleep_rem_hours, sleep_awake_hours, sleep_score
                 FROM garmin_health
                 ORDER BY date DESC
                 LIMIT 7
             ''')
             for r in cursor.fetchall():
                 garmin_summary.append(
-                    f"Date: {r[0]}, Steps: {r[1]}, Sleep: {r[2]}h, Resting HR: {r[3]}, Calories: {r[4]}kcal, Workout: {r[5]} ({r[6]} min), Body Battery: {r[7]}, HRV: {r[8]}ms, Recovery time: {r[9]}h, Status: {r[10]}"
+                    f"Date: {r[0]}, Steps: {r[1]}, Sleep: {r[2]}h (Deep: {r[11]}h, REM: {r[13]}h, Light: {r[12]}h, Awake: {r[14]}h, Score: {r[15]}), Resting HR: {r[3]}, Calories: {r[4]}kcal, Workout: {r[5]} ({r[6]} min), Body Battery: {r[7]}, HRV: {r[8]}ms, Recovery time: {r[9]}h, Status: {r[10]}"
                 )
 
             cursor.execute('''
@@ -665,7 +665,7 @@ async def trainer_daily_checkin(request: Request):
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                SELECT date, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status
+                SELECT date, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status, sleep_deep_hours, sleep_light_hours, sleep_rem_hours, sleep_awake_hours, sleep_score
                 FROM garmin_health
                 ORDER BY date DESC
                 LIMIT 1
@@ -673,7 +673,7 @@ async def trainer_daily_checkin(request: Request):
             g = cursor.fetchone()
         if g:
             garmin_snapshot = (
-                f"Date: {g[0]}, Steps: {g[1]}, Sleep: {g[2]}h, Resting HR: {g[3]}, Calories: {g[4]}kcal, "
+                f"Date: {g[0]}, Steps: {g[1]}, Sleep: {g[2]}h (Deep: {g[11]}h, REM: {g[13]}h, Light: {g[12]}h, Awake: {g[14]}h, Score: {g[15]}), Resting HR: {g[3]}, Calories: {g[4]}kcal, "
                 f"Workout: {g[5]} ({g[6]} min), Body Battery: {g[7]}, HRV: {g[8]}ms, "
                 f"Recovery time: {g[9]}h, Status: {g[10]}"
             )
@@ -943,7 +943,7 @@ async def core_optimize_upcoming_workouts(
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute('''
-            SELECT date, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status
+            SELECT date, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status, sleep_deep_hours, sleep_light_hours, sleep_rem_hours, sleep_awake_hours, sleep_score
             FROM garmin_health
             ORDER BY date DESC
             LIMIT 1
@@ -951,7 +951,7 @@ async def core_optimize_upcoming_workouts(
         g = cursor.fetchone()
     if g:
         garmin_snapshot = (
-            f"Date: {g[0]}, Steps: {g[1]}, Sleep: {g[2]}h, Resting HR: {g[3]}, Calories: {g[4]}kcal, "
+            f"Date: {g[0]}, Steps: {g[1]}, Sleep: {g[2]}h (Deep: {g[11]}h, REM: {g[13]}h, Light: {g[12]}h, Awake: {g[14]}h, Score: {g[15]}), Resting HR: {g[3]}, Calories: {g[4]}kcal, "
             f"Workout: {g[5]} ({g[6]} min), Body Battery: {g[7]}, HRV: {g[8]}ms, "
             f"Recovery time: {g[9]}h, Status: {g[10]}"
         )
