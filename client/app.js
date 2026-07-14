@@ -124,10 +124,20 @@ class FrejaUIController {
     }
 
     async initAsync() {
-        await this.loadKeysFromServer();
-        this.startHeartbeatLoop();
+        // Initialize UI and bind event listeners immediately so the interface (including the start button)
+        // is functional right away without waiting for any network/API responses.
         this.initializeUI();
         this.bindEvents();
+
+        try {
+            await this.loadKeysFromServer();
+            // Re-run UI initialization to populate the configuration fields with the retrieved keys.
+            this.initializeUI();
+        } catch (e) {
+            console.error("[FREJA] Failed to load initial keys:", e);
+        }
+
+        this.startHeartbeatLoop();
         await this.loadChatHistory();
         this.startDiagnosticSimulation();
         this.updateTimeAndDate();
