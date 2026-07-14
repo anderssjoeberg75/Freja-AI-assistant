@@ -109,26 +109,16 @@ def set_api_key(key_name: str, value: str):
 
 def get_all_api_keys() -> dict:
     """Returns every stored key, keyed by key_name (used by the settings endpoint).
-    Sensitive values (API keys, client secrets, passwords, and refresh tokens) are masked.
+    Sensitive values (API keys, client secrets, passwords, and tokens) are masked automatically.
     """
-    sensitive_keys = {
-        'telegram_bot_token', 'freja_telegram_bot_token',
-        'gemini_api_key', 'freja_gemini_apikey',
-        'elevenlabs_api_key', 'freja_eleven_apikey',
-        'mem0_api_key', 'freja_mem0_apikey',
-        'claude_api_key', 'freja_claude_apikey',
-        'garmin_password', 'freja_garmin_password',
-        'strava_client_secret', 'freja_strava_client_secret',
-        'strava_refresh_token', 'freja_strava_refresh_token',
-        'withings_client_secret', 'freja_withings_client_secret',
-        'withings_refresh_token', 'freja_withings_refresh_token',
-        'google_calendar_client_secret', 'freja_google_calendar_client_secret',
-        'google_calendar_refresh_token', 'freja_google_calendar_refresh_token',
-        # Meta/Instagram OAuth secrets and the long-lived access token were previously
-        # returned in the clear by the settings endpoint; mask them like every other secret.
-        'freja_instagram_client_secret', 'freja_facebook_client_secret',
-        'freja_instagram_access_token',
+    sensitive_keywords = {"secret", "token", "password", "apikey", "api_key"}
+    non_sensitive_keys = {
+        "freja_instagram_business_account_id",
+        "freja_instagram_username",
+        "last_sync_garmin",
+        "last_sync_google_calendar"
     }
+
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT key_name, key_value FROM api_keys")
@@ -137,7 +127,14 @@ def get_all_api_keys() -> dict:
     result = {}
     for name, value in rows:
         decrypted = decrypt_value(value).strip() if value else ""
-        if decrypted and name in sensitive_keys:
+        
+        name_lower = name.lower()
+        is_sensitive = (
+            any(kw in name_lower for kw in sensitive_keywords)
+            and name not in non_sensitive_keys
+        )
+        
+        if decrypted and is_sensitive:
             result[name] = "••••••••"
         else:
             result[name] = decrypted

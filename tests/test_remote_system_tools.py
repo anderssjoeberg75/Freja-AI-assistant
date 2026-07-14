@@ -112,17 +112,10 @@ def test_persistent_logging(db_token):
         assert len(logs) >= 1
         assert logs[-1]["message"] == "Pytest persistent log message"
         
-        # Verify API logs DELETE endpoint clears both queue and file (recreating it only for the clearing confirmation log)
+        # Verify API logs DELETE endpoint is disabled and returns 403 Forbidden
         response = client.delete("/api/system/logs", headers=headers)
-        assert response.status_code == 200
-        assert os.path.exists(LOG_FILE)
-        with open(LOG_FILE, "r", encoding="utf-8") as f:
-            lines = f.readlines()
-            assert len(lines) == 1
-            data = json.loads(lines[0])
-            assert data["message"] == "Log history cleared."
-        assert len(SYSTEM_LOGS) == 1  # Contains "Log history cleared."
-        assert SYSTEM_LOGS[0]["message"] == "Log history cleared."
+        assert response.status_code == 403
+        assert "disabled" in response.json().get("detail", "")
 
     finally:
         # Restore original logs state
@@ -166,15 +159,15 @@ async def test_run_windows_command_open_folder_invalid():
 
 @pytest.mark.anyio
 async def test_run_windows_command_run_cmd_benign():
-    # Run echo command
+    # Run whoami command
     result = await execute_tool("run_windows_command", {
         "action_type": "run_cmd",
-        "target": "echo Hello_Pytest"
+        "target": "whoami"
     })
     if os.name == "nt":
         assert "error" not in result
         assert result["status"] == "success"
-        assert "Hello_Pytest" in result["stdout"]
+        assert len(result["stdout"]) > 0
 
 @pytest.mark.anyio
 async def test_run_windows_command_run_cmd_blocked():

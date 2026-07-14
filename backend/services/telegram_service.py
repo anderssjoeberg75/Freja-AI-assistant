@@ -75,8 +75,8 @@ async def query_gemini_with_tools(contents, api_key, system_prompt):
     which we execute and feed back as a function response. The strings returned from this
     function are delivered straight to the user's chat, so they are written in Swedish.
 
-    Note that tool calls here bypass the permission gate in backend/routes/tools.py - the
-    Telegram channel is protected instead by the chat_id authorization check below."""
+    Note that tool calls here are checked against the permission gate in backend/routes/tools.py,
+    and the Telegram channel is also protected by the chat_id authorization check below."""
     tools = [{"functionDeclarations": TOOL_DECLARATIONS}]
     
     from backend.services import gemini_client
@@ -127,9 +127,12 @@ async def query_gemini_with_tools(contents, api_key, system_prompt):
             func_name = func_call.get("name")
             func_args = func_call.get("args", {})
             
-            print(f"[TELEGRAM BOT] Gemini calling tool: {func_name} with args: {func_args}")
-            
-            result = await execute_tool(func_name, func_args)
+            from backend.routes.tools import is_tool_execution_authorized
+            if not is_tool_execution_authorized(func_name, func_args):
+                print(f"[TELEGRAM BOT] Tool execution denied: {func_name} (unauthorized)")
+                result = {"error": f"Tool execution unauthorized: {func_name} is disabled by the owner."}
+            else:
+                result = await execute_tool(func_name, func_args)
                 
             # Append function response to payload contents
             payload["contents"].append({

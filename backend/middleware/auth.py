@@ -116,8 +116,9 @@ class FrejaAuthMiddleware(BaseHTTPMiddleware):
                 headers={"Retry-After": str(LOCKOUT_SECONDS)}
             )
 
-        # 3. Allow local loopback requests (127.0.0.1 / ::1 / localhost) without requiring header.
-        if ip in ("127.0.0.1", "::1", "localhost"):
+        # 3. Allow local loopback requests (127.0.0.1 / ::1 / localhost) only if bypass is explicitly enabled.
+        import os
+        if ip in ("127.0.0.1", "::1", "localhost") and os.environ.get("FREJA_ALLOW_LOCALHOST_BYPASS", "").lower() == "true":
             _record_success(ip)
             return await call_next(request)
 
@@ -130,7 +131,11 @@ class FrejaAuthMiddleware(BaseHTTPMiddleware):
             # Fail closed if the DB is temporarily locked/busy during initialization/migration.
             expected_token = None
 
-        if not expected_token or not token or token.strip() != expected_token:
+        import secrets
+        token_val = token.strip() if token else ""
+        expected_val = expected_token if expected_token else ""
+
+        if not expected_token or not token or not secrets.compare_digest(token_val, expected_val):
             _record_failure(ip, path)
             return _cors_response(
                 request=request,
