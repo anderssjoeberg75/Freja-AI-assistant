@@ -4,11 +4,13 @@ Defines all tool declarations in Gemini format and implements their execution in
 Used by both the web frontend (via API) and the Telegram bot.
 
 Layout of this module:
-  1. TOOL_DECLARATIONS    - the JSON schema Gemini sees when deciding which tool to call.
-  2. TOOL_PERMISSION_KEYS - maps each tool name to the settings flag that enables it.
-  3. Tool executors        - one `exec_*` coroutine per tool, doing the actual work.
-  4. EXECUTOR_MAP          - name -> executor lookup used by `execute_tool`.
-  5. execute_tool          - dispatch entry point used by the chat route and the Telegram bot.
+  1. ToolRegistry / clean_schema - the decorator-based registry infrastructure.
+  2. Tool executors              - one `exec_*` coroutine per tool, each registered once via
+                                   `@registry.register(...)` carrying its declaration + gate.
+  3. Imported / aliased executors - codex impls and aliases registered via `registry.add(...)`.
+  4. Derived structures          - TOOL_DECLARATIONS, TOOL_PERMISSION_KEYS, EXECUTOR_MAP and
+                                   execute_tool, all generated from the single registry so the
+                                   three lists can no longer drift out of sync by hand.
 
 Note that `execute_tool` itself does NOT enforce permissions. The permission gate lives in
 `backend/routes/tools.py` (`is_tool_execution_authorized`), which runs before dispatch on the
@@ -24,6 +26,7 @@ import datetime
 import json
 import urllib.parse
 import httpx
+from backend.services.http_client import shared_client
 from starlette.concurrency import run_in_threadpool
 from backend.database import get_db_connection, get_api_key
 
@@ -53,469 +56,199 @@ from backend.services.facebook_service import download_facebook_photos_impl
 from backend.services.weather_codes import describe_weather_code
 
 # ---------------------------------------------------------------------------
-# 1. TOOL DECLARATIONS (Gemini JSON format)
+# 1. TOOL REGISTRY (decorator-based, single source of truth)
 #
-# This list is sent verbatim to Gemini as `tools[0].functionDeclarations`. The model
-# picks a tool purely from the `name` and `description` fields, so keep descriptions
-# precise and mention sensible defaults - the model copies them when the user is vague.
-# Adding a tool here is not enough: it also needs an entry in EXECUTOR_MAP (otherwise
-# `execute_tool` returns "not registered") and normally one in TOOL_PERMISSION_KEYS
-# (a tool missing from that dict runs without any permission gate).
+# Each tool is defined ONCE, via `@registry.register(...)` on its executor. The registry
+# derives everything else from that single definition:
+#   - TOOL_DECLARATIONS    (the Gemini functionDeclarations list)
+#   - TOOL_PERMISSION_KEYS (name -> settings flag consumed by backend/routes/tools.py)
+#   - the name -> executor dispatch used by execute_tool
+# This removes the three hand-synced structures that used to drift apart (a tool missing
+# from the permission map silently ran ungated; an executor in the wrong place 404'd).
+#
+# A tool's argument schema can be given either as an explicit Gemini `parameters` dict or
+# as a Pydantic `args_schema` model, from which the declaration is auto-generated via
+# `clean_schema()` (strips title/default/anyOf, upper-cases the JSON types for Gemini).
+# `registry.execute()` centralises arg hygiene: it drops None/empty values so declared
+# defaults apply, and (when an args_schema is present) validates and returns a short,
+# retryable error the model can correct.
+#
+# The permission GATE itself still lives in backend/routes/tools.py
+# (`is_tool_execution_authorized`); the registry only supplies the name -> key mapping.
 # ---------------------------------------------------------------------------
-TOOL_DECLARATIONS = [
-    {
-        "name": "get_weather",
-        "description": "Gets the current weather for a given city or geographic location.",
-        "parameters": {
-            "type": "OBJECT",
-            "properties": {
-                "location": {
-                    "type": "STRING",
-                    "description": "Name of the city or place to look up, e.g. Stockholm, Gothenburg, London."
-                }
-            },
-            "required": ["location"]
-        }
-    },
-    {
-        "name": "google_search",
-        "description": "Searches the web for information, news or facts.",
-        "parameters": {
-            "type": "OBJECT",
-            "properties": {
-                "query": {
-                    "type": "STRING",
-                    "description": "The query to search for on Google."
-                }
-            },
-            "required": ["query"]
-        }
-    },
-    {
-        "name": "get_garmin_health",
-        "description": "Gets the user's latest Garmin health and training data (steps, sleep, resting heart rate, calories, body battery, HRV, recovery time, training status and workouts). Defaults to 1 day (only the last 24 hours) unless the user explicitly asks for a longer period such as the last week.",
-        "parameters": {
-            "type": "OBJECT",
-            "properties": {
-                "days": {
-                    "type": "INTEGER",
-                    "description": "Number of days of history to fetch (default is 1, i.e. only the most recent day)."
-                }
-            }
-        }
-    },
-    {
-        "name": "get_withings_health",
-        "description": "Gets the user's latest Withings measurements including weight, body composition, heart rate, sleep statistics (score, duration) and daily activity (steps, calories). The 'days' parameter sets how many days of history to fetch (default 7).",
-        "parameters": {
-            "type": "OBJECT",
-            "properties": {
-                "days": {
-                    "type": "INTEGER",
-                    "description": "Number of days of history to fetch (default 7)."
-                }
-            }
-        }
-    },
-    {
-        "name": "get_strava_data",
-        "description": "Gets the user's latest Strava activities (name, type, distance, moving time, elevation gain, average heart rate, max heart rate and calories). Defaults to 7 days of history unless the user explicitly asks for a longer period such as 14 or 30 days.",
-        "parameters": {
-            "type": "OBJECT",
-            "properties": {
-                "days": {
-                    "type": "INTEGER",
-                    "description": "Number of days of history to fetch (default is 7)."
-                }
-            }
-        }
-    },
-    {
-        "name": "get_strava_activity_analysis",
-        "description": "Gets lap times (laps/splits) plus heart rate and power zone distributions for one specific activity ID. This makes it possible to analyse tempo, pacing and aerobic/anaerobic load during the session.",
-        "parameters": {
-            "type": "OBJECT",
-            "properties": {
-                "activity_id": {
-                    "type": "STRING",
-                    "description": "The unique activity ID (from Strava, e.g. obtained via get_strava_data)."
-                }
-            },
-            "required": ["activity_id"]
-        }
-    },
-    {
-        "name": "get_strava_athlete_stats",
-        "description": "Gets the user's accumulated training volume, including year-to-date (YTD) and all-time totals plus statistics for the last 4 weeks broken down by running, cycling and swimming.",
-        "parameters": {
-            "type": "OBJECT",
-            "properties": {}
-        }
-    },
-    {
-        "name": "manage_google_calendar",
-        "description": "Manages the user's calendar events. You can create new events, edit existing events, delete events, or list events within a given time window (days).",
-        "parameters": {
-            "type": "OBJECT",
-            "properties": {
-                "action": {
-                    "type": "STRING",
-                    "description": "Action to perform: 'list', 'create', 'edit' or 'delete'.",
-                    "enum": ["list", "create", "edit", "delete"]
-                },
-                "event_id": {
-                    "type": "INTEGER",
-                    "description": "The unique database ID of the event (required for 'edit' and 'delete')."
-                },
-                "summary": {
-                    "type": "STRING",
-                    "description": "The event title or summary (required for 'create' and 'edit')."
-                },
-                "start_time": {
-                    "type": "STRING",
-                    "description": "Start time in ISO format (e.g. '2026-06-12T14:00:00', required for 'create' and 'edit')."
-                },
-                "end_time": {
-                    "type": "STRING",
-                    "description": "End time in ISO format (e.g. '2026-06-12T15:00:00', required for 'create' and 'edit')."
-                },
-                "description": {
-                    "type": "STRING",
-                    "description": "Detailed description or meeting notes (optional)."
-                },
-                "location": {
-                    "type": "STRING",
-                    "description": "Location or meeting link (optional)."
-                },
-                "days": {
-                    "type": "INTEGER",
-                    "description": "Number of days before and after today to fetch when using 'list'. Default is 30 days."
-                }
-            },
-            "required": ["action"]
-        }
-    },
-    {
-        "name": "execute_codex_code",
-        "description": "Runs Python code or shell commands locally on the host machine. Used to run scripts, tests or system administration tasks.",
-        "parameters": {
-            "type": "OBJECT",
-            "properties": {
-                "language": {
-                    "type": "STRING",
-                    "description": "The language to run: 'python' or 'shell'.",
-                    "enum": ["python", "shell"]
-                },
-                "code": {
-                    "type": "STRING",
-                    "description": "The code or command to execute."
-                }
-            },
-            "required": ["language", "code"]
-        }
-    },
-    {
-        "name": "run_code",
-        "description": "Alias for execute_codex_code. Runs Python code or shell commands locally.",
-        "parameters": {
-            "type": "OBJECT",
-            "properties": {
-                "language": {
-                    "type": "STRING",
-                    "description": "The language to run: 'python' or 'shell'.",
-                    "enum": ["python", "shell"]
-                },
-                "code": {
-                    "type": "STRING",
-                    "description": "The code or command to execute."
-                }
-            },
-            "required": ["language", "code"]
-        }
-    },
-    {
-        "name": "codex_git_ops",
-        "description": "Performs git operations in the local source directory (e.g. status, log, diff, branch, pull, commit, push, checkout).",
-        "parameters": {
-            "type": "OBJECT",
-            "properties": {
-                "action": {
-                    "type": "STRING",
-                    "description": "The git action: 'status', 'log', 'diff', 'branch', 'pull', 'push', 'checkout' (existing local branches only), 'clone' (https only, clones to separate workspace) or 'commit'.",
-                    "enum": ["status", "log", "diff", "branch", "pull", "push", "checkout", "clone", "commit"]
-                },
-                "argument": {
-                    "type": "STRING",
-                    "description": "Argument for the action (e.g. branch name, commit message or https repository URL)."
-                }
-            },
-            "required": ["action"]
-        }
-    },
-    {
-        "name": "codex_audit_codebase",
-        "description": "Performs a self-analysis (audit) of the source code to identify bugs, performance problems and code improvements, and saves a detailed report.",
-        "parameters": {
-            "type": "OBJECT",
-            "properties": {}
-        }
-    },
-    {
-        "name": "tool_analyze_code",
-        "description": "Alias for codex_audit_codebase. Performs a self-analysis (audit) of the source code.",
-        "parameters": {
-            "type": "OBJECT",
-            "properties": {}
-        }
-    },
-    {
-        "name": "codex_run_and_fix",
-        "description": "Runs a command and automatically tries to repair the source code in the given file if the command/test fails.",
-        "parameters": {
-            "type": "OBJECT",
-            "properties": {
-                "command": {
-                    "type": "STRING",
-                    "description": "The test command to run, e.g. 'pytest tests/test_file.py'. For security reasons, direct python/shell interpreter invocations (python, python3, py) are blocked in this channel - use a test runner such as pytest."
-                },
-                "file_path": {
-                    "type": "STRING",
-                    "description": "Relative path to the file to auto-repair on failure, e.g. 'backend/routes/sync.py'."
-                },
-                "max_retries": {
-                    "type": "INTEGER",
-                    "description": "Maximum number of auto-repair attempts (default 3)."
-                }
-            },
-            "required": ["command", "file_path"]
-        }
-    },
-    {
-        "name": "download_facebook_photos",
-        "description": "Downloads photos from a user's Facebook profile or photo gallery (e.g. .../photos_by) using Playwright. Fetches the images and saves them locally.",
-        "parameters": {
-            "type": "OBJECT",
-            "properties": {
-                "profile_url": {
-                    "type": "STRING",
-                    "description": "The full URL to the Facebook profile's photos, e.g. https://www.facebook.com/profile.php?id=61581510724534&sk=photos_by"
-                },
-                "limit": {
-                    "type": "INTEGER",
-                    "description": "Maximum number of images to download (default is 1000)."
-                }
-            },
-            "required": ["profile_url"]
-        }
-    },
-    {
-        "name": "get_personal_trainer_advice",
-        "description": "Fetches the user's health and training data (from Garmin, Strava and Withings) and compiles personal training advice, tips and a training plan based on the user's stated goal.",
-        "parameters": {
-            "type": "OBJECT",
-            "properties": {
-                "goal": {
-                    "type": "STRING",
-                    "description": "The user's training goal or focus area (e.g. 'lose weight', 'improve running', 'strength training')."
-                },
-                "limitations": {
-                    "type": "STRING",
-                    "description": "Any injuries, illnesses or physical limitations (e.g. 'exercise-induced asthma', 'sensitive knees')."
-                }
-            },
-            "required": ["goal"]
-        }
-    },
-    {
-        "name": "learn_topic",
-        "description": "Searches the web and learns everything about a given topic (e.g. growing onions). Stores the acquired knowledge in the database for future use.",
-        "parameters": {
-            "type": "OBJECT",
-            "properties": {
-                "topic": {
-                    "type": "STRING",
-                    "description": "The topic or search query Freja should learn about (e.g. 'growing onions')."
-                }
-            },
-            "required": ["topic"]
-        }
-    },
-    {
-        "name": "get_learned_knowledge",
-        "description": "Retrieves previously learned knowledge from the database, filtered by keyword or topic, in order to answer the user's questions.",
-        "parameters": {
-            "type": "OBJECT",
-            "properties": {
-                "query": {
-                    "type": "STRING",
-                    "description": "Optional search query or topic keyword used to filter stored knowledge (e.g. 'onions')."
-                }
-            }
-        }
-    },
-    {
-        "name": "system_update",
-        "description": "Downloads the latest code from GitHub (git pull) and restarts F.R.E.J.A. to apply the updates.",
-        "parameters": {
-            "type": "OBJECT",
-            "properties": {}
-        }
-    },
-    {
-        "name": "read_project_file",
-        "description": "Reads the contents of a source file or audit report inside the project (e.g. 'docs/code_audit_20260709.md' or 'backend/routes/settings.py'). Blocked for files holding sensitive data such as databases or .env files.",
-        "parameters": {
-            "type": "OBJECT",
-            "properties": {
-                "file_path": {
-                    "type": "STRING",
-                    "description": "Relative path to the file inside the project directory."
-                }
-            },
-            "required": ["file_path"]
-        }
-    },
-    {
-        "name": "run_windows_command",
-        "description": "Performs system actions on the user's Windows computer, such as launching applications (open_app), opening web addresses (open_url), opening folders in Explorer (open_folder) or running Windows commands (run_cmd).",
-        "parameters": {
-            "type": "OBJECT",
-            "properties": {
-                "action_type": {
-                    "type": "STRING",
-                    "description": "The type of action to perform.",
-                    "enum": ["open_app", "open_url", "open_folder", "run_cmd"]
-                },
-                "target": {
-                    "type": "STRING",
-                    "description": "The target of the action (e.g. 'notepad.exe', 'https://google.com', 'C:\\Pictures' or 'ipconfig')."
-                }
-            },
-            "required": ["action_type", "target"]
-        }
-    },
-    {
-        "name": "publish_instagram_post",
-        "description": "Publishes a photo or a reel/video with a caption to the user's linked Instagram Business/Creator account. The media URL must be a publicly accessible direct link (image for a photo, video for a reel).",
-        "parameters": {
-            "type": "OBJECT",
-            "properties": {
-                "media_url": {
-                    "type": "STRING",
-                    "description": "The public URL of the photo or video to publish."
-                },
-                "caption": {
-                    "type": "STRING",
-                    "description": "The caption/text description for the Instagram post."
-                },
-                "media_type": {
-                    "type": "STRING",
-                    "description": "The kind of media being published: 'IMAGE' for a photo (default) or 'REELS' for a video/reel.",
-                    "enum": ["IMAGE", "REELS"]
-                }
-            },
-            "required": ["media_url", "caption"]
-        }
-    },
-    {
-        "name": "get_instagram_feed",
-        "description": "Fetches the latest published media posts from the linked Instagram account feed.",
-        "parameters": {
-            "type": "OBJECT",
-            "properties": {
-                "limit": {
-                    "type": "INTEGER",
-                    "description": "Maximum number of media items to return (default 5)."
-                }
-            }
-        }
-    },
-    {
-        "name": "get_instagram_post_comments",
-        "description": "Retrieves comments on a specific Instagram media post.",
-        "parameters": {
-            "type": "OBJECT",
-            "properties": {
-                "media_id": {
-                    "type": "STRING",
-                    "description": "The unique ID of the media post."
-                }
-            },
-            "required": ["media_id"]
-        }
-    },
-    {
-        "name": "reply_to_instagram_comment",
-        "description": "Posts a reply comment to an existing comment on an Instagram post.",
-        "parameters": {
-            "type": "OBJECT",
-            "properties": {
-                "comment_id": {
-                    "type": "STRING",
-                    "description": "The unique ID of the comment to reply to."
-                },
-                "text": {
-                    "type": "STRING",
-                    "description": "The reply comment text message."
-                }
-            },
-            "required": ["comment_id", "text"]
-        }
-    }
-]
+import inspect
+from pydantic import BaseModel, Field, ValidationError
+
+# JSON-schema keys that Gemini's function-declaration format does not accept and that
+# Pydantic emits; stripped by clean_schema().
+_GEMINI_STRIP_KEYS = ("title", "default", "additionalProperties", "$defs", "definitions")
+
+
+def clean_schema(schema: dict) -> dict:
+    """Rewrites a JSON schema (e.g. from Pydantic) into the shape Gemini expects.
+
+    Strips keys Gemini rejects (title/default/additionalProperties/$defs), upper-cases the
+    JSON `type` names (``string`` -> ``STRING``), collapses an ``anyOf`` of a real type plus
+    ``null`` (how Pydantic renders Optional[...]) down to that real type, and recurses into
+    ``properties`` and array ``items``."""
+    if not isinstance(schema, dict):
+        return schema
+
+    # Optional[X] renders as {"anyOf": [<X>, {"type": "null"}]} - collapse to <X>.
+    if "anyOf" in schema:
+        non_null = [s for s in schema["anyOf"] if s.get("type") != "null"]
+        merged = dict(non_null[0]) if len(non_null) == 1 else {}
+        for k, v in schema.items():
+            if k != "anyOf" and k not in merged:
+                merged[k] = v
+        schema = merged
+
+    out = {}
+    for key, val in schema.items():
+        if key in _GEMINI_STRIP_KEYS:
+            continue
+        if key == "type" and isinstance(val, str):
+            out["type"] = val.upper()
+        elif key == "properties" and isinstance(val, dict):
+            out["properties"] = {k: clean_schema(v) for k, v in val.items()}
+        elif key == "items" and isinstance(val, dict):
+            out["items"] = clean_schema(val)
+        else:
+            out[key] = val
+    return out
+
+
+def _params_from_pydantic(args_schema) -> dict:
+    """Builds a Gemini OBJECT `parameters` block from a Pydantic model class."""
+    cleaned = clean_schema(args_schema.model_json_schema())
+    params = {"type": "OBJECT", "properties": cleaned.get("properties", {})}
+    if cleaned.get("required"):
+        params["required"] = cleaned["required"]
+    return params
+
+
+class ToolSpec:
+    """One tool's single definition: declaration + permission key + executor."""
+    __slots__ = ("name", "description", "parameters", "permission_key", "executor", "args_schema")
+
+    def __init__(self, name, description, executor, parameters=None, permission_key=None, args_schema=None):
+        self.name = name
+        self.description = description
+        self.executor = executor
+        self.permission_key = permission_key
+        self.args_schema = args_schema
+        if parameters is not None:
+            self.parameters = parameters
+        elif args_schema is not None:
+            self.parameters = _params_from_pydantic(args_schema)
+        else:
+            self.parameters = {"type": "OBJECT", "properties": {}}
+
+    @property
+    def declaration(self) -> dict:
+        return {"name": self.name, "description": self.description, "parameters": self.parameters}
+
+
+def _short_validation_error(exc: ValidationError) -> str:
+    """Condenses a Pydantic ValidationError into a one-line, model-actionable hint."""
+    parts = []
+    for err in exc.errors():
+        loc = ".".join(str(p) for p in err.get("loc", ())) or "(args)"
+        parts.append(f"{loc}: {err.get('msg', 'invalid')}")
+    return "; ".join(parts[:5])
+
+
+class ToolRegistry:
+    """Holds the single source of truth for every tool and derives the legacy structures."""
+
+    def __init__(self):
+        self._specs = {}  # name -> ToolSpec (insertion-ordered)
+
+    def register(self, name, description, parameters=None, permission_key=None, args_schema=None):
+        """Decorator: registers the decorated coroutine as the executor for `name`."""
+        def _decorator(fn):
+            self.add(name, description, fn, parameters, permission_key, args_schema)
+            return fn
+        return _decorator
+
+    def add(self, name, description, executor, parameters=None, permission_key=None, args_schema=None):
+        """Registers an executor defined elsewhere (imported impl or alias)."""
+        if name in self._specs:
+            raise ValueError(f"Tool '{name}' is already registered.")
+        self._specs[name] = ToolSpec(name, description, executor, parameters, permission_key, args_schema)
+
+    # --- Derived views (keep the historical public names/behaviour) ---
+    @property
+    def declarations(self) -> list:
+        return [spec.declaration for spec in self._specs.values()]
+
+    @property
+    def permission_keys(self) -> dict:
+        return {name: spec.permission_key for name, spec in self._specs.items() if spec.permission_key}
+
+    @property
+    def executor_map(self) -> dict:
+        return {name: spec.executor for name, spec in self._specs.items()}
+
+    def _hygiene(self, spec: ToolSpec, args: dict) -> dict:
+        """Drops None/empty values so declared defaults apply. Unknown keys are only pruned
+        on the Pydantic path (validation there is authoritative); dict-schema tools keep any
+        extra keys their executors read as aliases."""
+        cleaned = {k: v for k, v in (args or {}).items() if v is not None and v != ""}
+        if spec.args_schema is not None:
+            allowed = set(spec.args_schema.model_fields.keys())
+            cleaned = {k: v for k, v in cleaned.items() if k in allowed}
+        return cleaned
+
+    async def execute(self, name: str, args: dict, progress_callback=None) -> dict:
+        spec = self._specs.get(name)
+        if not spec:
+            return {"error": f"Tool '{name}' is not registered in the system registry."}
+
+        call_args = self._hygiene(spec, args)
+        if spec.args_schema is not None:
+            try:
+                model = spec.args_schema(**call_args)
+                call_args = model.model_dump(exclude_none=True)
+            except ValidationError as ve:
+                return {"error": f"Invalid arguments for '{name}': {_short_validation_error(ve)}"}
+
+        # Long-running tools accept a progress_callback (used by /api/tools/status polling);
+        # introspect so short tools keep a plain (args) signature.
+        if "progress_callback" in inspect.signature(spec.executor).parameters:
+            return await spec.executor(call_args, progress_callback=progress_callback)
+        return await spec.executor(call_args)
+
+
+registry = ToolRegistry()
 
 # ---------------------------------------------------------------------------
-# 2. TOOL PERMISSION KEYS
+# 2. TOOL EXECUTORS
 #
-# Each tool is gated by a settings row named here. The keys mirror the localStorage keys
-# used by the frontend toggles. `backend/routes/tools.py` reads the row and only treats the
-# literal string "true" as permission granted - a missing row means DENIED, and the user is
-# prompted to allow the call once. A tool absent from this dict entirely has no gate at all.
-# ---------------------------------------------------------------------------
-TOOL_PERMISSION_KEYS = {
-    "get_weather": "freja_tool_get_weather_allowed",
-    "google_search": "freja_tool_google_search_allowed",
-    "get_garmin_health": "freja_tool_get_garmin_health_allowed",
-    "get_withings_health": "freja_tool_get_withings_health_allowed",
-    "get_strava_data": "freja_tool_get_strava_data_allowed",
-    "get_strava_activity_analysis": "freja_tool_get_strava_activity_analysis_allowed",
-    "get_strava_athlete_stats": "freja_tool_get_strava_athlete_stats_allowed",
-    "manage_google_calendar": "freja_tool_manage_google_calendar_allowed",
-    "execute_codex_code": "freja_tool_execute_codex_code_allowed",
-    "run_code": "freja_tool_run_code_allowed",
-    "codex_git_ops": "freja_tool_codex_git_ops_allowed",
-    "codex_audit_codebase": "freja_tool_codex_audit_codebase_allowed",
-    "tool_analyze_code": "freja_tool_tool_analyze_code_allowed",
-    "codex_run_and_fix": "freja_tool_codex_run_and_fix_allowed",
-    "download_facebook_photos": "freja_tool_download_facebook_photos_allowed",
-    "get_personal_trainer_advice": "freja_tool_get_personal_trainer_advice_allowed",
-    "learn_topic": "freja_tool_learn_topic_allowed",
-    "get_learned_knowledge": "freja_tool_get_learned_knowledge_allowed",
-    "system_update": "freja_tool_system_update_allowed",
-    "read_project_file": "freja_tool_read_project_file_allowed",
-    "run_windows_command": "freja_tool_run_windows_command_allowed",
-    "publish_instagram_post": "freja_tool_publish_instagram_post_allowed",
-    "get_instagram_feed": "freja_tool_get_instagram_feed_allowed",
-    "get_instagram_post_comments": "freja_tool_get_instagram_post_comments_allowed",
-    "reply_to_instagram_comment": "freja_tool_reply_to_instagram_comment_allowed",
-}
-
-# ---------------------------------------------------------------------------
-# 3. TOOL EXECUTORS
-#
-# Every executor takes the raw `args` dict Gemini produced and returns a JSON-serialisable
+# Every executor takes the (hygiene-cleaned) `args` dict and returns a JSON-serialisable
 # dict that is fed straight back to the model as the function response. Executors never
 # raise: an unexpected failure is reported as {"error": "..."} so the model can explain
-# the problem to the user instead of the whole turn dying.
+# the problem to the user instead of the whole turn dying. Each is registered once via the
+# `@registry.register(...)` decorator that carries its Gemini declaration + permission key.
 # ---------------------------------------------------------------------------
 
+class WeatherArgs(BaseModel):
+    location: str = Field(description="Name of the city or place to look up, e.g. Stockholm, Gothenburg, London.")
+
+
+@registry.register(
+    name="get_weather",
+    description="Gets the current weather for a given city or geographic location.",
+    permission_key="freja_tool_get_weather_allowed",
+    args_schema=WeatherArgs,
+)
 async def exec_weather(args):
     """Resolves a place name to coordinates, then reads the current conditions there."""
     location = args.get("location", "Stockholm")
     try:
         # Step 1: geocode the free-text place name into lat/lon.
         geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={urllib.parse.quote(location)}&count=1&language=sv&format=json"
-        async with httpx.AsyncClient() as client:
+        async with shared_client() as client:
             res = await client.get(geo_url, timeout=8.0)
             res.raise_for_status()
             geo_data = res.json()
@@ -532,7 +265,7 @@ async def exec_weather(args):
 
         # Step 2: read current conditions at those coordinates.
         weather_url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,weather_code,wind_speed_10m&wind_speed_unit=ms&timezone=auto"
-        async with httpx.AsyncClient() as client:
+        async with shared_client() as client:
             res = await client.get(weather_url, timeout=8.0)
             res.raise_for_status()
             weather_data = res.json()
@@ -555,6 +288,16 @@ async def exec_weather(args):
     except Exception as e:
         return {"error": f"Failed to fetch weather data: {str(e)}"}
 
+class SearchArgs(BaseModel):
+    query: str = Field(description="The query to search for on Google.")
+
+
+@registry.register(
+    name="google_search",
+    description="Searches the web for information, news or facts.",
+    permission_key="freja_tool_google_search_allowed",
+    args_schema=SearchArgs,
+)
 async def exec_google_search(args):
     query = args.get("query", "")
     if not query:
@@ -574,6 +317,20 @@ def is_sync_recent(provider: str, max_age_hours: int = 12) -> bool:
         print(f"[tool_registry] Error checking recent sync for {provider}: {e}")
     return False
 
+@registry.register(
+    name="get_garmin_health",
+    description="Gets the user's latest Garmin health and training data (steps, sleep, resting heart rate, calories, body battery, HRV, recovery time, training status and workouts). Defaults to 1 day (only the last 24 hours) unless the user explicitly asks for a longer period such as the last week.",
+    permission_key="freja_tool_get_garmin_health_allowed",
+    parameters={
+        "type": "OBJECT",
+        "properties": {
+            "days": {
+                "type": "INTEGER",
+                "description": "Number of days of history to fetch (default is 1, i.e. only the most recent day)."
+            }
+        }
+    },
+)
 async def exec_garmin_health(args):
     days = int(args.get("days", 1) or 1)
     sync_status = "not performed"
@@ -701,6 +458,20 @@ async def exec_garmin_health(args):
     except Exception as e:
         return {"error": f"Could not fetch Garmin data: {str(e)}"}
 
+@registry.register(
+    name="get_withings_health",
+    description="Gets the user's latest Withings measurements including weight, body composition, heart rate, sleep statistics (score, duration) and daily activity (steps, calories). The 'days' parameter sets how many days of history to fetch (default 7).",
+    permission_key="freja_tool_get_withings_health_allowed",
+    parameters={
+        "type": "OBJECT",
+        "properties": {
+            "days": {
+                "type": "INTEGER",
+                "description": "Number of days of history to fetch (default 7)."
+            }
+        }
+    },
+)
 async def exec_withings_health(args):
     days = int(args.get("days", 7) or 7)
     sync_status = "not performed"
@@ -815,6 +586,20 @@ async def exec_withings_health(args):
     except Exception as e:
         return {"error": f"Could not fetch Withings data: {str(e)}"}
 
+@registry.register(
+    name="get_strava_data",
+    description="Gets the user's latest Strava activities (name, type, distance, moving time, elevation gain, average heart rate, max heart rate and calories). Defaults to 7 days of history unless the user explicitly asks for a longer period such as 14 or 30 days.",
+    permission_key="freja_tool_get_strava_data_allowed",
+    parameters={
+        "type": "OBJECT",
+        "properties": {
+            "days": {
+                "type": "INTEGER",
+                "description": "Number of days of history to fetch (default is 7)."
+            }
+        }
+    },
+)
 async def exec_strava_data(args):
     days = int(args.get("days", 7) or 7)
     sync_status = "not performed"
@@ -894,15 +679,80 @@ async def exec_strava_data(args):
     except Exception as e:
         return {"error": f"Could not fetch Strava activities: {str(e)}"}
 
+@registry.register(
+    name="get_strava_activity_analysis",
+    description="Gets lap times (laps/splits) plus heart rate and power zone distributions for one specific activity ID. This makes it possible to analyse tempo, pacing and aerobic/anaerobic load during the session.",
+    permission_key="freja_tool_get_strava_activity_analysis_allowed",
+    parameters={
+        "type": "OBJECT",
+        "properties": {
+            "activity_id": {
+                "type": "STRING",
+                "description": "The unique activity ID (from Strava, e.g. obtained via get_strava_data)."
+            }
+        },
+        "required": ["activity_id"]
+    },
+)
 async def exec_strava_activity_analysis(args):
     activity_id = args.get("activity_id", "")
     if not activity_id:
         return {"error": "Activity ID is missing."}
     return await get_strava_activity_details(id=activity_id)
 
+@registry.register(
+    name="get_strava_athlete_stats",
+    description="Gets the user's accumulated training volume, including year-to-date (YTD) and all-time totals plus statistics for the last 4 weeks broken down by running, cycling and swimming.",
+    permission_key="freja_tool_get_strava_athlete_stats_allowed",
+    parameters={"type": "OBJECT", "properties": {}},
+)
 async def exec_strava_athlete_stats(args):
     return await get_strava_athlete_stats()
 
+@registry.register(
+    name="manage_google_calendar",
+    description="Manages the user's calendar events. You can create new events, edit existing events, delete events, or list events within a given time window (days).",
+    permission_key="freja_tool_manage_google_calendar_allowed",
+    parameters={
+        "type": "OBJECT",
+        "properties": {
+            "action": {
+                "type": "STRING",
+                "description": "Action to perform: 'list', 'create', 'edit' or 'delete'.",
+                "enum": ["list", "create", "edit", "delete"]
+            },
+            "event_id": {
+                "type": "INTEGER",
+                "description": "The unique database ID of the event (required for 'edit' and 'delete')."
+            },
+            "summary": {
+                "type": "STRING",
+                "description": "The event title or summary (required for 'create' and 'edit')."
+            },
+            "start_time": {
+                "type": "STRING",
+                "description": "Start time in ISO format (e.g. '2026-06-12T14:00:00', required for 'create' and 'edit')."
+            },
+            "end_time": {
+                "type": "STRING",
+                "description": "End time in ISO format (e.g. '2026-06-12T15:00:00', required for 'create' and 'edit')."
+            },
+            "description": {
+                "type": "STRING",
+                "description": "Detailed description or meeting notes (optional)."
+            },
+            "location": {
+                "type": "STRING",
+                "description": "Location or meeting link (optional)."
+            },
+            "days": {
+                "type": "INTEGER",
+                "description": "Number of days before and after today to fetch when using 'list'. Default is 30 days."
+            }
+        },
+        "required": ["action"]
+    },
+)
 async def exec_manage_google_calendar(args):
     action = args.get("action", "").lower()
     if not action:
@@ -945,6 +795,25 @@ async def exec_manage_google_calendar(args):
     except Exception as e:
         return {"error": f"Calendar operation failed: {str(e)}"}
 
+@registry.register(
+    name="download_facebook_photos",
+    description="Downloads photos from a user's Facebook profile or photo gallery (e.g. .../photos_by) using Playwright. Fetches the images and saves them locally.",
+    permission_key="freja_tool_download_facebook_photos_allowed",
+    parameters={
+        "type": "OBJECT",
+        "properties": {
+            "profile_url": {
+                "type": "STRING",
+                "description": "The full URL to the Facebook profile's photos, e.g. https://www.facebook.com/profile.php?id=61581510724534&sk=photos_by"
+            },
+            "limit": {
+                "type": "INTEGER",
+                "description": "Maximum number of images to download (default is 1000)."
+            }
+        },
+        "required": ["profile_url"]
+    },
+)
 async def exec_download_facebook_photos(args, progress_callback=None):
     profile_url = args.get("profile_url", "")
     limit = int(args.get("limit", 1000) or 1000)
@@ -952,6 +821,25 @@ async def exec_download_facebook_photos(args, progress_callback=None):
         return {"error": "The Facebook profile URL is missing."}
     return await download_facebook_photos_impl(profile_url, limit, progress_callback)
 
+@registry.register(
+    name="get_personal_trainer_advice",
+    description="Fetches the user's health and training data (from Garmin, Strava and Withings) and compiles personal training advice, tips and a training plan based on the user's stated goal.",
+    permission_key="freja_tool_get_personal_trainer_advice_allowed",
+    parameters={
+        "type": "OBJECT",
+        "properties": {
+            "goal": {
+                "type": "STRING",
+                "description": "The user's training goal or focus area (e.g. 'lose weight', 'improve running', 'strength training')."
+            },
+            "limitations": {
+                "type": "STRING",
+                "description": "Any injuries, illnesses or physical limitations (e.g. 'exercise-induced asthma', 'sensitive knees')."
+            }
+        },
+        "required": ["goal"]
+    },
+)
 async def exec_trainer_advice(args):
     """Gathers the raw health/training/weather context the model needs to write a plan.
 
@@ -1011,6 +899,21 @@ async def exec_trainer_advice(args):
         "withings_measurements_last_7_days": withings_data
     }
 
+@registry.register(
+    name="learn_topic",
+    description="Searches the web and learns everything about a given topic (e.g. growing onions). Stores the acquired knowledge in the database for future use.",
+    permission_key="freja_tool_learn_topic_allowed",
+    parameters={
+        "type": "OBJECT",
+        "properties": {
+            "topic": {
+                "type": "STRING",
+                "description": "The topic or search query Freja should learn about (e.g. 'growing onions')."
+            }
+        },
+        "required": ["topic"]
+    },
+)
 async def exec_learn_topic(args, progress_callback=None):
     topic = args.get("topic", "")
     if not topic:
@@ -1018,6 +921,20 @@ async def exec_learn_topic(args, progress_callback=None):
     from backend.services.learning_service import learn_topic_impl
     return await learn_topic_impl(topic, progress_callback=progress_callback)
 
+@registry.register(
+    name="get_learned_knowledge",
+    description="Retrieves previously learned knowledge from the database, filtered by keyword or topic, in order to answer the user's questions.",
+    permission_key="freja_tool_get_learned_knowledge_allowed",
+    parameters={
+        "type": "OBJECT",
+        "properties": {
+            "query": {
+                "type": "STRING",
+                "description": "Optional search query or topic keyword used to filter stored knowledge (e.g. 'onions')."
+            }
+        }
+    },
+)
 async def exec_get_learned_knowledge(args):
     query = args.get("query", "")
     try:
@@ -1058,6 +975,12 @@ async def exec_get_learned_knowledge(args):
         return {"error": f"Failed to fetch learned knowledge: {str(e)}"}
 
 
+@registry.register(
+    name="system_update",
+    description="Downloads the latest code from GitHub (git pull) and restarts F.R.E.J.A. to apply the updates.",
+    permission_key="freja_tool_system_update_allowed",
+    parameters={"type": "OBJECT", "properties": {}},
+)
 async def exec_system_update(args):
     """Executes git pull from GitHub and schedules a process exit/restart.
 
@@ -1093,6 +1016,21 @@ async def exec_system_update(args):
     }
 
 
+@registry.register(
+    name="read_project_file",
+    description="Reads the contents of a source file or audit report inside the project (e.g. 'docs/code_audit_20260709.md' or 'backend/routes/settings.py'). Blocked for files holding sensitive data such as databases or .env files.",
+    permission_key="freja_tool_read_project_file_allowed",
+    parameters={
+        "type": "OBJECT",
+        "properties": {
+            "file_path": {
+                "type": "STRING",
+                "description": "Relative path to the file inside the project directory."
+            }
+        },
+        "required": ["file_path"]
+    },
+)
 async def exec_read_project_file(args):
     """Safely reads the contents of a non-sensitive codebase or audit file."""
     import os
@@ -1138,6 +1076,26 @@ async def exec_read_project_file(args):
         return {"error": f"Failed to read the file: {str(e)}"}
 
 
+@registry.register(
+    name="run_windows_command",
+    description="Performs system actions on the user's Windows computer, such as launching applications (open_app), opening web addresses (open_url), opening folders in Explorer (open_folder) or running Windows commands (run_cmd).",
+    permission_key="freja_tool_run_windows_command_allowed",
+    parameters={
+        "type": "OBJECT",
+        "properties": {
+            "action_type": {
+                "type": "STRING",
+                "description": "The type of action to perform.",
+                "enum": ["open_app", "open_url", "open_folder", "run_cmd"]
+            },
+            "target": {
+                "type": "STRING",
+                "description": "The target of the action (e.g. 'notepad.exe', 'https://google.com', 'C:\\Pictures' or 'ipconfig')."
+            }
+        },
+        "required": ["action_type", "target"]
+    },
+)
 async def exec_run_windows_command(args):
     """Executes actions on the user's host Windows machine safely."""
     import os
@@ -1241,6 +1199,30 @@ async def exec_run_windows_command(args):
 
 # --- Instagram executors (thin wrappers over backend.services.instagram_service) ---
 
+@registry.register(
+    name="publish_instagram_post",
+    description="Publishes a photo or a reel/video with a caption to the user's linked Instagram Business/Creator account. The media URL must be a publicly accessible direct link (image for a photo, video for a reel).",
+    permission_key="freja_tool_publish_instagram_post_allowed",
+    parameters={
+        "type": "OBJECT",
+        "properties": {
+            "media_url": {
+                "type": "STRING",
+                "description": "The public URL of the photo or video to publish."
+            },
+            "caption": {
+                "type": "STRING",
+                "description": "The caption/text description for the Instagram post."
+            },
+            "media_type": {
+                "type": "STRING",
+                "description": "The kind of media being published: 'IMAGE' for a photo (default) or 'REELS' for a video/reel.",
+                "enum": ["IMAGE", "REELS"]
+            }
+        },
+        "required": ["media_url", "caption"]
+    },
+)
 async def exec_publish_instagram_post(args):
     from backend.services.instagram_service import publish_media
     media_url = (args.get("media_url") or args.get("image_url") or "").strip()
@@ -1248,16 +1230,64 @@ async def exec_publish_instagram_post(args):
     media_type = (args.get("media_type") or "IMAGE").strip().upper()
     return await publish_media(media_url, caption, media_type=media_type)
 
+@registry.register(
+    name="get_instagram_feed",
+    description="Fetches the latest published media posts from the linked Instagram account feed.",
+    permission_key="freja_tool_get_instagram_feed_allowed",
+    parameters={
+        "type": "OBJECT",
+        "properties": {
+            "limit": {
+                "type": "INTEGER",
+                "description": "Maximum number of media items to return (default 5)."
+            }
+        }
+    },
+)
 async def exec_get_instagram_feed(args):
     from backend.services.instagram_service import get_recent_media
     limit = int(args.get("limit", 5) or 5)
     return await get_recent_media(limit)
 
+@registry.register(
+    name="get_instagram_post_comments",
+    description="Retrieves comments on a specific Instagram media post.",
+    permission_key="freja_tool_get_instagram_post_comments_allowed",
+    parameters={
+        "type": "OBJECT",
+        "properties": {
+            "media_id": {
+                "type": "STRING",
+                "description": "The unique ID of the media post."
+            }
+        },
+        "required": ["media_id"]
+    },
+)
 async def exec_get_instagram_post_comments(args):
     from backend.services.instagram_service import get_comments
     media_id = args.get("media_id", "").strip()
     return await get_comments(media_id)
 
+@registry.register(
+    name="reply_to_instagram_comment",
+    description="Posts a reply comment to an existing comment on an Instagram post.",
+    permission_key="freja_tool_reply_to_instagram_comment_allowed",
+    parameters={
+        "type": "OBJECT",
+        "properties": {
+            "comment_id": {
+                "type": "STRING",
+                "description": "The unique ID of the comment to reply to."
+            },
+            "text": {
+                "type": "STRING",
+                "description": "The reply comment text message."
+            }
+        },
+        "required": ["comment_id", "text"]
+    },
+)
 async def exec_reply_to_instagram_comment(args):
     from backend.services.instagram_service import post_comment_reply
     comment_id = args.get("comment_id", "").strip()
@@ -1266,59 +1296,124 @@ async def exec_reply_to_instagram_comment(args):
 
 
 # ---------------------------------------------------------------------------
-# 4. DISPATCH EXECUTOR MAP
+# 3. IMPORTED / ALIASED EXECUTORS
 #
-# Tool name -> executor. Aliases point at the same implementation on purpose:
-# `run_code`/`execute_codex_code` and `tool_analyze_code`/`codex_audit_codebase` exist
-# because Gemini reaches for both names, but they still have separate permission keys.
+# These executors live in other modules (codex_service) or are deliberate aliases that
+# Gemini also reaches for. They are registered explicitly since there is no local `def`
+# to decorate. Aliases (`run_code`, `tool_analyze_code`) share an implementation but keep
+# their own description and permission key.
 # ---------------------------------------------------------------------------
-EXECUTOR_MAP = {
-    "get_weather": exec_weather,
-    "google_search": exec_google_search,
-    "get_garmin_health": exec_garmin_health,
-    "get_withings_health": exec_withings_health,
-    "get_strava_data": exec_strava_data,
-    "get_strava_activity_analysis": exec_strava_activity_analysis,
-    "get_strava_athlete_stats": exec_strava_athlete_stats,
-    "manage_google_calendar": exec_manage_google_calendar,
-    "execute_codex_code": execute_codex_code_impl,
-    "run_code": execute_codex_code_impl,
-    "codex_git_ops": codex_git_ops_impl,
-    "codex_audit_codebase": codex_audit_codebase_impl,
-    "tool_analyze_code": codex_audit_codebase_impl,
-    "codex_run_and_fix": codex_run_and_fix_impl,
-    "download_facebook_photos": exec_download_facebook_photos,
-    "get_personal_trainer_advice": exec_trainer_advice,
-    "learn_topic": exec_learn_topic,
-    "get_learned_knowledge": exec_get_learned_knowledge,
-    "system_update": exec_system_update,
-    "read_project_file": exec_read_project_file,
-    "run_windows_command": exec_run_windows_command,
-    "publish_instagram_post": exec_publish_instagram_post,
-    "get_instagram_feed": exec_get_instagram_feed,
-    "get_instagram_post_comments": exec_get_instagram_post_comments,
-    "reply_to_instagram_comment": exec_reply_to_instagram_comment,
+_CODEX_CODE_PARAMS = {
+    "type": "OBJECT",
+    "properties": {
+        "language": {
+            "type": "STRING",
+            "description": "The language to run: 'python' or 'shell'.",
+            "enum": ["python", "shell"]
+        },
+        "code": {
+            "type": "STRING",
+            "description": "The code or command to execute."
+        }
+    },
+    "required": ["language", "code"]
 }
 
+registry.add(
+    name="execute_codex_code",
+    description="Runs Python code or shell commands locally on the host machine. Used to run scripts, tests or system administration tasks.",
+    executor=execute_codex_code_impl,
+    permission_key="freja_tool_execute_codex_code_allowed",
+    parameters=_CODEX_CODE_PARAMS,
+)
+registry.add(
+    name="run_code",
+    description="Alias for execute_codex_code. Runs Python code or shell commands locally.",
+    executor=execute_codex_code_impl,
+    permission_key="freja_tool_run_code_allowed",
+    parameters=_CODEX_CODE_PARAMS,
+)
+registry.add(
+    name="codex_git_ops",
+    description="Performs git operations in the local source directory (e.g. status, log, diff, branch, pull, commit, push, checkout).",
+    executor=codex_git_ops_impl,
+    permission_key="freja_tool_codex_git_ops_allowed",
+    parameters={
+        "type": "OBJECT",
+        "properties": {
+            "action": {
+                "type": "STRING",
+                "description": "The git action: 'status', 'log', 'diff', 'branch', 'pull', 'push', 'checkout' (existing local branches only), 'clone' (https only, clones to separate workspace) or 'commit'.",
+                "enum": ["status", "log", "diff", "branch", "pull", "push", "checkout", "clone", "commit"]
+            },
+            "argument": {
+                "type": "STRING",
+                "description": "Argument for the action (e.g. branch name, commit message or https repository URL)."
+            }
+        },
+        "required": ["action"]
+    },
+)
+registry.add(
+    name="codex_audit_codebase",
+    description="Performs a self-analysis (audit) of the source code to identify bugs, performance problems and code improvements, and saves a detailed report.",
+    executor=codex_audit_codebase_impl,
+    permission_key="freja_tool_codex_audit_codebase_allowed",
+    parameters={"type": "OBJECT", "properties": {}},
+)
+registry.add(
+    name="tool_analyze_code",
+    description="Alias for codex_audit_codebase. Performs a self-analysis (audit) of the source code.",
+    executor=codex_audit_codebase_impl,
+    permission_key="freja_tool_tool_analyze_code_allowed",
+    parameters={"type": "OBJECT", "properties": {}},
+)
+registry.add(
+    name="codex_run_and_fix",
+    description="Runs a command and automatically tries to repair the source code in the given file if the command/test fails.",
+    executor=codex_run_and_fix_impl,
+    permission_key="freja_tool_codex_run_and_fix_allowed",
+    parameters={
+        "type": "OBJECT",
+        "properties": {
+            "command": {
+                "type": "STRING",
+                "description": "The test command to run, e.g. 'pytest tests/test_file.py'. For security reasons, direct python/shell interpreter invocations (python, python3, py) are blocked in this channel - use a test runner such as pytest."
+            },
+            "file_path": {
+                "type": "STRING",
+                "description": "Relative path to the file to auto-repair on failure, e.g. 'backend/routes/sync.py'."
+            },
+            "max_retries": {
+                "type": "INTEGER",
+                "description": "Maximum number of auto-repair attempts (default 3)."
+            }
+        },
+        "required": ["command", "file_path"]
+    },
+)
+
 
 # ---------------------------------------------------------------------------
-# 5. DISPATCH ENTRY POINT
+# 4. DERIVED PUBLIC STRUCTURES + DISPATCH ENTRY POINT
+#
+# Everything below is generated from the single registry above, so the historical public
+# names keep working for their existing consumers (backend/routes/tools.py, telegram_service).
+# EXECUTOR_MAP is retained for backward compatibility even though execute_tool no longer
+# reads it directly.
 # ---------------------------------------------------------------------------
+TOOL_DECLARATIONS = registry.declarations
+TOOL_PERMISSION_KEYS = registry.permission_keys
+EXECUTOR_MAP = registry.executor_map
+
+
 async def execute_tool(name: str, args: dict, progress_callback=None) -> dict:
-    """Invokes the appropriate executor function for the given tool name.
+    """Dispatches a tool call through the registry (arg hygiene + optional schema validation).
 
-    Long-running tools (Facebook download, learn_topic) accept a `progress_callback` used
-    by /api/tools/status polling. We introspect the signature rather than passing it
-    unconditionally, so the short tools can keep a plain `(args)` signature."""
-    executor = EXECUTOR_MAP.get(name)
-    if not executor:
-        return {"error": f"Tool '{name}' is not registered in the system registry."}
-
-    import inspect
-    sig = inspect.signature(executor)
-    if "progress_callback" in sig.parameters:
-        return await executor(args, progress_callback=progress_callback)
-    return await executor(args)
+    Long-running tools (Facebook download, learn_topic) accept a `progress_callback` used by
+    /api/tools/status polling; the registry introspects the executor signature so short tools
+    keep a plain `(args)` signature."""
+    return await registry.execute(name, args, progress_callback=progress_callback)
 
 
 def Math_round(val):

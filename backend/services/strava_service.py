@@ -1,6 +1,7 @@
 """Strava authentication service."""
 
 import httpx
+from backend.services.http_client import shared_client
 from backend.database import get_api_key, set_api_key
 
 async def get_strava_access_token():
@@ -19,7 +20,7 @@ async def get_strava_access_token():
             'refresh_token': refresh_token,
             'grant_type': 'refresh_token'
         }
-        async with httpx.AsyncClient() as client:
+        async with shared_client() as client:
             res = await client.post(token_url, data=payload, timeout=10.0)
             res.raise_for_status()
             res_body = res.json()

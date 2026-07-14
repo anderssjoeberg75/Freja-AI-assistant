@@ -2,6 +2,7 @@
 
 import datetime
 import httpx
+from backend.services.http_client import shared_client
 import time
 from fastapi import APIRouter, HTTPException, Query, Request, BackgroundTasks
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -32,7 +33,7 @@ async def get_google_access_token():
         }
         if client_secret:
             payload["client_secret"] = client_secret
-        async with httpx.AsyncClient() as client:
+        async with shared_client() as client:
             res = await client.post(url, data=payload, timeout=8.0)
             if res.status_code == 200:
                 data = res.json()
@@ -85,7 +86,7 @@ async def run_google_calendar_sync_task():
         headers = {"Authorization": f"Bearer {access_token}"}
         url = f"https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin={time_min}&timeMax={time_max}&singleEvents=true&orderBy=startTime"
         
-        async with httpx.AsyncClient() as client:
+        async with shared_client() as client:
             res = await client.get(url, headers=headers, timeout=10.0)
             if res.status_code != 200:
                 raise Exception(f"Google API responded with HTTP {res.status_code}: {res.text}")
@@ -234,7 +235,7 @@ async def core_save_calendar_event(
             }
             
             try:
-                async with httpx.AsyncClient() as client:
+                async with shared_client() as client:
                     if google_event_id:
                         # Update Google Event
                         url = f"https://www.googleapis.com/calendar/v3/calendars/primary/events/{google_event_id}"
@@ -302,7 +303,7 @@ async def core_delete_calendar_event(db_id: int) -> dict:
                 headers = {"Authorization": f"Bearer {access_token}"}
                 url = f"https://www.googleapis.com/calendar/v3/calendars/primary/events/{google_event_id}"
                 try:
-                    async with httpx.AsyncClient() as client:
+                    async with shared_client() as client:
                         res = await client.delete(url, headers=headers, timeout=8.0)
                         if res.status_code not in (200, 204):
                             print(f"[GOOGLE CALENDAR DELETE ERROR]: HTTP {res.status_code} - {res.text}")
@@ -498,7 +499,7 @@ async def post_google_calendar_exchange(body: GoogleExchangeRequest):
             "grant_type": "authorization_code"
         }
         
-        async with httpx.AsyncClient() as client:
+        async with shared_client() as client:
             res = await client.post(url, data=payload, timeout=10.0)
             if res.status_code != 200:
                 print(f"[GOOGLE CALENDAR EXCHANGE ERROR]: HTTP {res.status_code} - {res.text}")

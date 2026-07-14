@@ -390,8 +390,26 @@ class GeminiClient {
                     hasFunctionCall = false;
                     const textPart = parts.find(p => p.text);
                     finalReply = textPart?.text;
+
+                    // finishReason === "MAX_TOKENS" means Gemini hit the maxOutputTokens cap and
+                    // stopped mid-answer. Previously this was silently truncated (and the cap kept
+                    // being raised to hide it). Surface it clearly instead: keep whatever text we
+                    // got and append a visible notice so the user knows the reply is incomplete
+                    // and can ask F.R.E.J.A. to continue.
+                    const truncated = candidate?.finishReason === "MAX_TOKENS";
+
                     if (!finalReply) {
+                        if (truncated) {
+                            // The cap was hit before any text was produced (e.g. a long tool
+                            // preamble). Return a clear notice rather than throwing an opaque error.
+                            return "[TRUNCATED] The response reached the maximum length limit before any text was generated. Please rephrase or ask for a shorter answer.";
+                        }
                         throw new Error("Empty candidate response from Gemini neural node.");
+                    }
+
+                    if (truncated) {
+                        console.warn("[GEMINI] Response truncated (finishReason=MAX_TOKENS).");
+                        finalReply += "\n\n> ⚠️ *[TRUNCATED] The response reached the maximum length limit and may be cut off. Ask me to continue for the rest.*";
                     }
 
                     // Append final text model response to history

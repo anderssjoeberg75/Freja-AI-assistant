@@ -1,6 +1,7 @@
 """Gemini API secure proxy route."""
 
 import httpx
+from backend.services.http_client import shared_client
 from fastapi import APIRouter, HTTPException, Query, Request
 from backend.services import gemini_client
 
@@ -63,7 +64,7 @@ async def proxy_gemini_generate(
     google_url = gemini_client.build_generate_url(model or gemini_client.get_gemini_model(), api_key)
 
     try:
-        async with httpx.AsyncClient() as client:
+        async with shared_client() as client:
             response = await client.post(google_url, json=payload, timeout=30.0)
             response.raise_for_status()
             return response.json()

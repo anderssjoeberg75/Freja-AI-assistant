@@ -14,6 +14,7 @@ Design notes:
 import logging
 import asyncio
 import httpx
+from backend.services.http_client import shared_client
 from backend.config import GRAPH_BASE_URL
 from backend.database import get_api_key
 
@@ -131,7 +132,7 @@ async def publish_media(media_url: str, caption: str, media_type: str = "IMAGE")
         container_payload["video_url"] = media_url
 
     try:
-        async with httpx.AsyncClient() as client:
+        async with shared_client() as client:
             # Step 1: create the media container.
             data, err = await _graph_request(client, "POST", f"{ig_id}/media", token, data=container_payload)
             if err:
@@ -175,7 +176,7 @@ async def get_recent_media(limit: int = 5) -> dict:
         return cfg_err
 
     try:
-        async with httpx.AsyncClient() as client:
+        async with shared_client() as client:
             data, err = await _graph_request(
                 client, "GET", f"{ig_id}/media", token,
                 params={
@@ -202,7 +203,7 @@ async def get_comments(media_id: str) -> dict:
         return cfg_err
 
     try:
-        async with httpx.AsyncClient() as client:
+        async with shared_client() as client:
             data, err = await _graph_request(
                 client, "GET", f"{media_id}/comments", token,
                 params={"fields": "id,text,username,timestamp"},
@@ -228,7 +229,7 @@ async def post_comment_reply(comment_id: str, text: str) -> dict:
         return cfg_err
 
     try:
-        async with httpx.AsyncClient() as client:
+        async with shared_client() as client:
             data, err = await _graph_request(
                 client, "POST", f"{comment_id}/replies", token,
                 data={"message": text},

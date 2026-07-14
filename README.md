@@ -424,6 +424,12 @@ The application separates the client frontend from focused backend modules:
 
 Backend routes are registered centrally but implemented in focused domain modules. This keeps the server entry point small and makes route behavior independently testable.
 
+**Tool registry** — every AI tool is defined once in [tool_registry.py](backend/services/tool_registry.py) via an `@registry.register(...)` decorator that carries its Gemini declaration, permission key and executor together. The Gemini `functionDeclarations`, the permission-key map and the dispatch table are all *derived* from that single registry, so the three can no longer drift out of sync by hand. A tool's argument schema may be an explicit Gemini `parameters` dict or a Pydantic `args_schema` (auto-converted for Gemini via `clean_schema()`), and dispatch centralises arg hygiene — dropping empty values so defaults apply and returning a short, retryable validation error for bad input.
+
+**Shared HTTP client** — outbound calls reuse a single process-wide `httpx.AsyncClient` from [http_client.py](backend/services/http_client.py) (`async with shared_client() as client:`) instead of building a fresh connection pool per request, so keep-alive is preserved. It is disposed once on shutdown.
+
+**Truncation handling** — the HUD's Gemini loop inspects `finishReason`; a `MAX_TOKENS` stop now appends a visible "response truncated" notice instead of silently cutting the answer off mid-sentence.
+
 ### 🌍 Language Convention
 
 **All source text is English. Freja answers the user in Swedish.**

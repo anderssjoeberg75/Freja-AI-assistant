@@ -1,6 +1,7 @@
 """ElevenLabs API secure proxy route."""
 
 import httpx
+from backend.services.http_client import shared_client
 import hashlib
 import os
 from fastapi import APIRouter, HTTPException, Request, Response
@@ -52,7 +53,7 @@ async def proxy_elevenlabs_tts(voice_id: str, request: Request):
     }
 
     try:
-        async with httpx.AsyncClient() as client:
+        async with shared_client() as client:
             response = await client.post(eleven_url, json=payload, headers=headers, timeout=30.0)
             if response.status_code != 200:
                 return Response(

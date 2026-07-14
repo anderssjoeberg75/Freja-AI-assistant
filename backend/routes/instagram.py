@@ -1,6 +1,7 @@
 """Meta Instagram Graph API routes using FastAPI."""
 
 import httpx
+from backend.services.http_client import shared_client
 import logging
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse
@@ -74,7 +75,7 @@ async def instagram_callback(request: Request, code: str = Query(None)):
             "code": code
         }
         
-        async with httpx.AsyncClient() as client:
+        async with shared_client() as client:
             resp = await client.get(token_url, params=params, timeout=15.0)
             if resp.status_code != 200:
                 logger.error(f"Failed short-lived token exchange: {resp.text}")

@@ -3,6 +3,7 @@
 import os
 import re
 import httpx
+from backend.services.http_client import shared_client
 import hashlib
 import asyncio
 from pathlib import Path
@@ -445,7 +446,7 @@ async def download_facebook_photos_impl(profile_url: str, limit: int = 1000, pro
                     
                     if candidate_src:
                         print(f"[Facebook Scraper] Fetching image content from CDN...")
-                        async with httpx.AsyncClient() as client:
+                        async with shared_client() as client:
                             resp = await client.get(candidate_src, timeout=15.0)
                             if resp.status_code == 200:
                                 with open(file_path, "wb") as f:

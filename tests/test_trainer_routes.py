@@ -105,7 +105,7 @@ def test_trainer_checkin_success(auth_headers, monkeypatch):
             }
             return FakeResponse(gemini_payload)
 
-    monkeypatch.setattr(trainer_module.httpx, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(trainer_module, "shared_client", FakeAsyncClient)
     client = TestClient(app)
 
     response = client.post("/api/trainer/checkin", json={"location": "Stockholm"}, headers=auth_headers)
@@ -180,7 +180,7 @@ def test_trainer_generate_success(auth_headers, monkeypatch):
              "description": "30 min i samtalstempo.", "duration_minutes": 30}
         ]
     }
-    monkeypatch.setattr(trainer_module.httpx, "AsyncClient", _make_fake_gemini_client(plan_obj))
+    monkeypatch.setattr(trainer_module, "shared_client", _make_fake_gemini_client(plan_obj))
 
     client = TestClient(app)
     response = client.post(
@@ -252,7 +252,7 @@ def test_trainer_optimize_reduces_upcoming_workout(auth_headers, monkeypatch):
              "new_title": "", "reason": "Låg HRV, sänkt belastning."}
         ]
     }
-    monkeypatch.setattr(trainer_module.httpx, "AsyncClient", _make_fake_gemini_client(opt_obj))
+    monkeypatch.setattr(trainer_module, "shared_client", _make_fake_gemini_client(opt_obj))
 
     client = TestClient(app)
     response = client.post("/api/trainer/optimize", json={}, headers=auth_headers)
@@ -287,7 +287,7 @@ def test_trainer_optimize_keeps_when_recovered(auth_headers, monkeypatch):
              "new_title": "", "reason": "God återhämtning."}
         ]
     }
-    monkeypatch.setattr(trainer_module.httpx, "AsyncClient", _make_fake_gemini_client(opt_obj))
+    monkeypatch.setattr(trainer_module, "shared_client", _make_fake_gemini_client(opt_obj))
 
     client = TestClient(app)
     response = client.post("/api/trainer/optimize", json={}, headers=auth_headers)

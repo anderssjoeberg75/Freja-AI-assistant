@@ -237,6 +237,7 @@ async def get_gemini_models():
     Otherwise returns a fallback list of popular models.
     """
     import httpx
+    from backend.services.http_client import shared_client
     from backend.services.gemini_client import get_gemini_api_key
 
     api_key = get_gemini_api_key()
@@ -254,7 +255,7 @@ async def get_gemini_models():
 
     url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
     try:
-        async with httpx.AsyncClient() as client:
+        async with shared_client() as client:
             resp = await client.get(url, timeout=5.0)
             if resp.status_code == 200:
                 data = resp.json()

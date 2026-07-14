@@ -65,6 +65,9 @@ async def lifespan(app: FastAPI):
     # Shutdown: Clean up background tasks
     task.cancel()
     await stop_task_queue()
+    # Dispose the shared outbound HTTP connection pool (Issue #24).
+    from backend.services.http_client import close_shared_client
+    await close_shared_client()
     try:
         await task
     except asyncio.CancelledError:

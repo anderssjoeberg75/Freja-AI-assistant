@@ -6,6 +6,7 @@ import os
 import re
 import datetime
 import httpx
+from backend.services.http_client import shared_client
 from backend.database import get_db_connection, get_api_key
 from backend.config import PROJECT_ROOT
 from backend.services.tool_registry import TOOL_DECLARATIONS, execute_tool
@@ -50,7 +51,7 @@ async def send_telegram_message(token, chat_id, text):
         "parse_mode": "HTML"
     }
     try:
-        async with httpx.AsyncClient() as client:
+        async with shared_client() as client:
             res = await client.post(url, json=payload, timeout=10.0)
             if res.status_code != 200:
                 print(f"[TELEGRAM] Send message error: HTTP {res.status_code}: {res.text}")
@@ -97,7 +98,7 @@ async def query_gemini_with_tools(contents, api_key, system_prompt):
         }
     }
     
-    async with httpx.AsyncClient() as client:
+    async with shared_client() as client:
         for iteration in range(5):
             res = await client.post(url, json=payload, timeout=30.0)
             if res.status_code != 200:
@@ -172,7 +173,7 @@ async def telegram_worker_loop():
     print("[TELEGRAM] Background polling worker thread initialized.")
     offset = 0
     
-    async with httpx.AsyncClient() as client:
+    async with shared_client() as client:
         while True:
             try:
                 token, auth_chat_id = get_telegram_config()

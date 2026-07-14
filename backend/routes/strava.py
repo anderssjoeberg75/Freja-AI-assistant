@@ -2,6 +2,7 @@
 
 import datetime
 import httpx
+from backend.services.http_client import shared_client
 import time
 from fastapi import APIRouter, HTTPException, Query, Request, BackgroundTasks
 from fastapi.responses import HTMLResponse
@@ -31,7 +32,7 @@ async def get_strava_callback(code: str = Query("", description="Authorization c
             'grant_type': 'authorization_code'
         }
         
-        async with httpx.AsyncClient() as client:
+        async with shared_client() as client:
             res = await client.post(token_url, data=payload, timeout=10.0)
             res.raise_for_status()
             res_body = res.json()
@@ -140,7 +141,7 @@ async def run_strava_sync_task(client_id, client_secret, refresh_token, days: in
             'grant_type': 'refresh_token'
         }
         
-        async with httpx.AsyncClient() as client:
+        async with shared_client() as client:
             res = await client.post(token_url, data=payload, timeout=10.0)
             res.raise_for_status()
             res_body = res.json()
@@ -157,7 +158,7 @@ async def run_strava_sync_task(client_id, client_secret, refresh_token, days: in
         after_time = int(time.time()) - days * 24 * 3600
         activities_url = f"https://www.strava.com/api/v3/athlete/activities?after={after_time}&per_page=200"
         
-        async with httpx.AsyncClient() as client:
+        async with shared_client() as client:
             res = await client.get(activities_url, headers={'Authorization': f"Bearer {access_token}"}, timeout=10.0)
             res.raise_for_status()
             activities = res.json()
@@ -406,7 +407,7 @@ async def get_strava_activity_details(id: str = Query(..., description="ID of ac
         try:
             act_url = f"https://www.strava.com/api/v3/activities/{activity_id}"
             
-            async with httpx.AsyncClient() as client:
+            async with shared_client() as client:
                 res = await client.get(act_url, headers={'Authorization': f"Bearer {access_token}"}, timeout=10.0)
                 res.raise_for_status()
                 activity = res.json()
@@ -414,7 +415,7 @@ async def get_strava_activity_details(id: str = Query(..., description="ID of ac
             laps_url = f"https://www.strava.com/api/v3/activities/{activity_id}/laps"
             laps = []
             try:
-                async with httpx.AsyncClient() as client:
+                async with shared_client() as client:
                     res = await client.get(laps_url, headers={'Authorization': f"Bearer {access_token}"}, timeout=10.0)
                     res.raise_for_status()
                     raw_laps = res.json()
@@ -436,7 +437,7 @@ async def get_strava_activity_details(id: str = Query(..., description="ID of ac
             hr_zones = []
             power_zones = []
             try:
-                async with httpx.AsyncClient() as client:
+                async with shared_client() as client:
                     res = await client.get(zones_url, headers={'Authorization': f"Bearer {access_token}"}, timeout=10.0)
                     res.raise_for_status()
                     raw_zones = res.json()
@@ -539,7 +540,7 @@ async def get_strava_athlete_stats():
             return mock_stats
         try:
             athlete_url = "https://www.strava.com/api/v3/athlete"
-            async with httpx.AsyncClient() as client:
+            async with shared_client() as client:
                 res = await client.get(athlete_url, headers={'Authorization': f"Bearer {access_token}"}, timeout=10.0)
                 res.raise_for_status()
                 athlete = res.json()
@@ -547,7 +548,7 @@ async def get_strava_athlete_stats():
             if not athlete_id:
                 raise Exception('Could not read the athlete ID from the profile.')
             stats_url = f"https://www.strava.com/api/v3/athletes/{athlete_id}/stats"
-            async with httpx.AsyncClient() as client:
+            async with shared_client() as client:
                 res = await client.get(stats_url, headers={'Authorization': f"Bearer {access_token}"}, timeout=10.0)
                 res.raise_for_status()
                 stats = res.json()

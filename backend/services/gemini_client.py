@@ -6,6 +6,7 @@ the endpoint URL and model name.
 """
 
 import httpx
+from backend.services.http_client import shared_client
 
 from backend.database import get_api_key
 
@@ -43,7 +44,7 @@ async def generate_text(prompt: str, system_instruction: str = "",
         payload["systemInstruction"] = {"parts": [{"text": system_instruction}]}
 
     url = build_generate_url(get_gemini_model(), api_key)
-    async with httpx.AsyncClient() as client:
+    async with shared_client() as client:
         resp = await client.post(url, json=payload, timeout=timeout)
         resp.raise_for_status()
         resp_json = resp.json()

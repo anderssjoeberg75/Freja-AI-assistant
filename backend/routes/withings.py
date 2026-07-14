@@ -2,6 +2,7 @@
 
 import datetime
 import httpx
+from backend.services.http_client import shared_client
 import random
 import time
 from fastapi import APIRouter, HTTPException, Query, Request, BackgroundTasks
@@ -101,7 +102,7 @@ async def run_withings_sync_task(client_id, client_secret, refresh_token, days: 
             'grant_type': 'refresh_token'
         }
         
-        async with httpx.AsyncClient() as client:
+        async with shared_client() as client:
             res = await client.post(token_url, data=payload, timeout=10.0)
             res.raise_for_status()
             res_body = res.json()
@@ -125,7 +126,7 @@ async def run_withings_sync_task(client_id, client_secret, refresh_token, days: 
         lastupdate = int(time.time()) - days * 24 * 3600
         
         meas_url = f"https://wbsapi.withings.net/measure?action=getmeas&meastypes=1,6,11,16&category=1&lastupdate={lastupdate}"
-        async with httpx.AsyncClient() as client:
+        async with shared_client() as client:
             res = await client.get(meas_url, headers={'Authorization': f"Bearer {access_token}"}, timeout=10.0)
             res.raise_for_status()
             meas_body = res.json()
@@ -172,7 +173,7 @@ async def run_withings_sync_task(client_id, client_secret, refresh_token, days: 
                     'startdateymd': start_date_str,
                     'enddateymd': end_date_str
                 }
-                async with httpx.AsyncClient() as client:
+                async with shared_client() as client:
                     res = await client.post(sleep_url, data=payload_sleep, headers={'Authorization': f"Bearer {access_token}"}, timeout=10.0)
                     res.raise_for_status()
                     sleep_body = res.json()
@@ -205,7 +206,7 @@ async def run_withings_sync_task(client_id, client_secret, refresh_token, days: 
                     'startdateymd': start_date_str,
                     'enddateymd': end_date_str
                 }
-                async with httpx.AsyncClient() as client:
+                async with shared_client() as client:
                     res = await client.post(act_url, data=payload_act, headers={'Authorization': f"Bearer {access_token}"}, timeout=10.0)
                     res.raise_for_status()
                     act_body = res.json()

@@ -6,6 +6,7 @@ import json
 import datetime
 import urllib.parse
 import httpx
+from backend.services.http_client import shared_client
 import asyncio
 from pathlib import Path
 from playwright.async_api import async_playwright
@@ -57,7 +58,7 @@ async def call_gemini_learning_api(prompt: str, system_instruction: str = "") ->
     if system_instruction:
         payload["systemInstruction"] = {"parts": [{"text": system_instruction}]}
         
-    async with httpx.AsyncClient() as client:
+    async with shared_client() as client:
         resp = await client.post(url, json=payload, timeout=60.0)
         resp.raise_for_status()
         resp_json = resp.json()

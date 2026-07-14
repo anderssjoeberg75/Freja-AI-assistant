@@ -15,6 +15,7 @@ the user reads, and `day_offsets` in `book_plan_to_calendar` parses them back.
 
 import datetime
 import httpx
+from backend.services.http_client import shared_client
 import json
 import urllib.parse
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -101,7 +102,7 @@ async def _fetch_7day_weather_forecast_raw(location: str = DEFAULT_LOCATION) -> 
     raising, because a missing forecast should degrade the advice, not fail the request."""
     try:
         geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={urllib.parse.quote(location)}&count=1&language=sv&format=json"
-        async with httpx.AsyncClient() as client:
+        async with shared_client() as client:
             res = await client.get(geo_url, timeout=8.0)
             res.raise_for_status()
             geo_data = res.json()
@@ -117,7 +118,7 @@ async def _fetch_7day_weather_forecast_raw(location: str = DEFAULT_LOCATION) -> 
         country = first.get('country', '')
 
         weather_url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&daily=weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,precipitation_sum,relative_humidity_2m_max,relative_humidity_2m_min&timezone=auto"
-        async with httpx.AsyncClient() as client:
+        async with shared_client() as client:
             res = await client.get(weather_url, timeout=8.0)
             res.raise_for_status()
             weather_data = res.json()
@@ -858,7 +859,7 @@ Instructions for the answer:
             }
         }
 
-        async with httpx.AsyncClient() as client:
+        async with shared_client() as client:
             response = await client.post(google_url, json=payload, timeout=30.0)
             response.raise_for_status()
             res_json = response.json()
@@ -1170,7 +1171,7 @@ Rules for the briefing:
             }
         }
 
-        async with httpx.AsyncClient() as client:
+        async with shared_client() as client:
             response = await client.post(google_url, json=payload, timeout=30.0)
             response.raise_for_status()
             res_json = response.json()
@@ -1387,7 +1388,7 @@ Rules:
         }
     }
 
-    async with httpx.AsyncClient() as client:
+    async with shared_client() as client:
         response = await client.post(google_url, json=payload, timeout=30.0)
         response.raise_for_status()
         res_json = response.json()

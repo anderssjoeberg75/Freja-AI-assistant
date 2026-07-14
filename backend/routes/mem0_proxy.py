@@ -1,6 +1,7 @@
 """Mem0 API secure proxy route."""
 
 import httpx
+from backend.services.http_client import shared_client
 from fastapi import APIRouter, HTTPException, Request, Response, Query
 from backend.database import get_api_key
 
@@ -26,7 +27,7 @@ async def proxy_mem0_add(request: Request):
     }
 
     try:
-        async with httpx.AsyncClient() as client:
+        async with shared_client() as client:
             response = await client.post("https://api.mem0.ai/v3/memories/add/", json=payload, headers=headers, timeout=30.0)
             return Response(content=response.content, status_code=response.status_code, media_type="application/json")
     except httpx.RequestError as e:
@@ -49,7 +50,7 @@ async def proxy_mem0_search(request: Request):
     }
 
     try:
-        async with httpx.AsyncClient() as client:
+        async with shared_client() as client:
             response = await client.post("https://api.mem0.ai/v3/memories/search/", json=payload, headers=headers, timeout=30.0)
             return Response(content=response.content, status_code=response.status_code, media_type="application/json")
     except httpx.RequestError as e:
@@ -72,7 +73,7 @@ async def proxy_mem0_all(request: Request):
     }
 
     try:
-        async with httpx.AsyncClient() as client:
+        async with shared_client() as client:
             response = await client.post("https://api.mem0.ai/v3/memories/", json=payload, headers=headers, timeout=30.0)
             return Response(content=response.content, status_code=response.status_code, media_type="application/json")
     except httpx.RequestError as e:
@@ -89,7 +90,7 @@ async def proxy_mem0_delete(memory_id: str):
     }
 
     try:
-        async with httpx.AsyncClient() as client:
+        async with shared_client() as client:
             response = await client.delete(f"https://api.mem0.ai/v3/memories/{memory_id}/", headers=headers, timeout=30.0)
             return Response(content=response.content, status_code=response.status_code, media_type="application/json")
     except httpx.RequestError as e:
@@ -106,7 +107,7 @@ async def proxy_mem0_wipe(user_id: str = Query(..., description="User ID to wipe
     }
 
     try:
-        async with httpx.AsyncClient() as client:
+        async with shared_client() as client:
             response = await client.delete(f"https://api.mem0.ai/v1/memories/?user_id={user_id}", headers=headers, timeout=30.0)
             return Response(content=response.content, status_code=response.status_code, media_type="application/json")
     except httpx.RequestError as e:
