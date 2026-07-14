@@ -584,26 +584,14 @@ async def exec_garmin_health(args):
     password = get_api_key('freja_garmin_password') or ""
     
     if email and password:
-        # Check if today's data already exists in the database
-        has_today_data = False
-        try:
-            today_str = datetime.date.today().strftime('%Y-%m-%d')
-            with get_db_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("SELECT COUNT(*) FROM garmin_health WHERE date = ?", (today_str,))
-                if cursor.fetchone()[0] > 0:
-                    has_today_data = True
-        except Exception as db_err:
-            print(f"[Garmin Tool] Error checking db for today's Garmin data: {db_err}")
-
-        if has_today_data:
-            sync_status = "success"
-            sync_message = "Garmin sync skipped (data already exists in database)."
-            print("[Garmin Tool] Today's data already exists in database. Skipping API sync.")
-        elif is_sync_recent("garmin"):
+        # Force sync if fetching historical data (days > 1) or if no recent sync has run in the last 15 minutes.
+        # We do not skip if today's data already exists, since steps and body battery update throughout the day.
+        is_recent = is_sync_recent("garmin", max_age_hours=0.25)
+        
+        if is_recent and days <= 1:
             sync_status = "success"
             sync_message = "Garmin sync skipped (recently updated)."
-            print("[Garmin Tool] Recent sync found. Skipping API sync, using cached DB data.")
+            print("[Garmin Tool] Recent sync found in the last 15 minutes. Skipping API sync, using cached DB data.")
         else:
             try:
                 from backend.services.task_queue import enqueue_task
