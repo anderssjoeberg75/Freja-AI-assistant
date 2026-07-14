@@ -937,17 +937,100 @@
                     <div id="trainer-checkin-output" style="display: none; background: rgba(0, 0, 0, 0.4); border: 1px solid var(--color-border); border-radius: 4px; padding: 12px; font-family: var(--font-sans); font-size: 13px; line-height: 1.5; color: var(--color-text); max-height: 320px; overflow-y: auto;"></div>
                 </div>
 
-                <!-- Configuration Form -->
-                <div class="trainer-form" style="display: flex; flex-direction: column; gap: 10px; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--color-border); border-radius: 4px; padding: 12px;">
-                    <div style="display: flex; flex-direction: column; gap: 4px;">
-                        <label for="trainer-input-goal" style="font-size: 11px; color: var(--color-text-muted);">Your training goal / focus</label>
-                        <input type="text" id="trainer-input-goal" placeholder="e.g. lose weight, run 10 km, build muscle..." class="hud-input" style="height: 32px; font-size: 12px;">
+                <!-- Configuration Form / Onboarding Profile -->
+                <div class="trainer-profile-form" style="display: flex; flex-direction: column; gap: 10px; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--color-border); border-radius: 4px; padding: 12px;">
+                    <span style="font-size: 11px; color: var(--color-primary); font-family: var(--font-display); letter-spacing: 0.5px;"><i class="fa-solid fa-user-gear"></i> TRAINING PROFILE & ONBOARDING</span>
+                    
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <label for="trainer-input-goal" style="font-size: 11px; color: var(--color-text-muted);">Training Goal / Focus</label>
+                            <input type="text" id="trainer-input-goal" placeholder="e.g. build muscle, run 10k..." class="hud-input" style="height: 32px; font-size: 12px;">
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <label for="trainer-input-limitations" style="font-size: 11px; color: var(--color-text-muted);">Injuries / Limitations</label>
+                            <input type="text" id="trainer-input-limitations" placeholder="e.g. sensitive knee..." class="hud-input" style="height: 32px; font-size: 12px;">
+                        </div>
                     </div>
-                    <div style="display: flex; flex-direction: column; gap: 4px;">
-                        <label for="trainer-input-limitations" style="font-size: 11px; color: var(--color-text-muted);">Injuries / illnesses / limitations</label>
-                        <input type="text" id="trainer-input-limitations" placeholder="e.g. exercise-induced asthma, sensitive right knee..." class="hud-input" style="height: 32px; font-size: 12px;">
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <label for="trainer-input-event" style="font-size: 11px; color: var(--color-text-muted);">Target Event (Optional)</label>
+                            <input type="text" id="trainer-input-event" placeholder="e.g. Marathon 2026..." class="hud-input" style="height: 32px; font-size: 12px;">
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <label for="trainer-input-event-date" style="font-size: 11px; color: var(--color-text-muted);">Event Date</label>
+                            <input type="date" id="trainer-input-event-date" class="hud-input" style="height: 32px; font-size: 12px; background: #0c1020; color: var(--color-text); border: 1px solid var(--color-border); padding: 0 8px;">
+                        </div>
                     </div>
-                    <button id="btn-generate-trainer-plan" class="hud-btn btn-primary" style="height: 34px; font-family: var(--font-display); font-size: 11px; margin-top: 8px;"><i class="fa-solid fa-wand-magic-sparkles"></i> GENERATE TRAINING PLAN</button>
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px;">
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <label for="trainer-select-fitness-level" style="font-size: 11px; color: var(--color-text-muted);">Fitness Level</label>
+                            <select id="trainer-select-fitness-level" class="hud-input" style="height: 32px; font-size: 12px; background: #0c1020; color: var(--color-text); border: 1px solid var(--color-border); padding: 0 4px;">
+                                <option value="beginner">Beginner</option>
+                                <option value="intermediate">Intermediate</option>
+                                <option value="advanced">Advanced</option>
+                            </select>
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <label for="trainer-input-availability" style="font-size: 11px; color: var(--color-text-muted);">Weekly Availability</label>
+                            <input type="text" id="trainer-input-availability" placeholder="e.g. 3 days/week..." class="hud-input" style="height: 32px; font-size: 12px;">
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <label for="trainer-input-location" style="font-size: 11px; color: var(--color-text-muted);">Location (for weather)</label>
+                            <input type="text" id="trainer-input-location" placeholder="e.g. Stockholm" class="hud-input" style="height: 32px; font-size: 12px;">
+                        </div>
+                    </div>
+
+                    <span style="font-size: 10px; color: var(--color-primary); font-family: var(--font-display); letter-spacing: 0.5px; margin-top: 5px;"><i class="fa-solid fa-chart-line"></i> HEALTH BASELINES (FOR METRIC DEVIATION DETECTIONS)</span>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px;">
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <label for="trainer-input-baseline-rhr" style="font-size: 11px; color: var(--color-text-muted);">Resting HR (bpm)</label>
+                            <input type="number" id="trainer-input-baseline-rhr" placeholder="e.g. 60" class="hud-input" style="height: 32px; font-size: 12px;">
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <label for="trainer-input-baseline-sleep" style="font-size: 11px; color: var(--color-text-muted);">Sleep Hours</label>
+                            <input type="number" step="0.1" id="trainer-input-baseline-sleep" placeholder="e.g. 8.0" class="hud-input" style="height: 32px; font-size: 12px;">
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <label for="trainer-input-baseline-hrv" style="font-size: 11px; color: var(--color-text-muted);">HRV (ms)</label>
+                            <input type="number" id="trainer-input-baseline-hrv" placeholder="e.g. 50" class="hud-input" style="height: 32px; font-size: 12px;">
+                        </div>
+                    </div>
+
+                    <div style="display: flex; gap: 10px; margin-top: 5px;">
+                        <button id="btn-save-trainer-profile" class="hud-btn btn-primary" style="flex: 1; height: 34px; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-floppy-disk"></i> SAVE PROFILE</button>
+                        <button id="btn-generate-trainer-plan" class="hud-btn btn-primary" style="flex: 1; height: 34px; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-wand-magic-sparkles"></i> GENERATE PLAN</button>
+                    </div>
+                </div>
+
+                <!-- Strength Log (progressive overload) -->
+                <div class="trainer-strength-form" style="display: flex; flex-direction: column; gap: 10px; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--color-border); border-radius: 4px; padding: 12px;">
+                    <span style="font-size: 11px; color: var(--color-primary); font-family: var(--font-display); letter-spacing: 0.5px;"><i class="fa-solid fa-dumbbell"></i> STRENGTH LOG (SETS / REPS / WEIGHT)</span>
+                    <div style="display: grid; grid-template-columns: 2fr 1fr 1fr 1fr 1fr; gap: 8px; align-items: end;">
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <label for="trainer-strength-name" style="font-size: 11px; color: var(--color-text-muted);">Exercise</label>
+                            <input type="text" id="trainer-strength-name" placeholder="e.g. Knäböj" class="hud-input" style="height: 32px; font-size: 12px;">
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <label for="trainer-strength-sets" style="font-size: 11px; color: var(--color-text-muted);">Sets</label>
+                            <input type="number" id="trainer-strength-sets" placeholder="3" class="hud-input" style="height: 32px; font-size: 12px;">
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <label for="trainer-strength-reps" style="font-size: 11px; color: var(--color-text-muted);">Reps</label>
+                            <input type="number" id="trainer-strength-reps" placeholder="8" class="hud-input" style="height: 32px; font-size: 12px;">
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <label for="trainer-strength-weight" style="font-size: 11px; color: var(--color-text-muted);">Weight (kg)</label>
+                            <input type="number" step="0.5" id="trainer-strength-weight" placeholder="60" class="hud-input" style="height: 32px; font-size: 12px;">
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <label for="trainer-strength-rpe" style="font-size: 11px; color: var(--color-text-muted);">RPE</label>
+                            <input type="number" step="0.5" id="trainer-strength-rpe" placeholder="8" class="hud-input" style="height: 32px; font-size: 12px;">
+                        </div>
+                    </div>
+                    <button id="btn-log-strength" class="hud-btn btn-primary" style="height: 32px; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-plus"></i> LOG SET</button>
+                    <div id="trainer-strength-list" style="display: flex; flex-direction: column; gap: 4px; max-height: 160px; overflow-y: auto;"></div>
                 </div>
 
                 <!-- PT Settings -->

@@ -33,6 +33,13 @@ DAY_END_HOUR = 21          # Latest a workout may be auto-scheduled to end
 MAX_WORKOUT_MINUTES = 180  # Sanity cap for a single booked session
 MAX_INPUT_LEN = 2000       # Cap on free-text goal/limitations sent to the LLM
 
+# Health-baseline auto-update (Issue #35): recompute the profile's resting-HR / sleep /
+# HRV baselines from a rolling window, but no more often than once a week so the trend
+# alerts in calculate_trends() have a stable reference that still tracks real fitness drift.
+BASELINE_WINDOW_DAYS = 28   # Rolling window averaged into each baseline
+BASELINE_REFRESH_DAYS = 7   # Minimum days between automatic recomputes
+BASELINE_MIN_SAMPLES = 3    # Fewest data points a baseline needs to be trustworthy
+
 # Marks a forecast string as a failure so the caller knows not to cache it.
 WEATHER_ERROR_PREFIX = "[weather unavailable] "
 
@@ -226,6 +233,169 @@ def format_trends_summary(trends: dict) -> str:
     return "\n".join(lines) if lines else "No sufficient trend data (RHR/HRV) available."
 
 
+def recompute_health_baselines(force: bool = False) -> dict:
+    """Recomputes the profile's RHR / sleep / HRV baselines from a rolling window.
+
+    Averages the last ``BASELINE_WINDOW_DAYS`` of Garmin health data (resting HR,
+    sleep hours, HRV), falling back to Withings for resting HR and sleep when Garmin
+    has no value. Writes the results back to ``trainer_profile`` and stamps
+    ``baselines_updated_at`` so the next call respects the weekly cadence.
+
+    Unless ``force`` is set, this is a no-op when the baselines were refreshed within
+    the last ``BASELINE_REFRESH_DAYS`` days. A metric is only written when at least
+    ``BASELINE_MIN_SAMPLES`` data points back it, so a sparse window never overwrites a
+    good baseline with noise. Returns a summary dict describing what happened.
+    """
+    profile = get_trainer_profile()
+
+    # Respect the weekly cadence unless forced.
+    if not force and profile.get("baselines_updated_at"):
+        try:
+            last = datetime.datetime.strptime(
+                str(profile["baselines_updated_at"])[:19], "%Y-%m-%d %H:%M:%S"
+            )
+            if (datetime.datetime.now() - last).days < BASELINE_REFRESH_DAYS:
+                return {"status": "skipped", "reason": "refreshed_recently", "updated": {}}
+        except (ValueError, TypeError):
+            pass  # Unparseable timestamp — treat as stale and recompute.
+
+    cutoff = (today_local() - datetime.timedelta(days=BASELINE_WINDOW_DAYS)).strftime('%Y-%m-%d')
+
+    garmin_rhr, garmin_sleep, garmin_hrv = [], [], []
+    withings_rhr, withings_sleep = [], []
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                'SELECT resting_hr, sleep_hours, hrv FROM garmin_health WHERE date >= ?',
+                (cutoff,)
+            )
+            for r in cursor.fetchall():
+                if r[0] is not None:
+                    garmin_rhr.append(r[0])
+                if r[1] is not None:
+                    garmin_sleep.append(r[1])
+                if r[2] is not None:
+                    garmin_hrv.append(r[2])
+        except Exception as e:
+            print(f"[TRAINER BASELINES] Error reading Garmin health: {e}")
+        try:
+            cursor.execute(
+                'SELECT heart_pulse, sleep_duration FROM withings_measurements WHERE date >= ?',
+                (cutoff,)
+            )
+            for r in cursor.fetchall():
+                if r[0] is not None:
+                    withings_rhr.append(r[0])
+                if r[1]:  # sleep_duration is stored in seconds
+                    withings_sleep.append(r[1] / 3600.0)
+        except Exception as e:
+            print(f"[TRAINER BASELINES] Error reading Withings measurements: {e}")
+
+    def _avg(vals):
+        return sum(vals) / len(vals) if len(vals) >= BASELINE_MIN_SAMPLES else None
+
+    # Prefer Garmin; fall back to Withings for RHR and sleep (Withings has no HRV).
+    rhr = _avg(garmin_rhr)
+    if rhr is None:
+        rhr = _avg(withings_rhr)
+    sleep = _avg(garmin_sleep)
+    if sleep is None:
+        sleep = _avg(withings_sleep)
+    hrv = _avg(garmin_hrv)
+
+    updated = {}
+    if rhr is not None:
+        updated["baseline_resting_hr"] = round(rhr, 1)
+    if sleep is not None:
+        updated["baseline_sleep_hours"] = round(sleep, 1)
+    if hrv is not None:
+        updated["baseline_hrv"] = round(hrv, 1)
+
+    if not updated:
+        return {"status": "no_data", "reason": "insufficient_samples", "updated": {}}
+
+    now_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM trainer_profile WHERE id = 1")
+            exists = cursor.fetchone() is not None
+            cols_vals = dict(updated)
+            cols_vals["baselines_updated_at"] = now_str
+            cols_vals["updated_at"] = now_str
+            if exists:
+                set_clause = ", ".join(f"{k} = ?" for k in cols_vals)
+                cursor.execute(
+                    f"UPDATE trainer_profile SET {set_clause} WHERE id = 1",
+                    list(cols_vals.values())
+                )
+            else:
+                cols = ["id"] + list(cols_vals.keys())
+                placeholders = ", ".join("?" for _ in cols)
+                cursor.execute(
+                    f"INSERT INTO trainer_profile ({', '.join(cols)}) VALUES ({placeholders})",
+                    [1] + list(cols_vals.values())
+                )
+            conn.commit()
+    except Exception as e:
+        print(f"[TRAINER BASELINES] Could not persist baselines: {e}")
+        return {"status": "error", "reason": str(e), "updated": {}}
+
+    return {"status": "success", "updated": updated, "window_days": BASELINE_WINDOW_DAYS}
+
+
+# --- Strength logging (Issue #34) -------------------------------------------
+MAX_STRENGTH_LOGS = 200  # Hard cap on rows a single list request may return
+
+
+def get_recent_strength_logs(limit: int = 40) -> list:
+    """Returns the most recent logged strength sets, newest first, as dicts."""
+    limit = max(1, min(int(limit or 40), MAX_STRENGTH_LOGS))
+    with get_db_connection() as conn:
+        conn.row_factory = _dict_row
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                '''SELECT id, date, exercise_name, sets, reps, weight, rpe, notes, plan_id, created_at
+                   FROM trainer_strength_logs
+                   ORDER BY date DESC, id DESC
+                   LIMIT ?''',
+                (limit,)
+            )
+            return [dict(r) for r in cursor.fetchall()]
+        except Exception as e:
+            print(f"[TRAINER STRENGTH] Error reading strength logs: {e}")
+            return []
+
+
+def format_recent_strength_logs(limit: int = 40) -> str:
+    """Renders recent strength logs as the text block pasted into the coach prompt.
+
+    The coach uses the most recent load per exercise to apply progressive overload,
+    so the lines are grouped by exercise with the latest session first."""
+    logs = get_recent_strength_logs(limit)
+    if not logs:
+        return "No strength-training loads have been logged yet."
+
+    by_exercise: dict = {}
+    for log in logs:
+        name = (log.get("exercise_name") or "Okänd övning").strip()
+        by_exercise.setdefault(name, []).append(log)
+
+    lines = []
+    for name, entries in by_exercise.items():
+        # entries already newest-first; keep the three most recent per exercise.
+        parts = []
+        for e in entries[:3]:
+            weight = e.get("weight")
+            load = f"{weight}kg" if weight else "kroppsvikt"
+            rpe = f", RPE {e['rpe']}" if e.get("rpe") else ""
+            parts.append(f"{e.get('date')}: {e.get('sets')}x{e.get('reps')} @ {load}{rpe}")
+        lines.append(f"- {name}: " + " | ".join(parts))
+    return "\n".join(lines)
+
+
 def compute_adherence(days: int = 14) -> dict:
     """Compares booked workout dates against completed Strava activity dates."""
     today = today_local()
@@ -334,6 +504,109 @@ async def get_trainer_adherence(days: int = Query(14, description="Lookback wind
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@router.post("/api/trainer/baselines/refresh")
+async def refresh_trainer_baselines(request: Request):
+    """Recomputes the RHR/sleep/HRV baselines now (Issue #35).
+
+    Normally the baselines refresh themselves at most weekly off the Garmin sync;
+    this endpoint lets the user force an immediate recompute. Pass {"force": false}
+    to honour the weekly cadence instead."""
+    try:
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        force = body.get("force", True)
+        force = force in (True, 1, "1", "true", "True", "on")
+        return recompute_health_baselines(force=force)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/api/trainer/strength/log")
+async def get_strength_logs(limit: int = Query(40, description="Number of logged sets to return")):
+    """Returns recent logged strength sets (Issue #34), newest first."""
+    try:
+        return {"logs": get_recent_strength_logs(limit)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api/trainer/strength/log")
+async def add_strength_log(request: Request):
+    """Records one completed strength set (name, sets, reps, weight, RPE).
+
+    These logs feed progressive overload: the coach reads the latest load per
+    exercise when generating the next plan."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    name = str(body.get("exercise_name") or "").strip()[:120]
+    if not name:
+        raise HTTPException(status_code=400, detail="An exercise name is required.")
+
+    def _to_int(v, default=0):
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            return default
+
+    def _to_float(v):
+        try:
+            f = float(v)
+            return f if f > 0 else None
+        except (TypeError, ValueError):
+            return None
+
+    sets = max(0, _to_int(body.get("sets")))
+    reps = max(0, _to_int(body.get("reps")))
+    weight = _to_float(body.get("weight"))
+    rpe = _to_float(body.get("rpe"))
+    if rpe is not None:
+        rpe = max(1.0, min(10.0, rpe))  # RPE is a 1-10 scale
+    notes = str(body.get("notes") or "").strip()[:MAX_INPUT_LEN]
+    plan_id = body.get("plan_id")
+    try:
+        plan_id = int(plan_id) if plan_id is not None else None
+    except (TypeError, ValueError):
+        plan_id = None
+
+    date_str = str(body.get("date") or "").strip()[:10]
+    if not date_str:
+        date_str = today_local().strftime('%Y-%m-%d')
+    now_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                '''INSERT INTO trainer_strength_logs
+                   (date, exercise_name, sets, reps, weight, rpe, notes, plan_id, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                (date_str, name, sets, reps, weight, rpe, notes, plan_id, now_str)
+            )
+            conn.commit()
+            log_id = cursor.lastrowid
+        return {"status": "success", "id": log_id, "message": "Strength set logged."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/api/trainer/strength/log")
+async def delete_strength_log(log_id: int = Query(..., description="ID of the strength log to delete")):
+    """Deletes a single logged strength set."""
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM trainer_strength_logs WHERE id = ?', (log_id,))
+            conn.commit()
+        return {"status": "success", "message": f"Strength log {log_id} deleted."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.get("/api/trainer/plans")
 async def get_trainer_plans(limit: int = Query(20, description="Number of plans to retrieve")):
     try:
@@ -439,6 +712,9 @@ async def generate_trainer_plan(request: Request):
         trends = calculate_trends()
         trends_data_str = format_trends_summary(trends)
 
+        # 5.4 Recent strength loads so the coach can apply progressive overload (Issue #34)
+        strength_logs_str = format_recent_strength_logs()
+
         # 5.5 Fetch 7-day weather forecast (for the profile's location)
         weather_forecast = await fetch_7day_weather_forecast(location)
 
@@ -475,11 +751,18 @@ GOAL: "{goal}"{limitations_prompt}
 [WITHINGS MEASUREMENTS (last 7 measurements)]:
 {withings_data_str}
 
+[RECENTLY LOGGED STRENGTH LOADS (most recent per exercise)]:
+{strength_logs_str}
+
 Instructions for the answer:
 - Answer in Swedish.
 - Write in an encouraging, professional and coaching tone (F.R.E.J.A. style: polite but extremely knowledgeable).
 - Give concrete, practical advice on training intensity, recovery (look at sleep and HRV/recovery where available),
   and training modality based on the data.
+- For strength sessions (Styrketräning), fill in the structured "exercises" list for that workout: name each
+  exercise with target sets, reps and a target weight in kg (or an RPE if bodyweight/unloaded). Apply PROGRESSIVE
+  OVERLOAD relative to the recently logged loads above - nudge weight or reps up slightly when recovery is good,
+  and hold or reduce load when recovery is poor. Leave "exercises" empty for pure cardio/rest days.
 - Take the coming week's weather forecast into account when planning the sessions:
   - If bad weather is expected (e.g. heavy rain, snowfall, thunderstorms or storms) on a planned training day,
     recommend indoor training or rest for that day.
@@ -549,6 +832,21 @@ Instructions for the answer:
                                     "duration_minutes": {
                                         "type": "INTEGER",
                                         "description": "Estimated time in minutes (0 for rest)."
+                                    },
+                                    "exercises": {
+                                        "type": "ARRAY",
+                                        "description": "Structured strength exercises for this session (empty for pure cardio/rest). Apply progressive overload against the logged loads.",
+                                        "items": {
+                                            "type": "OBJECT",
+                                            "properties": {
+                                                "name": {"type": "STRING", "description": "Exercise name in Swedish (e.g. Knäböj, Marklyft, Bänkpress)."},
+                                                "sets": {"type": "INTEGER", "description": "Number of sets."},
+                                                "reps": {"type": "INTEGER", "description": "Target reps per set."},
+                                                "target_weight": {"type": "NUMBER", "description": "Target load in kg (0 for bodyweight/unloaded)."},
+                                                "rpe": {"type": "NUMBER", "description": "Target rate of perceived exertion 1-10 (optional, 0 if not used)."}
+                                            },
+                                            "required": ["name", "sets", "reps"]
+                                        }
                                     }
                                 },
                                 "required": ["day", "activity_type", "title", "description", "duration_minutes"]
@@ -621,6 +919,45 @@ async def update_trainer_plan(request: Request):
 # so recovery-driven adjustments only ever touch training events (never meetings).
 WORKOUT_LOCATION_MARKER = "F.R.E.J.A. PT"
 WORKOUT_SUMMARY_MARKERS = ("💪", "🏃", "🚶", "🚴", "🧘", "🏊")
+
+
+def _format_exercises_for_calendar(exercises) -> str:
+    """Renders a workout's structured exercises (Issue #34) as a Swedish text block for
+    the calendar description. Returns an empty string when there are none."""
+    if not exercises or not isinstance(exercises, list):
+        return ""
+    lines = []
+    for ex in exercises:
+        if not isinstance(ex, dict):
+            continue
+        name = str(ex.get("name") or "").strip()
+        if not name:
+            continue
+        try:
+            sets = int(ex.get("sets") or 0)
+        except (TypeError, ValueError):
+            sets = 0
+        try:
+            reps = int(ex.get("reps") or 0)
+        except (TypeError, ValueError):
+            reps = 0
+        try:
+            weight = float(ex.get("target_weight") or 0)
+        except (TypeError, ValueError):
+            weight = 0
+        try:
+            rpe = float(ex.get("rpe") or 0)
+        except (TypeError, ValueError):
+            rpe = 0
+        detail = f"{sets}x{reps}" if (sets or reps) else ""
+        if weight > 0:
+            detail += f" @ {weight:g} kg"
+        elif rpe > 0:
+            detail += f" @ RPE {rpe:g}"
+        lines.append(f"- {name}: {detail}".rstrip())
+    if not lines:
+        return ""
+    return "\n\nÖvningar (COACH AI):\n" + "\n".join(lines)
 
 
 def is_workout_event(ev: dict) -> bool:
@@ -1300,7 +1637,11 @@ async def book_trainer_plan(request: Request):
             # The 💪 prefix and the "F.R.E.J.A. PT" location are what is_workout_event()
             # later matches on to tell PT sessions apart from ordinary meetings.
             summary = f"💪 {w.get('activity_type', 'Träning')}: {w.get('title', 'Pass')}"
-            description = f"Träningspass genererat av COACH AI.\n\nBeskrivning:\n{w.get('description', '')}\n\nTid: {duration} minuter."
+            exercises_block = _format_exercises_for_calendar(w.get("exercises"))
+            description = (
+                f"Träningspass genererat av COACH AI.\n\nBeskrivning:\n{w.get('description', '')}"
+                f"{exercises_block}\n\nTid: {duration} minuter."
+            )
             location = WORKOUT_LOCATION_MARKER
 
             result = await core_save_calendar_event(

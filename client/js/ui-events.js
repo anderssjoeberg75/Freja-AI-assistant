@@ -1,7 +1,7 @@
 /**
  * F.R.E.J.A. UI Controller - Event Bindings Module
  */
-FrejaUIController.prototype.bindEvents = function() {
+FrejaUIController.prototype.bindEvents = function () {
     const self = this;
 
     const shield = document.getElementById('interaction-shield');
@@ -20,17 +20,17 @@ FrejaUIController.prototype.bindEvents = function() {
             shield.style.pointerEvents = 'none';
             setTimeout(() => { shield.style.display = 'none'; }, 500);
         }
-        
+
         self.writeLog("COGNITIVE SERVICES LINKING ACTIVE", "sys");
         self.writeLog("SPEECH RECOGNITION ONLINE [SV-SE]", "sys");
-        
+
         // Populate camera selection inputs dropdown
         try {
             self.loadCameraDevices();
         } catch (e) {
             console.warn("[CAMERA] Device load warning:", e);
         }
-        
+
         // Initiate canvas visualizer animations
         try {
             if (typeof ArcReactorVisualizer !== 'undefined') {
@@ -41,7 +41,7 @@ FrejaUIController.prototype.bindEvents = function() {
         } catch (e) {
             console.warn("[VISUALIZER] Canvas init warning:", e);
         }
-        
+
         // Ask permission for microphone in background
         try {
             soundSynth.getMicrophoneStream().then(() => {
@@ -67,16 +67,16 @@ FrejaUIController.prototype.bindEvents = function() {
                 return;
             }
 
-            const startMsg = sv 
+            const startMsg = sv
                 ? "System aktiverat. Alla nätverksprotokoll online. Hur kan jag hjälpa dig idag?"
                 : "Systems fully engaged. AI diagnostic matrix secure. How may I assist you today?";
 
-            
+
             self.appendChatMessage("assistant", startMsg);
             self.speech.speak(startMsg);
         }, 1000);
     };
-    
+
     if (initAudioBtn) {
         initAudioBtn.addEventListener('click', (e) => {
             e.stopPropagation();
@@ -88,7 +88,7 @@ FrejaUIController.prototype.bindEvents = function() {
             removeShield();
         });
     }
-    
+
     // Voice Microphone Activation Toggle Button
     const btnMic = document.getElementById('btn-mic');
     btnMic.addEventListener('click', () => {
@@ -109,7 +109,7 @@ FrejaUIController.prototype.bindEvents = function() {
                 document.getElementById('vocal-status').textContent = "LISTENING";
                 document.getElementById('vocal-status').classList.add('active');
                 if (window.visualizer) window.visualizer.state = 'LISTENING';
-                
+
                 const sv = self.speech.lang === 'sv-SE';
                 document.getElementById('voice-hint').textContent = sv ? "Jag lyssnar... Prata nu" : "Listening... Speak now";
                 document.getElementById('voice-bars').classList.add('active');
@@ -135,10 +135,10 @@ FrejaUIController.prototype.bindEvents = function() {
     const submitTextQuery = () => {
         const query = textQueryInput.value.trim();
         if (!query) return;
-        
+
         textQueryInput.value = "";
         soundSynth.playClick();
-        
+
         self.writeLog(`QUERY SUBMITTED: "${query}"`, "user");
         self.appendChatMessage("user", query, true);
         self.processUserQuery(query);
@@ -217,7 +217,7 @@ FrejaUIController.prototype.bindEvents = function() {
         btnTestVoice.addEventListener('click', () => {
             soundSynth.playClick();
             const sv = self.speech.lang === 'sv-SE';
-            const testMsg = sv 
+            const testMsg = sv
                 ? "Detta är en testsekvens för Frejas röstgränssnitt."
                 : "This is a diagnostic vocal sequence for Freya.";
             self.speech.speak(testMsg);
@@ -228,12 +228,12 @@ FrejaUIController.prototype.bindEvents = function() {
     const btnSettings = document.getElementById('btn-settings');
     const modalSettings = document.getElementById('modal-settings');
     const btnCloseSettings = document.getElementById('btn-close-settings');
-    
+
     btnSettings.addEventListener('click', () => {
         soundSynth.playClick();
         modalSettings.classList.add('active');
     });
-    
+
     btnCloseSettings.addEventListener('click', () => {
         soundSynth.playClick();
         modalSettings.classList.remove('active');
@@ -265,7 +265,7 @@ FrejaUIController.prototype.bindEvents = function() {
             soundSynth.playClick();
             const token = inputLoginToken.value.trim();
             if (!token) return;
-            
+
             // Test connection with token
             localStorage.setItem('freja_access_token', token);
             try {
@@ -373,7 +373,7 @@ FrejaUIController.prototype.bindEvents = function() {
     const btnMemory = document.getElementById('btn-memory');
     const modalMemory = document.getElementById('modal-memory');
     const btnCloseMemory = document.getElementById('btn-close-memory');
-    
+
     if (btnMemory && modalMemory) {
         btnMemory.addEventListener('click', () => {
             soundSynth.playClick();
@@ -381,7 +381,7 @@ FrejaUIController.prototype.bindEvents = function() {
             self.loadMemoryVaultUI();
         });
     }
-    
+
     if (btnCloseMemory && modalMemory) {
         btnCloseMemory.addEventListener('click', () => {
             soundSynth.playClick();
@@ -395,17 +395,17 @@ FrejaUIController.prototype.bindEvents = function() {
     if (btnSaveMemoryApi) {
         btnSaveMemoryApi.addEventListener('click', async () => {
             soundSynth.playClick();
-            
+
             const mem0Key = document.getElementById('input-mem0-key').value.trim();
             const mem0Enabled = document.getElementById('chk-use-mem0').checked;
-            
+
             self.memory.saveSettings(mem0Key, mem0Enabled);
-            
+
             // Save keys to secure SQLite database
             await self.saveKeysToServer({
                 freja_mem0_apikey: mem0Key
             });
-            
+
             self.writeLog("NEURAL MEMORY CONFIGURATION SECURED", "sys");
             soundSynth.playNotify();
         });
@@ -415,14 +415,14 @@ FrejaUIController.prototype.bindEvents = function() {
     const btnGarmin = document.getElementById('btn-garmin');
     const modalGarmin = document.getElementById('modal-garmin');
     const btnCloseGarmin = document.getElementById('btn-close-garmin');
-    
+
     if (btnGarmin && modalGarmin && btnCloseGarmin) {
         btnGarmin.addEventListener('click', () => {
             soundSynth.playClick();
             modalGarmin.classList.add('active');
             self.loadGarminDashboardUI();
         });
-        
+
         btnCloseGarmin.addEventListener('click', () => {
             soundSynth.playClick();
             modalGarmin.classList.remove('active');
@@ -452,7 +452,7 @@ FrejaUIController.prototype.bindEvents = function() {
                 body_battery: document.getElementById('garmin-input-body-battery').value !== "" ? parseInt(document.getElementById('garmin-input-body-battery').value) : null,
                 hrv: document.getElementById('garmin-input-hrv').value !== "" ? parseInt(document.getElementById('garmin-input-hrv').value) : null
             };
-            
+
             self.writeLog(`SAVING GARMIN LOG FOR ${dateInput}`, "sys");
             try {
                 const res = await fetch('/api/garmin/data', {
@@ -465,7 +465,7 @@ FrejaUIController.prototype.bindEvents = function() {
                     self.writeLog("GARMIN LOG SECURED IN DATABASE", "sys");
                     soundSynth.playNotify();
                     self.loadGarminDashboardUI();
-                    
+
                     // Clear form input fields except date
                     document.getElementById('garmin-input-steps').value = '';
                     document.getElementById('garmin-input-sleep').value = '';
@@ -530,18 +530,18 @@ FrejaUIController.prototype.bindEvents = function() {
     if (btnSaveGarminApi) {
         btnSaveGarminApi.addEventListener('click', async () => {
             soundSynth.playClick();
-            
+
             const garminEmail = document.getElementById('input-garmin-email').value.trim();
             const garminPassword = document.getElementById('input-garmin-password').value;
-            
+
             localStorage.setItem("freja_garmin_email", garminEmail);
             localStorage.setItem("freja_garmin_password", garminPassword);
-            
+
             const chkGarmin = document.getElementById('chk-tool-get_garmin_health');
             if (chkGarmin) {
                 const isAllowed = chkGarmin.checked;
                 localStorage.setItem("freja_tool_get_garmin_health_allowed", isAllowed);
-                
+
                 const capGarmin = document.getElementById('cap-garmin');
                 if (capGarmin) {
                     if (isAllowed) {
@@ -551,7 +551,7 @@ FrejaUIController.prototype.bindEvents = function() {
                     }
                 }
             }
-            
+
             // Save keys to secure SQLite database (permission flag included so the
             // backend, the authoritative enforcement point, sees the same grant).
             await self.saveKeysToServer({
@@ -559,7 +559,7 @@ FrejaUIController.prototype.bindEvents = function() {
                 freja_garmin_password: garminPassword,
                 freja_tool_get_garmin_health_allowed: String(chkGarmin ? chkGarmin.checked : false)
             });
-            
+
             self.writeLog("GARMIN CONNECT CONFIGURATION SECURED", "sys");
             soundSynth.playNotify();
         });
@@ -599,22 +599,22 @@ FrejaUIController.prototype.bindEvents = function() {
     const btnStrava = document.getElementById('btn-strava');
     const modalStrava = document.getElementById('modal-strava');
     const btnCloseStrava = document.getElementById('btn-close-strava');
-    
+
     if (btnStrava && modalStrava && btnCloseStrava) {
         btnStrava.addEventListener('click', () => {
             soundSynth.playClick();
             modalStrava.classList.add('active');
-            
+
             // Pre-fill today's date if empty
             const dateField = document.getElementById('strava-input-date');
             if (dateField && !dateField.value) {
                 const today = new Date().toISOString().substring(0, 10);
                 dateField.value = today;
             }
-            
+
             self.loadStravaDashboardUI();
         });
-        
+
         btnCloseStrava.addEventListener('click', () => {
             soundSynth.playClick();
             modalStrava.classList.remove('active');
@@ -645,7 +645,7 @@ FrejaUIController.prototype.bindEvents = function() {
                 max_heartrate: document.getElementById('strava-input-max-hr').value !== "" ? parseFloat(document.getElementById('strava-input-max-hr').value) : null,
                 calories: document.getElementById('strava-input-calories').value !== "" ? parseFloat(document.getElementById('strava-input-calories').value) : null
             };
-            
+
             self.writeLog(`SAVING STRAVA LOG FOR ${dateInput}`, "sys");
             try {
                 const res = await fetch('/api/strava/data', {
@@ -658,7 +658,7 @@ FrejaUIController.prototype.bindEvents = function() {
                     self.writeLog("STRAVA LOG SECURED IN DATABASE", "sys");
                     soundSynth.playNotify();
                     self.loadStravaDashboardUI();
-                    
+
                     // Clear form input fields except date
                     document.getElementById('strava-input-name').value = '';
                     document.getElementById('strava-input-distance').value = '';
@@ -723,21 +723,21 @@ FrejaUIController.prototype.bindEvents = function() {
     if (btnSaveStravaApi) {
         btnSaveStravaApi.addEventListener('click', async () => {
             soundSynth.playClick();
-            
+
             const stravaClientId = document.getElementById('input-strava-client-id').value.trim();
             const stravaClientSecret = document.getElementById('input-strava-client-secret').value;
             const stravaRefreshToken = document.getElementById('input-strava-refresh-token').value;
-            
+
             localStorage.setItem("freja_strava_client_id", stravaClientId);
             localStorage.setItem("freja_strava_client_secret", stravaClientSecret);
             localStorage.setItem("freja_strava_refresh_token", stravaRefreshToken);
-            
+
             const chkStrava = document.getElementById('chk-tool-get_strava_data');
             const chkStravaAnalysis = document.getElementById('chk-tool-get_strava_activity_analysis');
             const chkStravaStats = document.getElementById('chk-tool-get_strava_athlete_stats');
-            
+
             let anyStravaAllowed = false;
-            
+
             if (chkStrava) {
                 const isAllowed = chkStrava.checked;
                 localStorage.setItem("freja_tool_get_strava_data_allowed", isAllowed);
@@ -753,7 +753,7 @@ FrejaUIController.prototype.bindEvents = function() {
                 localStorage.setItem("freja_tool_get_strava_athlete_stats_allowed", isAllowed);
                 if (isAllowed) anyStravaAllowed = true;
             }
-            
+
             const capStrava = document.getElementById('cap-strava');
             if (capStrava) {
                 if (anyStravaAllowed) {
@@ -762,7 +762,7 @@ FrejaUIController.prototype.bindEvents = function() {
                     capStrava.classList.remove('active');
                 }
             }
-            
+
             // Save keys to secure SQLite database (permission flags included so the
             // backend, the authoritative enforcement point, sees the same grants).
             await self.saveKeysToServer({
@@ -773,7 +773,7 @@ FrejaUIController.prototype.bindEvents = function() {
                 freja_tool_get_strava_activity_analysis_allowed: String(chkStravaAnalysis ? chkStravaAnalysis.checked : false),
                 freja_tool_get_strava_athlete_stats_allowed: String(chkStravaStats ? chkStravaStats.checked : false)
             });
-            
+
             self.writeLog("STRAVA API CONFIGURATION SECURED", "sys");
             soundSynth.playNotify();
         });
@@ -814,22 +814,22 @@ FrejaUIController.prototype.bindEvents = function() {
     const btnWithings = document.getElementById('btn-withings');
     const modalWithings = document.getElementById('modal-withings');
     const btnCloseWithings = document.getElementById('btn-close-withings');
-    
+
     if (btnWithings && modalWithings && btnCloseWithings) {
         btnWithings.addEventListener('click', () => {
             soundSynth.playClick();
             modalWithings.classList.add('active');
-            
+
             // Pre-fill today's date if empty
             const dateField = document.getElementById('withings-input-date');
             if (dateField && !dateField.value) {
                 const today = new Date().toISOString().substring(0, 10);
                 dateField.value = today;
             }
-            
+
             self.loadWithingsDashboardUI();
         });
-        
+
         btnCloseWithings.addEventListener('click', () => {
             soundSynth.playClick();
             modalWithings.classList.remove('active');
@@ -855,7 +855,7 @@ FrejaUIController.prototype.bindEvents = function() {
                 bone_mass: document.getElementById('withings-input-bone').value !== "" ? parseFloat(document.getElementById('withings-input-bone').value) : null,
                 heart_pulse: document.getElementById('withings-input-pulse').value !== "" ? parseFloat(document.getElementById('withings-input-pulse').value) : null
             };
-            
+
             self.writeLog(`SAVING WITHINGS LOG FOR ${dateInput}`, "sys");
             try {
                 const res = await fetch('/api/withings/data', {
@@ -868,7 +868,7 @@ FrejaUIController.prototype.bindEvents = function() {
                     self.writeLog("WITHINGS LOG SECURED IN DATABASE", "sys");
                     soundSynth.playNotify();
                     self.loadWithingsDashboardUI();
-                    
+
                     // Clear form input fields except date
                     document.getElementById('withings-input-weight').value = '';
                     document.getElementById('withings-input-fat').value = '';
@@ -930,20 +930,20 @@ FrejaUIController.prototype.bindEvents = function() {
     if (btnSaveWithingsApi) {
         btnSaveWithingsApi.addEventListener('click', async () => {
             soundSynth.playClick();
-            
+
             const withingsClientId = document.getElementById('input-withings-client-id').value.trim();
             const withingsClientSecret = document.getElementById('input-withings-client-secret').value;
             const withingsRefreshToken = document.getElementById('input-withings-refresh-token').value;
-            
+
             localStorage.setItem("freja_withings_client_id", withingsClientId);
             localStorage.setItem("freja_withings_client_secret", withingsClientSecret);
             localStorage.setItem("freja_withings_refresh_token", withingsRefreshToken);
-            
+
             const chkWithings = document.getElementById('chk-tool-get_withings_health');
             if (chkWithings) {
                 const isAllowed = chkWithings.checked;
                 localStorage.setItem("freja_tool_get_withings_health_allowed", isAllowed);
-                
+
                 const capWithings = document.getElementById('cap-withings');
                 if (capWithings) {
                     if (isAllowed) {
@@ -953,7 +953,7 @@ FrejaUIController.prototype.bindEvents = function() {
                     }
                 }
             }
-            
+
             // Save keys to secure SQLite database (permission flag included so the
             // backend, the authoritative enforcement point, sees the same grant).
             await self.saveKeysToServer({
@@ -962,7 +962,7 @@ FrejaUIController.prototype.bindEvents = function() {
                 freja_withings_refresh_token: withingsRefreshToken,
                 freja_tool_get_withings_health_allowed: String(chkWithings ? chkWithings.checked : false)
             });
-            
+
             self.writeLog("WITHINGS API CONFIGURATION SECURED", "sys");
             soundSynth.playNotify();
         });
@@ -1004,20 +1004,20 @@ FrejaUIController.prototype.bindEvents = function() {
     if (btnSaveGoogleCalendarApi) {
         btnSaveGoogleCalendarApi.addEventListener('click', async () => {
             soundSynth.playClick();
-            
+
             const googleClientId = document.getElementById('input-google-calendar-client-id').value.trim();
             const googleClientSecret = document.getElementById('input-google-calendar-client-secret').value;
             const googleRefreshToken = document.getElementById('input-google-calendar-refresh-token').value;
-            
+
             localStorage.setItem("freja_google_calendar_client_id", googleClientId);
             localStorage.setItem("freja_google_calendar_client_secret", googleClientSecret);
             localStorage.setItem("freja_google_calendar_refresh_token", googleRefreshToken);
-            
+
             const chkGoogleCalendar = document.getElementById('chk-tool-manage_google_calendar');
             if (chkGoogleCalendar) {
                 const isAllowed = chkGoogleCalendar.checked;
                 localStorage.setItem("freja_tool_manage_google_calendar_allowed", isAllowed);
-                
+
                 const capGoogleCalendar = document.getElementById('cap-google_calendar');
                 if (capGoogleCalendar) {
                     if (isAllowed) {
@@ -1027,7 +1027,7 @@ FrejaUIController.prototype.bindEvents = function() {
                     }
                 }
             }
-            
+
             // Save keys to secure SQLite database (permission flag included so the
             // backend, the authoritative enforcement point, sees the same grant).
             await self.saveKeysToServer({
@@ -1036,7 +1036,7 @@ FrejaUIController.prototype.bindEvents = function() {
                 freja_google_calendar_refresh_token: googleRefreshToken,
                 freja_tool_manage_google_calendar_allowed: String(chkGoogleCalendar ? chkGoogleCalendar.checked : false)
             });
-            
+
             self.writeLog("GOOGLE CALENDAR API CONFIGURATION SECURED", "sys");
             soundSynth.playNotify();
         });
@@ -1046,35 +1046,35 @@ FrejaUIController.prototype.bindEvents = function() {
     const btnGoogleCalendar = document.getElementById('btn-google-calendar');
     const modalGoogleCalendar = document.getElementById('modal-google-calendar');
     const btnCloseGoogleCalendar = document.getElementById('btn-close-google-calendar');
-    
+
     if (btnGoogleCalendar && modalGoogleCalendar && btnCloseGoogleCalendar) {
         btnGoogleCalendar.addEventListener('click', () => {
             soundSynth.playClick();
             modalGoogleCalendar.classList.add('active');
-            
+
             // Clear any leftover edit states in form on open
             document.getElementById('google-calendar-input-id').value = '';
             document.getElementById('google-calendar-input-summary').value = '';
             document.getElementById('google-calendar-input-description').value = '';
             document.getElementById('google-calendar-input-location').value = '';
-            
+
             const now = new Date();
             const startISO = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
             document.getElementById('google-calendar-input-start').value = startISO;
-            
+
             const nextHour = new Date(new Date().getTime() + 60 * 60 * 1000);
             const endISO = new Date(nextHour.getTime() - nextHour.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
             document.getElementById('google-calendar-input-end').value = endISO;
 
             const btnSave = document.getElementById('btn-save-google-calendar-manual');
             if (btnSave) btnSave.innerHTML = `<i class="fa-solid fa-floppy-disk"></i> SAVE EVENT`;
-            
+
             const btnCancel = document.getElementById('btn-cancel-google-calendar-edit');
             if (btnCancel) btnCancel.style.display = "none";
-            
+
             self.loadGoogleCalendarDashboardUI();
         });
-        
+
         btnCloseGoogleCalendar.addEventListener('click', () => {
             soundSynth.playClick();
             modalGoogleCalendar.classList.remove('active');
@@ -1088,7 +1088,7 @@ FrejaUIController.prototype.bindEvents = function() {
             const summary = document.getElementById('google-calendar-input-summary').value.trim();
             const startTime = document.getElementById('google-calendar-input-start').value;
             const endTime = document.getElementById('google-calendar-input-end').value;
-            
+
             if (!summary || !startTime || !endTime) {
                 self.writeLog("CALENDAR FAILURE: TITEL OCH TIDER SAKNAS", "err");
                 soundSynth.playError();
@@ -1096,7 +1096,7 @@ FrejaUIController.prototype.bindEvents = function() {
                 return;
             }
             soundSynth.playClick();
-            
+
             const eventId = document.getElementById('google-calendar-input-id').value;
             const payload = {
                 summary: summary,
@@ -1105,11 +1105,11 @@ FrejaUIController.prototype.bindEvents = function() {
                 description: document.getElementById('google-calendar-input-description').value.trim(),
                 location: document.getElementById('google-calendar-input-location').value.trim()
             };
-            
+
             if (eventId) {
                 payload.id = parseInt(eventId);
             }
-            
+
             self.writeLog(`SAVING CALENDAR EVENT: "${summary}"`, "sys");
             try {
                 const res = await fetch('/api/google_calendar/data', {
@@ -1122,16 +1122,16 @@ FrejaUIController.prototype.bindEvents = function() {
                     self.writeLog("CALENDAR EVENT SECURED IN DATABASE", "sys");
                     soundSynth.playNotify();
                     self.loadGoogleCalendarDashboardUI();
-                    
+
                     // Clear form input fields
                     document.getElementById('google-calendar-input-id').value = '';
                     document.getElementById('google-calendar-input-summary').value = '';
                     document.getElementById('google-calendar-input-description').value = '';
                     document.getElementById('google-calendar-input-location').value = '';
-                    
+
                     const btnSave = document.getElementById('btn-save-google-calendar-manual');
                     if (btnSave) btnSave.innerHTML = `<i class="fa-solid fa-floppy-disk"></i> SAVE EVENT`;
-                    
+
                     const btnCancel = document.getElementById('btn-cancel-google-calendar-edit');
                     if (btnCancel) btnCancel.style.display = "none";
                 } else {
@@ -1153,10 +1153,10 @@ FrejaUIController.prototype.bindEvents = function() {
             document.getElementById('google-calendar-input-summary').value = '';
             document.getElementById('google-calendar-input-description').value = '';
             document.getElementById('google-calendar-input-location').value = '';
-            
+
             const btnSave = document.getElementById('btn-save-google-calendar-manual');
             if (btnSave) btnSave.innerHTML = `<i class="fa-solid fa-floppy-disk"></i> SAVE EVENT`;
-            
+
             btnCancelGoogleCalendarEdit.style.display = "none";
         });
     }
@@ -1190,7 +1190,7 @@ FrejaUIController.prototype.bindEvents = function() {
     // Insert new engram cards manually
     const btnAddMemoryManual = document.getElementById('btn-add-memory-manual');
     const inputNewMemory = document.getElementById('input-new-memory');
-    
+
     if (btnAddMemoryManual && inputNewMemory) {
         btnAddMemoryManual.addEventListener('click', async () => {
             const text = inputNewMemory.value.trim();
@@ -1198,7 +1198,7 @@ FrejaUIController.prototype.bindEvents = function() {
             soundSynth.playClick();
             inputNewMemory.value = "";
             self.writeLog("ENCODING MANUAL MEMORY ENGRAM", "sys");
-            
+
             const success = await self.memory.addMemoryManual(text);
             if (success) {
                 self.writeLog("MANUAL ENGRAM SECURED", "sys");
@@ -1209,12 +1209,12 @@ FrejaUIController.prototype.bindEvents = function() {
                 soundSynth.playError();
             }
         });
-        
+
         inputNewMemory.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') btnAddMemoryManual.click();
         });
     }
-    
+
     // Synchronize engrams list
     const btnRefreshMemory = document.getElementById('btn-refresh-memory');
     if (btnRefreshMemory) {
@@ -1224,7 +1224,7 @@ FrejaUIController.prototype.bindEvents = function() {
             self.loadMemoryVaultUI();
         });
     }
-    
+
     // Core Memory wipe-out button
     const btnWipeMemory = document.getElementById('btn-wipe-memory');
     if (btnWipeMemory) {
@@ -1287,7 +1287,7 @@ FrejaUIController.prototype.bindEvents = function() {
     const btnSaveSettings = document.getElementById('btn-save-settings');
     btnSaveSettings.addEventListener('click', async () => {
         soundSynth.playClick();
-        
+
         const inputBackendUrl = document.getElementById('input-backend-url');
         let backendUrlVal = inputBackendUrl ? inputBackendUrl.value.trim() : "";
         if (backendUrlVal) {
@@ -1308,7 +1308,7 @@ FrejaUIController.prototype.bindEvents = function() {
         const sliderPitch = document.getElementById('slider-pitch');
         if (sliderRate) localStorage.setItem("freja_speech_rate", sliderRate.value);
         if (sliderPitch) localStorage.setItem("freja_speech_pitch", sliderPitch.value);
-        
+
         const personaEl = document.getElementById('textarea-persona');
         if (personaEl) {
             localStorage.setItem("freja_speech_persona", personaEl.value);
@@ -1379,12 +1379,12 @@ FrejaUIController.prototype.bindEvents = function() {
     const btnThemeToggle = document.getElementById('btn-theme-toggle');
     const modalTheme = document.getElementById('modal-theme');
     const btnCloseTheme = document.getElementById('btn-close-theme');
-    
+
     btnThemeToggle.addEventListener('click', () => {
         soundSynth.playClick();
         modalTheme.classList.add('active');
     });
-    
+
     btnCloseTheme.addEventListener('click', () => {
         soundSynth.playClick();
         modalTheme.classList.remove('active');
@@ -1397,7 +1397,7 @@ FrejaUIController.prototype.bindEvents = function() {
             soundSynth.playClick();
             themeChoiceCards.forEach(c => c.classList.remove('active'));
             card.classList.add('active');
-            
+
             const selectedTheme = card.getAttribute('data-theme');
             self.applyTheme(selectedTheme);
             modalTheme.classList.remove('active');
@@ -1412,13 +1412,13 @@ FrejaUIController.prototype.bindEvents = function() {
             const option = document.createElement('option');
             option.value = index;
             option.textContent = `${voice.name} (${voice.lang})`;
-            
+
             const savedVoiceIdx = localStorage.getItem("freja_speech_voiceidx");
             if (savedVoiceIdx && parseInt(savedVoiceIdx) === index) {
                 option.selected = true;
                 self.speech.voiceIndex = index;
             }
-            
+
             selectVoice.appendChild(option);
         });
     };
@@ -1427,14 +1427,14 @@ FrejaUIController.prototype.bindEvents = function() {
     const btnTelegram = document.getElementById('btn-telegram');
     const modalTelegram = document.getElementById('modal-telegram');
     const btnCloseTelegram = document.getElementById('btn-close-telegram');
-    
+
     if (btnTelegram && modalTelegram && btnCloseTelegram) {
         btnTelegram.addEventListener('click', () => {
             soundSynth.playClick();
             modalTelegram.classList.add('active');
             self.loadTelegramDashboardUI();
         });
-        
+
         btnCloseTelegram.addEventListener('click', () => {
             soundSynth.playClick();
             modalTelegram.classList.remove('active');
@@ -1445,14 +1445,14 @@ FrejaUIController.prototype.bindEvents = function() {
     const btnTrainer = document.getElementById('btn-trainer');
     const modalTrainer = document.getElementById('modal-trainer');
     const btnCloseTrainer = document.getElementById('btn-close-trainer');
-    
+
     if (btnTrainer && modalTrainer && btnCloseTrainer) {
         btnTrainer.addEventListener('click', () => {
             soundSynth.playClick();
             modalTrainer.classList.add('active');
             self.loadTrainerDashboardUI();
         });
-        
+
         btnCloseTrainer.addEventListener('click', () => {
             soundSynth.playClick();
             modalTrainer.classList.remove('active');
@@ -1463,7 +1463,7 @@ FrejaUIController.prototype.bindEvents = function() {
     const btnLearning = document.getElementById('btn-learning');
     const modalLearning = document.getElementById('modal-learning');
     const btnCloseLearning = document.getElementById('btn-close-learning');
-    
+
     if (btnLearning && modalLearning && btnCloseLearning) {
         btnLearning.addEventListener('click', () => {
             soundSynth.playClick();
@@ -1471,7 +1471,7 @@ FrejaUIController.prototype.bindEvents = function() {
             self.loadLearningVaultUI();
             self.loadCredentialsUI();
         });
-        
+
         btnCloseLearning.addEventListener('click', () => {
             soundSynth.playClick();
             modalLearning.classList.remove('active');
@@ -1488,13 +1488,13 @@ FrejaUIController.prototype.bindEvents = function() {
                 alert("Enter a topic to learn about.");
                 return;
             }
-            
+
             soundSynth.playClick();
             btnStartLearning.disabled = true;
             topicInput.disabled = true;
-            
+
             self.writeLog(`STARTING MANUAL LEARNING TASK FOR: "${topic}"`, "sys");
-            
+
             try {
                 const res = await fetch("/api/tools/execute", {
                     method: "POST",
@@ -1544,19 +1544,19 @@ FrejaUIController.prototype.bindEvents = function() {
             const domainInput = document.getElementById('cred-input-domain');
             const userInput = document.getElementById('cred-input-user');
             const passInput = document.getElementById('cred-input-pass');
-            
+
             const domain = domainInput.value.trim();
             const username = userInput.value.trim();
             const password = passInput.value.trim();
-            
+
             if (!domain || !username || !password) {
                 alert("Fill in the domain, username and password.");
                 return;
             }
-            
+
             soundSynth.playClick();
             btnSaveCredentials.disabled = true;
-            
+
             try {
                 const res = await fetch("/api/learning/credentials", {
                     method: "POST",
@@ -1591,6 +1591,116 @@ FrejaUIController.prototype.bindEvents = function() {
         });
     }
 
+    // Save Trainer Profile (onboarding form)
+    const btnSaveTrainerProfile = document.getElementById('btn-save-trainer-profile');
+    if (btnSaveTrainerProfile) {
+        btnSaveTrainerProfile.addEventListener('click', async () => {
+            soundSynth.playClick();
+            const val = (id) => {
+                const el = document.getElementById(id);
+                return el ? el.value.trim() : '';
+            };
+            const numOrNull = (id) => {
+                const v = val(id);
+                if (v === '') return null;
+                const n = parseFloat(v);
+                return isNaN(n) ? null : n;
+            };
+            const payload = {
+                goals: val('trainer-input-goal'),
+                limitations: val('trainer-input-limitations'),
+                event: val('trainer-input-event'),
+                event_date: val('trainer-input-event-date'),
+                fitness_level: val('trainer-select-fitness-level'),
+                availability: val('trainer-input-availability'),
+                location: val('trainer-input-location'),
+                baseline_resting_hr: numOrNull('trainer-input-baseline-rhr'),
+                baseline_sleep_hours: numOrNull('trainer-input-baseline-sleep'),
+                baseline_hrv: numOrNull('trainer-input-baseline-hrv')
+            };
+
+            btnSaveTrainerProfile.disabled = true;
+            const originalHtml = btnSaveTrainerProfile.innerHTML;
+            btnSaveTrainerProfile.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> SPARAR...';
+            self.writeLog("SAVING TRAINING PROFILE...", "sys");
+
+            try {
+                const res = await fetch('/api/trainer/profile', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                if (res.ok) {
+                    self.writeLog("TRAINING PROFILE SAVED", "sys");
+                    soundSynth.playNotify();
+                } else {
+                    const err = await res.json().catch(() => ({}));
+                    throw new Error(err.detail || `HTTP ${res.status}`);
+                }
+            } catch (e) {
+                self.writeLog(`PROFILE SAVE ERROR: ${e.message}`, "err");
+                soundSynth.playError();
+                alert(`Could not save the profile: ${e.message}`);
+            } finally {
+                btnSaveTrainerProfile.disabled = false;
+                btnSaveTrainerProfile.innerHTML = originalHtml;
+            }
+        });
+    }
+
+    // Log a completed strength set (progressive overload)
+    const btnLogStrength = document.getElementById('btn-log-strength');
+    if (btnLogStrength) {
+        btnLogStrength.addEventListener('click', async () => {
+            const name = (document.getElementById('trainer-strength-name') || {}).value?.trim() || '';
+            if (!name) {
+                self.writeLog("STRENGTH LOG: EXERCISE NAME MISSING", "err");
+                soundSynth.playError();
+                alert("Enter an exercise name.");
+                return;
+            }
+            const num = (id) => {
+                const el = document.getElementById(id);
+                const v = el ? el.value.trim() : '';
+                return v === '' ? null : parseFloat(v);
+            };
+            soundSynth.playClick();
+            btnLogStrength.disabled = true;
+            try {
+                const res = await fetch('/api/trainer/strength/log', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        exercise_name: name,
+                        sets: num('trainer-strength-sets'),
+                        reps: num('trainer-strength-reps'),
+                        weight: num('trainer-strength-weight'),
+                        rpe: num('trainer-strength-rpe')
+                    })
+                });
+                if (res.ok) {
+                    self.writeLog(`STRENGTH SET LOGGED: ${name}`, "sys");
+                    soundSynth.playNotify();
+                    ['trainer-strength-name', 'trainer-strength-sets', 'trainer-strength-reps',
+                     'trainer-strength-weight', 'trainer-strength-rpe'].forEach(id => {
+                        const el = document.getElementById(id);
+                        if (el) el.value = '';
+                    });
+                    self.loadStrengthLogsUI();
+                } else {
+                    const err = await res.json().catch(() => ({}));
+                    throw new Error(err.detail || `HTTP ${res.status}`);
+                }
+            } catch (e) {
+                self.writeLog(`STRENGTH LOG ERROR: ${e.message}`, "err");
+                soundSynth.playError();
+                alert(`Could not log the set: ${e.message}`);
+            } finally {
+                btnLogStrength.disabled = false;
+            }
+        });
+    }
+
     // Generate Trainer Plan
     const btnGenerateTrainerPlan = document.getElementById('btn-generate-trainer-plan');
     if (btnGenerateTrainerPlan) {
@@ -1603,30 +1713,30 @@ FrejaUIController.prototype.bindEvents = function() {
                 alert("Enter a training goal or focus area.");
                 return;
             }
-            
+
             soundSynth.playClick();
             btnGenerateTrainerPlan.disabled = true;
             btnGenerateTrainerPlan.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> GENERERAR...';
             self.writeLog(`GENERATING PERSONAL TRAINER PLAN FOR: "${goalInput}"`, "sys");
-            
+
             try {
                 const res = await fetch('/api/trainer/generate', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ goal: goalInput, limitations: limitationsInput })
                 });
-                
+
                 if (res.ok) {
                     const data = await res.json();
                     self.writeLog("COACH PLAN GENERATED AND SAVED", "sys");
                     soundSynth.playNotify();
-                    
+
                     const outputContainer = document.getElementById('trainer-plan-output-container');
                     const outputDiv = document.getElementById('trainer-plan-output');
                     if (outputContainer && outputDiv) {
                         self.renderTrainerPlanDetails(data.plan_id, data.advice_text);
                     }
-                    
+
                     self.loadTrainerDashboardUI();
                 } else {
                     const err = await res.json();
@@ -1640,7 +1750,7 @@ FrejaUIController.prototype.bindEvents = function() {
                 alert(`Error communicating with the server: ${e.message}`);
             } finally {
                 btnGenerateTrainerPlan.disabled = false;
-                btnGenerateTrainerPlan.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> GENERATE TRAINING PLAN';
+                btnGenerateTrainerPlan.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> GENERATE PLAN';
             }
         });
     }
@@ -1687,7 +1797,7 @@ FrejaUIController.prototype.bindEvents = function() {
             soundSynth.playClick();
             const token = document.getElementById('telegram-input-token').value.trim();
             const chatId = document.getElementById('telegram-input-chat-id').value.trim();
-            
+
             self.writeLog("SAVING TELEGRAM CONFIGURATIONS...", "sys");
             try {
                 const res = await fetch('/api/telegram/config', {

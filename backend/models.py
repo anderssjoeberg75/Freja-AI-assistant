@@ -125,7 +125,11 @@ class TrainerProfile(Base):
     baseline_hrv = Column(Float)
     updated_at = Column(String)
     auto_adjust = Column(Integer, default=1)
-    
+    # Timestamp of the last automatic baseline recompute (see recompute_health_baselines).
+    # Kept separate from updated_at, which any profile save touches, so the weekly
+    # cadence is driven only by actual baseline refreshes.
+    baselines_updated_at = Column(String)
+
     __table_args__ = (
         CheckConstraint('id = 1', name='chk_single_row'),
     )
@@ -137,3 +141,21 @@ class TrainerBooking(Base):
     event_id = Column(Integer)
     workout_date = Column(String)
     week = Column(Integer, default=0)
+
+class TrainerStrengthLog(Base):
+    """One logged strength set/exercise result, used to drive progressive overload.
+
+    The coach reads recent rows to progress load week to week (see Issue #34). Each
+    row is one exercise performed on a given date; `plan_id` links it back to the plan
+    the session came from when known (nullable for ad-hoc logs)."""
+    __tablename__ = 'trainer_strength_logs'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    date = Column(String)          # YYYY-MM-DD the set was performed
+    exercise_name = Column(String)
+    sets = Column(Integer)
+    reps = Column(Integer)
+    weight = Column(Float)         # load in kg (0/None for bodyweight)
+    rpe = Column(Float)            # rate of perceived exertion (1-10), optional
+    notes = Column(String)
+    plan_id = Column(Integer)      # source plan, nullable
+    created_at = Column(String)

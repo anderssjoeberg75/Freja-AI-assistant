@@ -177,6 +177,12 @@ def init_db():
         ("sleep_score", "INTEGER"),
     ])
 
+    # Backfill the baselines_updated_at column added to trainer_profile for the
+    # weekly baseline auto-update (Issue #35).
+    _ensure_columns(cursor, "trainer_profile", [
+        ("baselines_updated_at", "TEXT"),
+    ])
+
     # Demo rows, inserted only into empty tables so the HUD dashboards render before any
     # provider is connected. The Swedish activity names mirror what a real sync writes
     # (see the type_mapping in backend/routes/garmin.py), so the UI looks the same either way.

@@ -303,6 +303,109 @@ def test_trainer_optimize_keeps_when_recovered(auth_headers, monkeypatch):
     assert end_time.startswith(f"{today}T08:40")  # unchanged
 
 
+def test_trainer_baselines_refresh(auth_headers):
+    """Forcing a baseline refresh averages the seeded Garmin data into the profile."""
+    client = TestClient(app)
+    response = client.post(
+        "/api/trainer/baselines/refresh", json={"force": True}, headers=auth_headers
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data.get("status") == "success"
+    updated = data.get("updated", {})
+    # The seed data has resting_hr, sleep_hours and hrv for several days.
+    assert "baseline_resting_hr" in updated
+    assert updated["baseline_resting_hr"] > 0
+
+    # The profile now carries the recomputed baseline and a refresh timestamp.
+    profile = client.get("/api/trainer/profile", headers=auth_headers).json()
+    assert profile.get("baseline_resting_hr") is not None
+    assert profile.get("baselines_updated_at")
+
+
+def test_trainer_baselines_weekly_cadence(auth_headers):
+    """A non-forced recompute right after a forced one is skipped (weekly cadence)."""
+    import backend.routes.trainer as tm
+    # Force once so baselines_updated_at is fresh.
+    tm.recompute_health_baselines(force=True)
+    # A non-forced call within the window must be a no-op.
+    result = tm.recompute_health_baselines(force=False)
+    assert result.get("status") == "skipped"
+    assert result.get("reason") == "refreshed_recently"
+
+
+def test_trainer_strength_log_roundtrip(auth_headers):
+    """A logged strength set can be created, listed and deleted."""
+    client = TestClient(app)
+    payload = {
+        "exercise_name": "Knäböj",
+        "sets": 3,
+        "reps": 8,
+        "weight": 80.0,
+        "rpe": 8,
+    }
+    add_res = client.post("/api/trainer/strength/log", json=payload, headers=auth_headers)
+    assert add_res.status_code == 200
+    log_id = add_res.json().get("id")
+    assert log_id
+
+    get_res = client.get("/api/trainer/strength/log?limit=50", headers=auth_headers)
+    assert get_res.status_code == 200
+    logs = get_res.json().get("logs", [])
+    assert any(l["id"] == log_id and l["exercise_name"] == "Knäböj" for l in logs)
+
+    del_res = client.delete(f"/api/trainer/strength/log?log_id={log_id}", headers=auth_headers)
+    assert del_res.status_code == 200
+    assert del_res.json().get("status") == "success"
+
+
+def test_trainer_strength_log_requires_name(auth_headers):
+    client = TestClient(app)
+    res = client.post("/api/trainer/strength/log", json={"sets": 3}, headers=auth_headers)
+    assert res.status_code == 400
+
+
+def test_trainer_booking_includes_exercises(auth_headers):
+    """A strength workout with an exercises block books its exercises into the event."""
+    client = TestClient(app)
+    plan_json = json.dumps({"workouts": [
+        {"day": "Måndag", "activity_type": "Styrketräning", "title": "Underkropp",
+         "description": "Tunga baslyft", "duration_minutes": 50,
+         "exercises": [
+             {"name": "Knäböj", "sets": 4, "reps": 6, "target_weight": 90, "rpe": 8},
+             {"name": "Marklyft", "sets": 3, "reps": 5, "target_weight": 110}
+         ]}
+    ]})
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO trainer_plans (date, goal, advice_text, limitations) VALUES (?, ?, ?, ?)",
+            ("2026-07-06", "Styrketest", plan_json, "Inga")
+        )
+        conn.commit()
+        plan_id = cursor.lastrowid
+
+    payload = {"plan_id": plan_id, "start_date": "2026-07-06"}
+    res = client.post("/api/trainer/plans/book", json=payload, headers=auth_headers)
+    assert res.status_code == 200
+    assert res.json().get("booked_count") == 1
+
+    # The booked calendar event description should carry the exercise block.
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT event_id FROM trainer_bookings WHERE plan_id = ? ORDER BY id DESC LIMIT 1",
+            (plan_id,)
+        )
+        event_row = cursor.fetchone()
+        cursor.execute(
+            "SELECT description FROM google_calendar_events WHERE id = ?", (event_row[0],)
+        )
+        desc = cursor.fetchone()[0]
+    assert "Knäböj" in desc
+    assert "90 kg" in desc
+
+
 def test_trainer_booking_is_idempotent(auth_headers):
     client = TestClient(app)
     plan_json = json.dumps({"workouts": [

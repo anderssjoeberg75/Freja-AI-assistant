@@ -297,6 +297,17 @@ async def run_garmin_sync_flow(email, password, days):
         await asyncio.to_thread(run_garmin_sync_task_blocking, email, password, days)
         set_sync_state("garmin", "success")
         
+        # Refresh the PT health baselines from the freshly-synced data. This is a
+        # cheap SQLite pass that self-limits to a weekly cadence (Issue #35), so it is
+        # safe to call after every sync.
+        try:
+            from backend.routes.trainer import recompute_health_baselines
+            result = recompute_health_baselines()
+            if isinstance(result, dict) and result.get("status") == "success":
+                print(f"[GARMIN SYNC] PT-hälsobaslinjer uppdaterade: {result.get('updated')}")
+        except Exception as base_err:
+            print(f"[GARMIN SYNC] Baseline recompute was skipped: {base_err}")
+
         # Run the async optimizer directly in the main event loop
         try:
             await auto_optimize_workouts_after_sync_async()
