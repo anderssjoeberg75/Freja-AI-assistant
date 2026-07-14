@@ -1210,6 +1210,10 @@ async def exec_run_windows_command(args):
         if base_cmd_name not in SAFE_EXECUTABLES:
             return {"error": f"Security error: The executable '{base_cmd_name}' is not in the list of approved commands."}
 
+        # Prevent directory traversal or local hijacked binary execution
+        if "/" in base_cmd or "\\" in base_cmd:
+            return {"error": "Security error: Absolute or relative paths are not allowed in the command executable."}
+
         try:
             # Execute command directly with safe structured argument array (bypassing the shell)
             proc = await asyncio.create_subprocess_exec(
