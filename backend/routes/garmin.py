@@ -185,7 +185,10 @@ def run_garmin_sync_task_blocking(email, password, days):
                     bb_data = client.get_body_battery(date_str)
                     if bb_data and isinstance(bb_data, list):
                         day_bb = bb_data[0]
-                        body_battery = day_bb.get('highest')
+                        # Extract the maximum value from bodyBatteryValuesArray (list of [timestamp, value] pairs)
+                        bb_values = [v[1] for v in day_bb.get('bodyBatteryValuesArray', []) if isinstance(v, list) and len(v) > 1 and v[1] is not None]
+                        body_battery = max(bb_values) if bb_values else day_bb.get('highest')
+                        print(f"[Garmin Sync] Extracted body_battery = {body_battery} for {date_str}")
                 except Exception as bb_err:
                     print(f"Error fetching body battery for {date_str}: {bb_err}")
                 try:

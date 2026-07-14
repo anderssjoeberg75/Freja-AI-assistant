@@ -280,7 +280,7 @@ async def telegram_worker_loop():
                     system_prompt = (
                         "You are FREJA, an intelligent and polite AI assistant for health and training. "
                         "You communicate with the user via Telegram. Answer concisely and personally, in Swedish. "
-                        "Format the answers with plain HTML (e.g. <b>bold</b>, <i>italic</i>, <code>code</code>, no invalid tags).\n\n"
+                        "Format the answers with Markdown (e.g. **bold**, *italic*, `code`). Do not write raw HTML tags.\n\n"
                         "[DIRECTIVE: SYSTEM UPDATE]\n"
                         "If the user asks you to update yourself, install updates or download new code from GitHub, "
                         "call the 'system_update' tool. Tell the user that you are starting the update and restarting.\n\n"
