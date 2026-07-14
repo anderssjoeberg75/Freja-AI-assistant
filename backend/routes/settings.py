@@ -143,15 +143,11 @@ async def get_system_logs():
 
 @router.delete("/api/system/logs")
 async def clear_system_logs():
-    """Clears system log history and deletes the log file."""
-    SYSTEM_LOGS.clear()
-    if os.path.exists(LOG_FILE):
-        try:
-            os.remove(LOG_FILE)
-        except Exception:
-            pass
-    add_system_log("INFO", "Log history cleared.")
-    return {"status": "success"}
+    """Disabled for compliance/security reasons."""
+    raise HTTPException(
+        status_code=403,
+        detail="Log history deletion is disabled for compliance and security reasons."
+    )
 
 
 @router.get("/api/docs/{filename}")

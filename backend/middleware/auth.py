@@ -131,7 +131,11 @@ class FrejaAuthMiddleware(BaseHTTPMiddleware):
             # Fail closed if the DB is temporarily locked/busy during initialization/migration.
             expected_token = None
 
-        if not expected_token or not token or token.strip() != expected_token:
+        import secrets
+        token_val = token.strip() if token else ""
+        expected_val = expected_token if expected_token else ""
+
+        if not expected_token or not token or not secrets.compare_digest(token_val, expected_val):
             _record_failure(ip, path)
             return _cors_response(
                 request=request,

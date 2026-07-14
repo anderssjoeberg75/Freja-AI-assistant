@@ -112,17 +112,10 @@ def test_persistent_logging(db_token):
         assert len(logs) >= 1
         assert logs[-1]["message"] == "Pytest persistent log message"
         
-        # Verify API logs DELETE endpoint clears both queue and file (recreating it only for the clearing confirmation log)
+        # Verify API logs DELETE endpoint is disabled and returns 403 Forbidden
         response = client.delete("/api/system/logs", headers=headers)
-        assert response.status_code == 200
-        assert os.path.exists(LOG_FILE)
-        with open(LOG_FILE, "r", encoding="utf-8") as f:
-            lines = f.readlines()
-            assert len(lines) == 1
-            data = json.loads(lines[0])
-            assert data["message"] == "Log history cleared."
-        assert len(SYSTEM_LOGS) == 1  # Contains "Log history cleared."
-        assert SYSTEM_LOGS[0]["message"] == "Log history cleared."
+        assert response.status_code == 403
+        assert "disabled" in response.json().get("detail", "")
 
     finally:
         # Restore original logs state
