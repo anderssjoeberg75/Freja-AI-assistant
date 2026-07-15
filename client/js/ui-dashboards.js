@@ -149,6 +149,8 @@ FrejaUIController.prototype.loadTrainerDashboardUI = async function () {
     // Populate the onboarding profile form and the strength-log history.
     this.loadTrainerProfileUI();
     this.loadStrengthLogsUI();
+    // Populate weekly workouts list
+    this.loadWeeklyWorkoutsUI();
 
     const trainerList = document.getElementById('trainer-list');
     if (!trainerList) return;
@@ -234,6 +236,129 @@ FrejaUIController.prototype.loadTrainerDashboardUI = async function () {
     } catch (e) {
         console.error("[TRAINER] UI load error:", e);
         trainerList.innerHTML = '<div style="color: #ff3b30; text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[ERROR FETCHING HISTORY]</div>';
+    }
+};
+
+FrejaUIController.prototype.loadWeeklyWorkoutsUI = async function () {
+    const weeklyWorkoutsList = document.getElementById('weekly-workouts-list');
+    if (!weeklyWorkoutsList) return;
+
+    weeklyWorkoutsList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Laddar veckans pass...</div>';
+
+    try {
+        console.log("[FREJA CLIENT] Fetching weekly workouts from Google Calendar");
+        const res = await fetch('/api/google_calendar/data?days=14');
+        if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+
+        const events = await res.json();
+        
+        const WORKOUT_LOCATION_MARKER = "F.R.E.J.A. PT";
+        const WORKOUT_SUMMARY_MARKERS = ["💪", "🏃", "🚶", "🚴", "🧘", "🏊"];
+        
+        const isWorkoutEvent = (evt) => {
+            const location = evt.location || "";
+            const summary = evt.summary || "";
+            return location.includes(WORKOUT_LOCATION_MARKER) || 
+                   WORKOUT_SUMMARY_MARKERS.some(marker => summary.includes(marker));
+        };
+
+        const workouts = events.filter(isWorkoutEvent);
+
+        // Calculate Monday and Sunday of current week
+        const today = new Date();
+        const currentDay = today.getDay();
+        const distanceToMonday = currentDay === 0 ? -6 : 1 - currentDay;
+        
+        const monday = new Date(today);
+        monday.setDate(today.getDate() + distanceToMonday);
+        monday.setHours(0, 0, 0, 0);
+
+        const sunday = new Date(monday);
+        sunday.setDate(monday.getDate() + 6);
+        sunday.setHours(23, 59, 59, 999);
+
+        // Filter for current week
+        const thisWeeksWorkouts = workouts.filter(evt => {
+            if (!evt.start_time) return false;
+            const eventDate = new Date(evt.start_time);
+            return eventDate >= monday && eventDate <= sunday;
+        });
+
+        if (thisWeeksWorkouts.length === 0) {
+            weeklyWorkoutsList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Inga träningspass inbokade för denna vecka.</div>';
+            return;
+        }
+
+        // Sort chronologically
+        thisWeeksWorkouts.sort((a, b) => new Date(a.start_time) - new Date(b.start_time));
+
+        weeklyWorkoutsList.innerHTML = "";
+
+        const daysOfWeekSwedish = ["Söndag", "Måndag", "Tisdag", "Onsdag", "Torsdag", "Fredag", "Lördag"];
+        const monthsSwedish = ["jan", "feb", "mar", "apr", "maj", "jun", "jul", "aug", "sep", "okt", "nov", "dec"];
+
+        thisWeeksWorkouts.forEach(evt => {
+            const card = document.createElement('div');
+            card.className = "workout-card";
+            card.style.background = "rgba(0, 242, 254, 0.03)";
+            card.style.border = "1px solid rgba(0, 242, 254, 0.12)";
+            card.style.borderRadius = "6px";
+            card.style.padding = "12px";
+            card.style.display = "flex";
+            card.style.flexDirection = "column";
+            card.style.gap = "6px";
+            card.style.transition = "all 0.2s ease";
+            card.style.boxShadow = "inset 0 1px 1px rgba(255, 255, 255, 0.02)";
+
+            const d = new Date(evt.start_time);
+            const dayName = daysOfWeekSwedish[d.getDay()];
+            const dateNum = d.getDate();
+            const monthName = monthsSwedish[d.getMonth()];
+            
+            const formatTime = (isoStr) => {
+                if (!isoStr) return "";
+                const parts = isoStr.split('T');
+                if (parts.length === 2) {
+                    return parts[1].substring(0, 5);
+                }
+                return "";
+            };
+
+            const startTimeStr = formatTime(evt.start_time);
+            const endTimeStr = formatTime(evt.end_time);
+            const timeRange = startTimeStr && endTimeStr ? `${startTimeStr} - ${endTimeStr}` : startTimeStr;
+
+            let durationStr = "";
+            if (evt.start_time && evt.end_time) {
+                const diffMs = new Date(evt.end_time) - new Date(evt.start_time);
+                const diffMin = Math.round(diffMs / 60000);
+                if (diffMin > 0) {
+                    durationStr = ` (${diffMin} min)`;
+                }
+            }
+
+            const headerText = `${dayName.toUpperCase()} ${dateNum} ${monthName.toUpperCase()}`;
+            const descHtml = evt.description ? `<div style="font-size: 11px; color: var(--color-text-muted); line-height: 1.4; border-top: 1px solid rgba(255, 255, 255, 0.05); padding-top: 6px; margin-top: 4px; white-space: pre-wrap;">${evt.description}</div>` : "";
+            const locationHtml = evt.location ? `<span style="color: var(--color-accent); font-size: 10px;"><i class="fa-solid fa-location-dot"></i> ${evt.location}</span>` : "";
+
+            card.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span style="font-family: var(--font-display); font-size: 10px; color: var(--color-primary); letter-spacing: 0.5px; font-weight: bold;">${headerText}</span>
+                    <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 2px;">
+                        <span style="font-family: var(--font-mono); font-size: 10px; color: var(--color-text-bright);">${timeRange}${durationStr}</span>
+                        ${locationHtml}
+                    </div>
+                </div>
+                <div style="font-weight: bold; font-size: 12px; color: var(--color-text-bright); font-family: var(--font-display);">${evt.summary}</div>
+                ${descHtml}
+            `;
+            
+            weeklyWorkoutsList.appendChild(card);
+        });
+
+    } catch (e) {
+        console.error("[TRAINER] Weekly workouts load error:", e);
+        weeklyWorkoutsList.innerHTML = '<div style="color: #ff3b30; text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[ERROR FETCHING WEEKLY WORKOUTS]</div>';
     }
 };
 

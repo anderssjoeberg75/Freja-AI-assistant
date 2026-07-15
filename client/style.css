@@ -950,6 +950,29 @@ body {
 
 #modal-trainer .modal-body {
     flex: 1;
+    display: flex;
+    flex-direction: row;
+    gap: 20px;
+    overflow: hidden;
+}
+
+.trainer-left-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    overflow-y: auto;
+    padding-right: 8px;
+}
+
+.trainer-right-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    overflow-y: auto;
+    padding-left: 20px;
+    border-left: 1px dashed rgba(0, 242, 254, 0.15);
 }
 
 .modal-header {

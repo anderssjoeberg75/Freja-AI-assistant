@@ -927,8 +927,9 @@
                 <h2><i class="fa-solid fa-dumbbell"></i> COGNITIVE PERSONAL TRAINER</h2>
                 <button class="modal-close" id="btn-close-trainer">&times;</button>
             </div>
-            <div class="modal-body" style="display: flex; flex-direction: column; gap: 15px;">
-                <!-- Daily Check-in -->
+            <div class="modal-body">
+                <div class="trainer-left-panel">
+                    <!-- Daily Check-in -->
                 <div class="trainer-checkin" style="display: flex; flex-direction: column; gap: 8px; background: rgba(0, 242, 254, 0.05); border: 1px solid rgba(0, 242, 254, 0.15); border-radius: 4px; padding: 12px;">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <span style="font-size: 11px; color: var(--color-primary); font-family: var(--font-display); letter-spacing: 0.5px;"><i class="fa-solid fa-sun"></i> DAILY CHECK-IN</span>
@@ -1057,6 +1058,13 @@
                     <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); margin-bottom: 8px; letter-spacing: 1px;">TIDIGARE REKOMMENDATIONER</h3>
                     <div class="trainer-list" id="trainer-list" style="flex: 1; overflow-y: auto; background: rgba(0,0,0,0.3); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px;">
                         <div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">No history loaded...</div>
+                    </div>
+                </div>
+                </div> <!-- End of trainer-left-panel -->
+                <div class="trainer-right-panel">
+                    <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); margin-bottom: 8px; letter-spacing: 1px;"><i class="fa-solid fa-calendar-week"></i> VECKANS TRÄNINGSPASS</h3>
+                    <div class="weekly-workouts-list" id="weekly-workouts-list" style="display: flex; flex-direction: column; gap: 10px;">
+                        <div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Laddar veckans pass...</div>
                     </div>
                 </div>
             </div>
