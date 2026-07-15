@@ -937,6 +937,21 @@ body {
     animation: scaleUp 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
 }
 
+/* Personal Trainer Fullscreen Mode */
+#modal-trainer .modal-content {
+    width: 100%;
+    max-width: 100vw;
+    height: 100%;
+    max-height: 100vh;
+    border-radius: 0;
+    border: none;
+    margin: 0;
+}
+
+#modal-trainer .modal-body {
+    flex: 1;
+}
+
 .modal-header {
     display: flex;
     justify-content: space-between;

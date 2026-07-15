@@ -1445,18 +1445,26 @@ FrejaUIController.prototype.bindEvents = function () {
     const btnTrainer = document.getElementById('btn-trainer');
     const modalTrainer = document.getElementById('modal-trainer');
     const btnCloseTrainer = document.getElementById('btn-close-trainer');
+    const btnCloseTrainerFooter = document.getElementById('btn-close-trainer-footer');
 
     if (btnTrainer && modalTrainer && btnCloseTrainer) {
         btnTrainer.addEventListener('click', () => {
+            console.log("[FREJA CLIENT] Opening Personal Trainer Dashboard (fullscreen mode)");
             soundSynth.playClick();
             modalTrainer.classList.add('active');
             self.loadTrainerDashboardUI();
         });
 
-        btnCloseTrainer.addEventListener('click', () => {
+        const closeTrainerHandler = () => {
+            console.log("[FREJA CLIENT] Closing Personal Trainer Dashboard");
             soundSynth.playClick();
             modalTrainer.classList.remove('active');
-        });
+        };
+
+        btnCloseTrainer.addEventListener('click', closeTrainerHandler);
+        if (btnCloseTrainerFooter) {
+            btnCloseTrainerFooter.addEventListener('click', closeTrainerHandler);
+        }
     }
 
     // Toggle Neural Learning Modal
