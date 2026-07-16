@@ -1760,7 +1760,7 @@ body.light-mode .logo-container {
     font-weight: 800;
     letter-spacing: 0.5px;
     text-shadow: none;
-    color: var(--color-primary);
+    color: #0f172a; /* Changed to slate black */
 }
 
 body.light-mode .logo-bracket {
@@ -1785,7 +1785,7 @@ body.light-mode .system-time {
     font-family: var(--font-display);
     font-weight: 700;
     text-shadow: none;
-    color: var(--color-primary);
+    color: #0f172a; /* Changed to slate black */
 }
 
 body.light-mode .system-date {
@@ -1803,6 +1803,7 @@ body.light-mode .badge-status {
     background: rgba(var(--hue), 100%, 50%, 0.06);
     border-left-color: rgba(226, 232, 240, 0.8);
     text-shadow: none;
+    color: #0f172a; /* Changed to slate black */
 }
 
 body.light-mode .hud-btn-icon {
@@ -1973,8 +1974,16 @@ body.light-mode .assistant-msg .msg-content {
 }
 
 body.light-mode .assistant-msg .msg-sender {
-    color: var(--color-primary);
+    color: #0f172a; /* Changed to slate black */
     text-shadow: none;
+}
+
+body.light-mode .diag-val {
+    color: #0f172a;
+}
+
+body.light-mode .tag-sys {
+    color: #0f172a;
 }
 
 body.light-mode .system-msg .msg-content {
@@ -2095,6 +2104,7 @@ body.light-mode .cap-item {
 body.light-mode .cap-item.active {
     background: rgba(var(--hue), 85%, 45%, 0.05);
     border-color: var(--color-primary);
+    color: #0f172a; /* Changed to slate black */
     box-shadow: none;
     text-shadow: none;
 }
@@ -2169,5 +2179,17 @@ body.light-mode .btn-mic:hover {
 body.light-mode .btn-mic.listening {
     background: var(--color-primary);
     color: #ffffff;
+}
+
+body.light-mode .hud-btn-send {
+    color: #0f172a;
+    background: rgba(var(--hue), 85%, 45%, 0.08);
+    border-color: rgba(226, 232, 240, 0.8);
+}
+
+body.light-mode .hud-btn-send:hover {
+    background: var(--color-primary);
+    color: #ffffff;
+    border-color: var(--color-primary);
 }
 
