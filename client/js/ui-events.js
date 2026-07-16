@@ -1724,7 +1724,7 @@ FrejaUIController.prototype.bindEvents = function () {
 
             soundSynth.playClick();
             btnGenerateTrainerPlan.disabled = true;
-            btnGenerateTrainerPlan.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> GENERERAR...';
+            btnGenerateTrainerPlan.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> GENERATING...';
             self.writeLog(`GENERATING PERSONAL TRAINER PLAN FOR: "${goalInput}"`, "sys");
 
             try {
@@ -1834,6 +1834,27 @@ FrejaUIController.prototype.bindEvents = function () {
         btnRefreshTelegram.addEventListener('click', () => {
             soundSynth.playClick();
             self.loadTelegramDashboardUI();
+        });
+    }
+
+    // Trainer Chat send actions
+    const trainerChatInput = document.getElementById('trainer-chat-input');
+    const btnTrainerChatSend = document.getElementById('btn-trainer-chat-send');
+
+    const submitTrainerChatQuery = () => {
+        if (!trainerChatInput) return;
+        const query = trainerChatInput.value.trim();
+        if (!query) return;
+        soundSynth.playClick();
+        self.processTrainerChatQuery(query);
+    };
+
+    if (btnTrainerChatSend) {
+        btnTrainerChatSend.addEventListener('click', submitTrainerChatQuery);
+    }
+    if (trainerChatInput) {
+        trainerChatInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') submitTrainerChatQuery();
         });
     }
 };

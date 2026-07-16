@@ -185,7 +185,7 @@ FrejaUIController.prototype.loadTrainerDashboardUI = async function () {
                     <span style="color: var(--color-primary);">${plan.date}</span>: ${plan.goal}${limitInfo}
                 </div>
                 <div style="display: flex; gap: 8px;">
-                    <button class="trainer-view-icon-btn" title="Visa detaljer" style="background: transparent; border: none; color: var(--color-primary); cursor: pointer; padding: 2px 4px;">
+                    <button class="trainer-view-icon-btn" title="View details" style="background: transparent; border: none; color: var(--color-primary); cursor: pointer; padding: 2px 4px;">
                         <i class="fa-solid fa-eye"></i>
                     </button>
                     <button class="trainer-delete-btn" data-id="${plan.id}" title="Delete log" style="background: transparent; border: none; color: #ff3b30; cursor: pointer; padding: 2px 4px;">
@@ -243,7 +243,7 @@ FrejaUIController.prototype.loadWeeklyWorkoutsUI = async function () {
     const weeklyWorkoutsList = document.getElementById('weekly-workouts-list');
     if (!weeklyWorkoutsList) return;
 
-    weeklyWorkoutsList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Laddar veckans pass...</div>';
+    weeklyWorkoutsList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Loading weekly workouts...</div>';
 
     try {
         console.log("[FREJA CLIENT] Fetching weekly workouts from Google Calendar");
@@ -285,7 +285,7 @@ FrejaUIController.prototype.loadWeeklyWorkoutsUI = async function () {
         });
 
         if (thisWeeksWorkouts.length === 0) {
-            weeklyWorkoutsList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Inga träningspass inbokade för denna vecka.</div>';
+            weeklyWorkoutsList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">No workouts scheduled for this week.</div>';
             return;
         }
 
@@ -294,8 +294,8 @@ FrejaUIController.prototype.loadWeeklyWorkoutsUI = async function () {
 
         weeklyWorkoutsList.innerHTML = "";
 
-        const daysOfWeekSwedish = ["Söndag", "Måndag", "Tisdag", "Onsdag", "Torsdag", "Fredag", "Lördag"];
-        const monthsSwedish = ["jan", "feb", "mar", "apr", "maj", "jun", "jul", "aug", "sep", "okt", "nov", "dec"];
+        const daysOfWeekEnglish = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+        const monthsEnglish = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
         thisWeeksWorkouts.forEach(evt => {
             const card = document.createElement('div');
@@ -311,9 +311,9 @@ FrejaUIController.prototype.loadWeeklyWorkoutsUI = async function () {
             card.style.boxShadow = "inset 0 1px 1px rgba(255, 255, 255, 0.02)";
 
             const d = new Date(evt.start_time);
-            const dayName = daysOfWeekSwedish[d.getDay()];
+            const dayName = daysOfWeekEnglish[d.getDay()];
             const dateNum = d.getDate();
-            const monthName = monthsSwedish[d.getMonth()];
+            const monthName = monthsEnglish[d.getMonth()];
             
             const formatTime = (isoStr) => {
                 if (!isoStr) return "";
@@ -369,7 +369,7 @@ FrejaUIController.prototype.runTrainerCheckin = async function () {
 
     if (btn) {
         btn.disabled = true;
-        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> CHECKAR IN...';
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> CHECKING IN...';
     }
     out.style.display = 'block';
     out.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 16px;">Reading last night&#39;s health data (Garmin / Withings)...</div>';
@@ -390,7 +390,7 @@ FrejaUIController.prototype.runTrainerCheckin = async function () {
         const data = await res.json();
         const checkin = data.checkin || {};
         // Freja's own briefing text, so the fallback is Swedish too.
-        const briefing = checkin.briefing || 'Ingen briefing genererades.';
+        const briefing = checkin.briefing || 'No briefing generated.';
         const adh = data.adherence || {};
 
         const badgeStyle = "font-size: 10px; font-family: var(--font-mono); background: rgba(0,242,254,0.1); border: 1px solid rgba(0,242,254,0.2); color: var(--color-primary); border-radius: 3px; padding: 3px 8px;";
@@ -421,7 +421,7 @@ FrejaUIController.prototype.runTrainerCheckin = async function () {
     } finally {
         if (btn) {
             btn.disabled = false;
-            btn.innerHTML = '<i class="fa-solid fa-heart-pulse"></i> CHECKA IN';
+            btn.innerHTML = '<i class="fa-solid fa-heart-pulse"></i> CHECK IN';
         }
     }
 };
@@ -565,7 +565,7 @@ FrejaUIController.prototype.runTrainerOptimize = async function () {
 
         const data = await res.json();
         // Freja's own summary text, so the fallback is Swedish too.
-        const briefing = data.briefing || 'Ingen sammanfattning genererades.';
+        const briefing = data.briefing || 'No summary generated.';
         const changes = data.changes || [];
 
         const badgeStyle = "font-size: 10px; font-family: var(--font-mono); background: rgba(0,242,254,0.1); border: 1px solid rgba(0,242,254,0.2); color: var(--color-primary); border-radius: 3px; padding: 3px 8px;";
@@ -1436,5 +1436,81 @@ FrejaUIController.prototype.loadLearningVaultUI = async function () {
         });
     } catch (err) {
         console.error("Failed to load learning vault UI:", err);
+    }
+};
+
+FrejaUIController.prototype.appendTrainerChatMessage = function(sender, text) {
+    const trainerChatHistory = document.getElementById('trainer-chat-history');
+    if (!trainerChatHistory) return;
+
+    const msgDiv = document.createElement('div');
+    msgDiv.className = `chat-msg ${sender}-msg`;
+
+    const senderTag = sender === 'user' ? '[USER]' : '[FREJA]';
+    const formattedText = window.FrejaMarkdown.parseMarkdown(text);
+
+    msgDiv.innerHTML = `
+        <div class="msg-sender">${senderTag}</div>
+        <div class="msg-content">${formattedText}</div>
+    `;
+
+    trainerChatHistory.appendChild(msgDiv);
+    trainerChatHistory.scrollTop = trainerChatHistory.scrollHeight;
+};
+
+FrejaUIController.prototype.processTrainerChatQuery = async function(query) {
+    const inputEl = document.getElementById('trainer-chat-input');
+    const sendBtn = document.getElementById('btn-trainer-chat-send');
+    if (inputEl) inputEl.disabled = true;
+    if (sendBtn) sendBtn.disabled = true;
+
+    this.writeLog(`TRAINER QUERY SUBMITTED: "${query}"`, "user");
+    this.appendTrainerChatMessage("user", query);
+    
+    // Save message to database
+    this.saveChatMessage("user", query);
+
+    try {
+        if (window.visualizer) {
+            window.visualizer.state = 'PROCESSING';
+        }
+        
+        this.writeLog("NEURAL COGNITION UPLINK ENGAGED", "gemini");
+        
+        // Request response from Google Gemini Client (no webcam snapshot)
+        const response = await this.gemini.generateResponse(query, false);
+        
+        this.writeLog("RESPONSE SECURED. INITIATING AUDIO SYNTHESIS", "gemini");
+        this.appendTrainerChatMessage("assistant", response);
+        
+        // Save response to database
+        this.saveChatMessage("assistant", response);
+        
+        // Synthesize response speech audio
+        await this.speech.speak(response);
+
+        // Add exchange to memory store asynchronously in background
+        if (this.memory && this.memory.enabled) {
+            this.memory.addMemory(query, response).then((res) => {
+                if (res) {
+                    this.writeLog("NEURAL ENGRAM ENCODED SECURELY", "sys");
+                }
+            }).catch(e => {
+                console.warn("[MEM0] Background memory extraction failed:", e);
+            });
+        }
+    } catch (err) {
+        console.error("Trainer chat query failure:", err);
+        this.appendTrainerChatMessage("assistant", "[ANOMALY] Failed to process query.");
+    } finally {
+        if (inputEl) {
+            inputEl.disabled = false;
+            inputEl.value = "";
+            inputEl.focus();
+        }
+        if (sendBtn) sendBtn.disabled = false;
+        if (window.visualizer) {
+            window.visualizer.state = 'SLEEPING';
+        }
     }
 };

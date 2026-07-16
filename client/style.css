@@ -970,7 +970,7 @@ body {
     display: flex;
     flex-direction: column;
     gap: 15px;
-    overflow-y: auto;
+    overflow: hidden;
     padding-left: 20px;
     border-left: 1px dashed rgba(0, 242, 254, 0.15);
 }

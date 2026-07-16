@@ -933,7 +933,7 @@
                 <div class="trainer-checkin" style="display: flex; flex-direction: column; gap: 8px; background: rgba(0, 242, 254, 0.05); border: 1px solid rgba(0, 242, 254, 0.15); border-radius: 4px; padding: 12px;">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <span style="font-size: 11px; color: var(--color-primary); font-family: var(--font-display); letter-spacing: 0.5px;"><i class="fa-solid fa-sun"></i> DAILY CHECK-IN</span>
-                        <button id="btn-trainer-checkin" class="hud-btn btn-primary" style="height: 30px; font-family: var(--font-display); font-size: 10px; padding: 0 12px; display: flex; align-items: center; gap: 5px;"><i class="fa-solid fa-heart-pulse"></i> CHECKA IN</button>
+                        <button id="btn-trainer-checkin" class="hud-btn btn-primary" style="height: 30px; font-family: var(--font-display); font-size: 10px; padding: 0 12px; display: flex; align-items: center; gap: 5px;"><i class="fa-solid fa-heart-pulse"></i> CHECK IN</button>
                     </div>
                     <div id="trainer-checkin-output" style="display: none; background: rgba(0, 0, 0, 0.4); border: 1px solid var(--color-border); border-radius: 4px; padding: 12px; font-family: var(--font-sans); font-size: 13px; line-height: 1.5; color: var(--color-text); max-height: 320px; overflow-y: auto;"></div>
                 </div>
@@ -1011,7 +1011,7 @@
                     <div style="display: grid; grid-template-columns: 2fr 1fr 1fr 1fr 1fr; gap: 8px; align-items: end;">
                         <div style="display: flex; flex-direction: column; gap: 4px;">
                             <label for="trainer-strength-name" style="font-size: 11px; color: var(--color-text-muted);">Exercise</label>
-                            <input type="text" id="trainer-strength-name" placeholder="e.g. Knäböj" class="hud-input" style="height: 32px; font-size: 12px;">
+                            <input type="text" id="trainer-strength-name" placeholder="e.g. Squat" class="hud-input" style="height: 32px; font-size: 12px;">
                         </div>
                         <div style="display: flex; flex-direction: column; gap: 4px;">
                             <label for="trainer-strength-sets" style="font-size: 11px; color: var(--color-text-muted);">Sets</label>
@@ -1048,23 +1048,38 @@
 
                 <!-- Output section for generated program -->
                 <div id="trainer-plan-output-container" style="display: none; flex-direction: column; gap: 5px;">
-                    <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); letter-spacing: 1px;">SENAST GENERERADE PROGRAM</h3>
+                    <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); letter-spacing: 1px;">LATEST GENERATED PROGRAM</h3>
                     <div id="trainer-plan-output" style="background: rgba(0, 0, 0, 0.4); border: 1px solid var(--color-border); border-radius: 4px; padding: 12px; max-height: 400px; overflow-y: auto; font-family: var(--font-mono); font-size: 11px; white-space: pre-wrap; line-height: 1.4; color: var(--color-text-muted);">
                     </div>
                 </div>
 
                 <!-- History list of recent plans -->
                 <div class="trainer-list-container" style="display: flex; flex-direction: column; flex: 1; min-height: 180px; max-height: 250px;">
-                    <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); margin-bottom: 8px; letter-spacing: 1px;">TIDIGARE REKOMMENDATIONER</h3>
+                    <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); margin-bottom: 8px; letter-spacing: 1px;">PREVIOUS RECOMMENDATIONS</h3>
                     <div class="trainer-list" id="trainer-list" style="flex: 1; overflow-y: auto; background: rgba(0,0,0,0.3); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px;">
                         <div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">No history loaded...</div>
                     </div>
                 </div>
                 </div> <!-- End of trainer-left-panel -->
-                <div class="trainer-right-panel">
-                    <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); margin-bottom: 8px; letter-spacing: 1px;"><i class="fa-solid fa-calendar-week"></i> VECKANS TRÄNINGSPASS</h3>
-                    <div class="weekly-workouts-list" id="weekly-workouts-list" style="display: flex; flex-direction: column; gap: 10px;">
-                        <div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Laddar veckans pass...</div>
+                <div class="trainer-right-panel" style="display: flex; flex-direction: column; height: 100%; overflow: hidden; gap: 15px;">
+                    <div class="weekly-workouts-container" style="display: flex; flex-direction: column; flex: 1; min-height: 0; gap: 8px;">
+                        <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); margin: 0 0 8px 0; letter-spacing: 1px;"><i class="fa-solid fa-calendar-week"></i> WEEKLY WORKOUTS</h3>
+                        <div class="weekly-workouts-list" id="weekly-workouts-list" style="display: flex; flex-direction: column; gap: 10px; overflow-y: auto; flex: 1; padding-right: 5px;">
+                            <div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Loading weekly workouts...</div>
+                        </div>
+                    </div>
+                    <div class="trainer-chat-section" style="display: flex; flex-direction: column; flex: 1; min-height: 0; border-top: 1px dashed rgba(0, 242, 254, 0.15); padding-top: 15px; gap: 10px;">
+                        <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); margin: 0; letter-spacing: 1px;"><i class="fa-solid fa-comments"></i> CHAT WITH FREJA</h3>
+                        <div id="trainer-chat-history" style="flex: 1; overflow-y: auto; background: rgba(0, 0, 0, 0.3); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px; display: flex; flex-direction: column; gap: 8px;">
+                            <div class="chat-msg assistant-msg">
+                                <div class="msg-sender">[FREJA]</div>
+                                <div class="msg-content">Hello! How can I help you with your training or recovery today?</div>
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 8px; flex-shrink: 0;">
+                            <input type="text" id="trainer-chat-input" placeholder="Ask Freja about training, recovery..." class="hud-input" style="flex: 1; height: 34px; font-size: 12px;">
+                            <button id="btn-trainer-chat-send" class="hud-btn btn-primary" style="height: 34px; font-family: var(--font-display); font-size: 11px; padding: 0 15px; display: flex; align-items: center; gap: 5px;"><i class="fa-solid fa-paper-plane"></i> SEND</button>
+                        </div>
                     </div>
                 </div>
             </div>
