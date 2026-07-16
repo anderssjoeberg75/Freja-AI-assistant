@@ -2017,6 +2017,18 @@ body.light-mode .tag-user {
     color: #2563eb;
 }
 
+body.light-mode .tag-warn {
+    color: #d97706; /* Bolder orange for warning contrast */
+}
+
+body.light-mode .tag-gemini {
+    color: #7c3aed; /* Bolder violet */
+}
+
+body.light-mode .tag-err {
+    color: #dc2626; /* Darker red */
+}
+
 body.light-mode .log-time {
     color: #94a3b8;
 }
