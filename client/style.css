@@ -2124,34 +2124,36 @@ body.light-mode .glow-brain {
     text-shadow: none;
 }
 
-/* Generic buttons inside modals and lists */
+/* Generic buttons inside modals and lists (Light Gray Theme) */
 body.light-mode .hud-btn {
-    background: #ffffff;
-    border: 1px solid rgba(203, 213, 225, 0.8);
-    color: #475569;
+    background: #f1f5f9;
+    border: 1px solid #cbd5e1;
+    color: #334155;
     border-radius: 30px;
     text-transform: none;
     letter-spacing: 0px;
     font-family: var(--font-display);
     font-size: 11.5px;
     font-weight: 500;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.02);
 }
 
 body.light-mode .hud-btn:hover {
-    background: var(--color-primary);
-    border-color: var(--color-primary);
-    color: #ffffff;
-    box-shadow: 0 4px 12px rgba(var(--hue), 85%, 45%, 0.15);
+    background: #e2e8f0;
+    border-color: #cbd5e1;
+    color: #0f172a;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.04);
 }
 
 body.light-mode .hud-btn.btn-secondary {
-    background: #f8fafc;
-    border: 1px solid rgba(226, 232, 240, 0.8);
-    color: #64748b;
+    background: #f1f5f9;
+    border: 1px solid #cbd5e1;
+    color: #334155;
 }
 
 body.light-mode .hud-btn.btn-secondary:hover {
-    background: #f1f5f9;
+    background: #e2e8f0;
+    border-color: #cbd5e1;
     color: #0f172a;
 }
 
@@ -2166,30 +2168,50 @@ body.light-mode .hud-btn.btn-primary:hover {
 }
 
 body.light-mode .btn-mic {
-    background: #ffffff;
-    border: 1px solid rgba(226, 232, 240, 0.8);
-    box-shadow: 0 4px 12px rgba(0,0,0,0.02);
+    background: #f1f5f9;
+    border: 1px solid #cbd5e1;
+    color: #334155;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.02);
 }
 
 body.light-mode .btn-mic:hover {
     border-color: var(--color-primary);
-    box-shadow: 0 4px 12px rgba(var(--hue), 85%, 45%, 0.15);
+    background: #e2e8f0;
+    box-shadow: 0 4px 12px rgba(var(--hue), 85%, 45%, 0.12);
 }
 
 body.light-mode .btn-mic.listening {
     background: var(--color-primary);
     color: #ffffff;
+    border-color: var(--color-primary);
 }
 
 body.light-mode .hud-btn-send {
-    color: #0f172a;
-    background: rgba(var(--hue), 85%, 45%, 0.08);
-    border-color: rgba(226, 232, 240, 0.8);
+    color: #334155;
+    background: #f1f5f9;
+    border: 1px solid #cbd5e1;
 }
 
 body.light-mode .hud-btn-send:hover {
     background: var(--color-primary);
     color: #ffffff;
     border-color: var(--color-primary);
+}
+
+/* Force inline-styled primary cyan headings and text in modals/panels to Slate Black */
+body.light-mode .hud-modal [style*="color: var(--color-primary)"],
+body.light-mode .hud-modal [style*="color:var(--color-primary)"],
+body.light-mode .hud-panel [style*="color: var(--color-primary)"],
+body.light-mode .hud-panel [style*="color:var(--color-primary)"] {
+    color: #0f172a !important;
+}
+
+/* Accordion details dropdown summary arrows override */
+body.light-mode .strava-api-details summary::after,
+body.light-mode .memory-api-details summary::after,
+body.light-mode .garmin-api-details summary::after,
+body.light-mode .withings-api-details summary::after,
+body.light-mode .google-calendar-api-details summary::after {
+    color: #0f172a !important;
 }
 
