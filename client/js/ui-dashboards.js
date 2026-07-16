@@ -1501,7 +1501,7 @@ FrejaUIController.prototype.processTrainerChatQuery = async function(query) {
         }
     } catch (err) {
         console.error("Trainer chat query failure:", err);
-        this.appendTrainerChatMessage("assistant", "[ANOMALY] Failed to process query.");
+        this.appendTrainerChatMessage("assistant", "[ANOMALI] Kunde inte behandla din förfrågan.");
     } finally {
         if (inputEl) {
             inputEl.disabled = false;
