@@ -1082,6 +1082,13 @@
                             <div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Loading weekly workouts...</div>
                         </div>
                     </div>
+                    <!-- History list of recent plans (Previous Recommendations) -->
+                    <div class="trainer-list-container" style="display: flex; flex-direction: column; flex: 1; min-height: 0; border-top: 1px dashed rgba(0, 242, 254, 0.15); padding-top: 15px; gap: 8px;">
+                        <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); margin-bottom: 8px; letter-spacing: 1px;">PREVIOUS RECOMMENDATIONS</h3>
+                        <div class="trainer-list" id="trainer-list" style="flex: 1; overflow-y: auto; background: rgba(0,0,0,0.3); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px;">
+                            <div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">No history loaded...</div>
+                        </div>
+                    </div>
                     <div class="trainer-chat-section" style="display: flex; flex-direction: column; flex: 1; min-height: 0; border-top: 1px dashed rgba(0, 242, 254, 0.15); padding-top: 15px; gap: 10px;">
                         <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); margin: 0; letter-spacing: 1px;"><i class="fa-solid fa-comments"></i> CHAT WITH FREJA</h3>
                         <div id="trainer-chat-history" style="flex: 1; overflow-y: auto; background: rgba(0, 0, 0, 0.3); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px; display: flex; flex-direction: column; gap: 8px;">
@@ -1093,13 +1100,6 @@
                         <div style="display: flex; gap: 8px; flex-shrink: 0;">
                             <input type="text" id="trainer-chat-input" placeholder="Ask Freja about training, recovery..." class="hud-input" style="flex: 1; height: 34px; font-size: 12px;">
                             <button id="btn-trainer-chat-send" class="hud-btn btn-primary" style="height: 34px; font-family: var(--font-display); font-size: 11px; padding: 0 15px; display: flex; align-items: center; gap: 5px;"><i class="fa-solid fa-paper-plane"></i> SEND</button>
-                        </div>
-                    </div>
-                    <!-- History list of recent plans (Previous Recommendations) -->
-                    <div class="trainer-list-container" style="display: flex; flex-direction: column; flex: 1; min-height: 0; border-top: 1px dashed rgba(0, 242, 254, 0.15); padding-top: 15px; gap: 8px;">
-                        <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); margin-bottom: 8px; letter-spacing: 1px;">PREVIOUS RECOMMENDATIONS</h3>
-                        <div class="trainer-list" id="trainer-list" style="flex: 1; overflow-y: auto; background: rgba(0,0,0,0.3); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px;">
-                            <div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">No history loaded...</div>
                         </div>
                     </div>
                 </div>

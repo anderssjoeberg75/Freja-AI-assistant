@@ -2048,6 +2048,7 @@ body.light-mode .trainer-profile-form,
 body.light-mode .trainer-strength-form,
 body.light-mode .trainer-settings,
 body.light-mode .weekly-workouts-list,
+body.light-mode .trainer-list,
 body.light-mode .trainer-chat-section,
 body.light-mode #trainer-chat-history,
 body.light-mode .weekly-workouts-container,
@@ -2081,6 +2082,7 @@ body.light-mode .knowledge-list {
 }
 
 body.light-mode .weekly-workouts-list div,
+body.light-mode .trainer-list div,
 body.light-mode .google-calendar-list div,
 body.light-mode .telegram-list div,
 body.light-mode .withings-list div,
