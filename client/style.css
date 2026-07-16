@@ -2220,6 +2220,14 @@ body.light-mode .hud-panel textarea {
     font-size: 13px !important;
     font-family: var(--font-text) !important;
     box-sizing: border-box !important;
+    width: 100% !important;
+    min-width: 0 !important;
+}
+
+/* Allow strength log grid items to shrink below browser defaults */
+body.light-mode .trainer-strength-form div[style*="display: grid"] > div,
+.trainer-strength-form div[style*="display: grid"] > div {
+    min-width: 0 !important;
 }
 
 /* Split the trainer right panel into three equal sections of 1/3 height each */
