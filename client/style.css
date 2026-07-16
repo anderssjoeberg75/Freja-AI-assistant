@@ -2246,3 +2246,14 @@ body.light-mode .trainer-right-panel > div:first-child {
     padding-top: 0 !important;
 }
 
+/* Force all error texts in modals and panels to be bold, slightly larger, and legible modern red */
+.hud-modal [style*="color: #ff3b30"],
+.hud-modal [style*="color:#ff3b30"],
+.hud-panel [style*="color: #ff3b30"],
+.hud-panel [style*="color:#ff3b30"] {
+    color: #ef4444 !important; /* Premium modern red */
+    font-size: 12.5px !important;
+    font-weight: 600 !important;
+    font-family: var(--font-mono) !important;
+}
+
