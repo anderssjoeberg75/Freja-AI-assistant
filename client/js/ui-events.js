@@ -1408,7 +1408,7 @@ FrejaUIController.prototype.bindEvents = function () {
     // Light interface mode toggle handler
     const chkLightMode = document.getElementById('chk-light-mode');
     if (chkLightMode) {
-        const isLight = localStorage.getItem("freja_light_mode") === "true";
+        const isLight = localStorage.getItem("freja_light_mode") !== "false";
         chkLightMode.checked = isLight;
         
         chkLightMode.addEventListener('change', (e) => {
