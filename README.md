@@ -365,6 +365,24 @@ To unlock F.R.E.J.A.'s full cognitive capabilities, configure your credentials i
    - Synthesizes highly realistic, lifelike human neural voices.
    - *If no key is provided, the assistant uses your computer's built-in native speech synthesis voice.*
 
+### 🛡️ Access Restriction Keys (Optional)
+
+These two keys are set in the **Backend Admin Portal** and are only needed when Freja is reachable
+from beyond your own machine. Both are comma-separated, and both always allow loopback:
+
+| Key | Purpose |
+| --- | --- |
+| `freja_allowed_ips` | Only these IP addresses may call the API. Loopback is always allowed. |
+| `freja_allowed_origins` | Extra origins the Google Calendar OAuth callback may redirect back to, e.g. `https://hud.example:8443`. |
+
+> [!NOTE]
+> The Google Calendar callback only redirects to an origin it trusts, so a crafted consent link
+> cannot bounce your authorization code to someone else's server. Loopback (the usual HUD on
+> `:5000` talking to the backend on `:8000`) and the backend's own origin work with no setup.
+> **Only** if you serve the HUD from a *non-loopback* origin — a LAN hostname or a remote box
+> configured via `freja_backend_url` — add that origin to `freja_allowed_origins`, otherwise the
+> callback is refused with an error naming the key.
+
 ---
 
 ## ⚡ Core Features

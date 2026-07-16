@@ -14,16 +14,17 @@ router = APIRouter()
 @router.get("/api/withings/data")
 async def get_withings_data(days: int = Query(7, description="Number of days to retrieve")):
     try:
+        cutoff = (datetime.date.today() - datetime.timedelta(days=days)).strftime('%Y-%m-%d')
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                SELECT date, weight, fat_ratio, bone_mass, heart_pulse, 
-                       sleep_duration, sleep_deep, sleep_rem, steps, 
+                SELECT date, weight, fat_ratio, bone_mass, heart_pulse,
+                       sleep_duration, sleep_deep, sleep_rem, steps,
                        distance, calories, elevation, sleep_score
-                FROM withings_measurements 
-                ORDER BY date DESC 
-                LIMIT ?
-            ''', (days,))
+                FROM withings_measurements
+                WHERE date >= ?
+                ORDER BY date DESC
+            ''', (cutoff,))
             rows = cursor.fetchall()
         
         results = []

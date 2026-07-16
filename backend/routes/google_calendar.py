@@ -1,9 +1,10 @@
 """Google Calendar API route router using FastAPI."""
 
+import asyncio
 import datetime
+from urllib.parse import quote, urlparse
 import httpx
 from backend.services.http_client import shared_client
-import time
 from fastapi import APIRouter, HTTPException, Query, Request, BackgroundTasks
 from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
@@ -11,6 +12,49 @@ from backend.database import get_db_connection, get_api_key, set_api_key
 from backend.services.sync_status import set_sync_state
 
 router = APIRouter()
+
+
+def _origin_of(url: str):
+    """Normalized 'scheme://host[:port]' for `url`, or None if it is not a usable http(s) origin.
+
+    Rebuilt from the parsed parts rather than sliced out of the string, so userinfo
+    ("https://evil.com@trusted.host") and paths cannot smuggle a different target through.
+    """
+    try:
+        parsed = urlparse((url or "").strip())
+        port = parsed.port
+    except ValueError:
+        return None
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        return None
+    return f"{parsed.scheme}://{parsed.hostname}" + (f":{port}" if port else "")
+
+
+LOOPBACK_HOSTS = ("localhost", "127.0.0.1", "::1")
+
+
+def _is_allowed_redirect_origin(origin: str, request: Request) -> bool:
+    """Whether the OAuth callback may redirect to `origin`.
+
+    Loopback is always allowed, mirroring the IP whitelist in backend/middleware/auth.py:
+    the HUD normally runs on a different port than the backend (:5000 vs :8000), and a
+    redirect to the victim's own machine is not an exfiltration channel anyway.
+
+    Beyond that, only this backend's own origin and any origin opted into via the
+    comma-separated 'freja_allowed_origins' key are honoured — which is what a remote HUD
+    (see freja_backend_url) needs.
+    """
+    if not origin:
+        return False
+    if urlparse(origin).hostname in LOOPBACK_HOSTS:
+        return True
+    if origin == _origin_of(str(request.base_url)):
+        return True
+    try:
+        configured = get_api_key('freja_allowed_origins') or ""
+    except Exception:
+        configured = ""
+    return any(origin == _origin_of(entry) for entry in configured.split(',') if entry.strip())
 
 async def get_google_access_token():
     """Tries to get a fresh access token from Google API using the stored refresh token."""
@@ -48,7 +92,7 @@ async def get_google_access_token():
 async def run_google_calendar_sync_task():
     """Background task to sync calendar events from Google API or generate mock data."""
     try:
-        time.sleep(1.5)  # Simulate network latency
+        await asyncio.sleep(1.5)  # Simulate network latency
         access_token = await get_google_access_token()
 
         if not access_token or access_token == "MOCK_ACCESS_TOKEN":
@@ -367,16 +411,27 @@ class GoogleExchangeRequest(BaseModel):
 
 @router.get("/api/google_calendar/callback")
 async def get_google_calendar_callback(
+    request: Request,
     code: str = Query("", description="Authorization code"),
     state: str = Query(None, description="Client frontend origin")
 ):
     code = code.strip()
     if not code:
         return HTMLResponse('<h3>Error: No authorization code was found in the request.</h3>', status_code=400)
-        
+
     if state:
-        frontend_url = state.rstrip('/')
-        return RedirectResponse(url=f"{frontend_url}/google_callback.html?code={code}")
+        # `state` is attacker-influenceable and this endpoint is auth-exempt, so it is only
+        # honoured when it resolves to an allowed origin. Otherwise a crafted consent URL
+        # could bounce the victim — and the authorization code — to an arbitrary host.
+        origin = _origin_of(state)
+        if not _is_allowed_redirect_origin(origin, request):
+            return HTMLResponse(
+                '<h3>Error: The redirect target in the request is not an allowed origin, so the '
+                'authorization was refused.</h3><p>If this is your own HUD on another origin, add '
+                'it to the <code>freja_allowed_origins</code> key (comma-separated) in Settings.</p>',
+                status_code=400
+            )
+        return RedirectResponse(url=f"{origin}/google_callback.html?code={quote(code, safe='')}")
     
     # We return an HTML page that does the exchange on the frontend using localStorage
     html_content = """

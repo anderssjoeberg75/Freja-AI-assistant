@@ -272,14 +272,15 @@ async def get_strava_sync(
 @router.get("/api/strava/data")
 async def get_strava_data(days: int = Query(7, description="Number of days to retrieve")):
     try:
+        cutoff = (datetime.date.today() - datetime.timedelta(days=days)).strftime('%Y-%m-%d')
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                SELECT id, name, type, date, distance, moving_time, elapsed_time, total_elevation_gain, average_speed, max_speed, average_heartrate, max_heartrate, calories 
-                FROM strava_activities 
-                ORDER BY date DESC 
-                LIMIT ?
-            ''', (days,))
+                SELECT id, name, type, date, distance, moving_time, elapsed_time, total_elevation_gain, average_speed, max_speed, average_heartrate, max_heartrate, calories
+                FROM strava_activities
+                WHERE date >= ?
+                ORDER BY date DESC
+            ''', (cutoff,))
             rows = cursor.fetchall()
         
         results = []

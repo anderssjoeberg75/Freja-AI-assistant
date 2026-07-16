@@ -14,20 +14,44 @@ from backend.config import PROJECT_ROOT
 from backend.database import get_db_connection, get_api_key
 from backend.services.search_service import perform_search
 
-ABORT_LEARNING = False
-ACTIVE_PAGE = None
+class LearningRun:
+    """Cancellation state for a single learn_topic run.
+
+    learn_topic is dispatched via FastAPI BackgroundTasks rather than the sequential task
+    queue, so two runs can overlap. Each run therefore owns its abort flag and its active
+    page: a starting run cannot clear another's abort flag, and cancelling one closes only
+    its own page.
+    """
+
+    def __init__(self):
+        self.aborted = False
+        self.page = None
+
+    def abort(self):
+        self.aborted = True
+        page = self.page
+        if page:
+            print("[Learning Service] Closing active page to abort scraping.")
+            try:
+                asyncio.create_task(page.close())
+            except Exception as e:
+                print(f"[Learning Service] Error closing active page: {e}")
+
+
+# Runs currently executing, so a cancel request can reach them. Entries are added and
+# removed by learn_topic_impl itself.
+ACTIVE_RUNS = set()
+
 
 def cancel_learning():
-    """Cancels the active learning background task."""
-    global ABORT_LEARNING, ACTIVE_PAGE
-    ABORT_LEARNING = True
+    """Cancels every active learning run.
+
+    The HUD's cancel action is not per-run (there is no run id in the request), so it means
+    "stop the learning that is going on" — which with overlapping runs is all of them.
+    """
     print("[Learning Service] Abort signal received.")
-    if ACTIVE_PAGE:
-        print("[Learning Service] Closing active page to abort scraping.")
-        try:
-            asyncio.create_task(ACTIVE_PAGE.close())
-        except Exception as e:
-            print(f"[Learning Service] Error closing active page: {e}")
+    for run in list(ACTIVE_RUNS):
+        run.abort()
 
 def get_domain_credentials(domain: str):
     """Retrieves username and password for a given domain from database."""
@@ -66,14 +90,23 @@ async def call_gemini_learning_api(prompt: str, system_instruction: str = "") ->
     text = resp_json.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
     return text
 
-async def learn_topic_impl(topic: str, progress_callback=None) -> dict:
+async def learn_topic_impl(topic: str, progress_callback=None, run: "LearningRun" = None) -> dict:
     """
     Learns about a topic by searching Google/DuckDuckGo, scraping top pages (supporting credentials),
     synthesizing with Gemini, and persisting the knowledge in SQLite.
+
+    Pass `run` to hold onto this run's cancellation token; otherwise one is created for the
+    call. The run is registered for the duration so cancel_learning() can reach it.
     """
-    global ABORT_LEARNING, ACTIVE_PAGE
-    ABORT_LEARNING = False
-    
+    run = run or LearningRun()
+    ACTIVE_RUNS.add(run)
+    try:
+        return await _learn_topic(topic, run, progress_callback)
+    finally:
+        ACTIVE_RUNS.discard(run)
+
+
+async def _learn_topic(topic: str, run: "LearningRun", progress_callback=None) -> dict:
     if progress_callback:
         progress_callback(5, 100, f"Searching the web for '{topic}'...")
         
@@ -94,7 +127,7 @@ async def learn_topic_impl(topic: str, progress_callback=None) -> dict:
         browser = await p.chromium.launch(headless=True)
         
         for idx, res in enumerate(top_results):
-            if ABORT_LEARNING:
+            if run.aborted:
                 await browser.close()
                 return {"status": "cancelled"}
                 
@@ -111,7 +144,7 @@ async def learn_topic_impl(topic: str, progress_callback=None) -> dict:
                 
             try:
                 page = await browser.new_page()
-                ACTIVE_PAGE = page
+                run.page = page
                 
                 await page.goto(link, timeout=25000, wait_until="domcontentloaded")
                 
@@ -141,14 +174,15 @@ async def learn_topic_impl(topic: str, progress_callback=None) -> dict:
                 scraped_data.append(f"SOURCE: {title} ({link})\nCONTENT:\n{clean_text[:8000]}")
                 
                 await page.close()
-                ACTIVE_PAGE = None
-                
+                run.page = None
+
             except Exception as scrape_err:
                 print(f"[Learning Service] Failed to scrape {link}: {scrape_err}")
-                
+                run.page = None
+
         await browser.close()
-        
-    if ABORT_LEARNING:
+
+    if run.aborted:
         return {"status": "cancelled"}
         
     if not scraped_data:

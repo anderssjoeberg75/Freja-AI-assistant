@@ -13,6 +13,14 @@
  * They match user input, not UI copy - see the comment at each list.
  */
 
+// GET /api/keys masks every sensitive value as bullets (see get_all_api_keys in
+// backend/database.py), so a mask must never be cached or sent as if it were a real secret.
+// Mirrors the guard in POST /api/keys (backend/routes/settings.py).
+const FREJA_MASK_PREFIX = "••••";
+function isMaskedValue(value) {
+    return typeof value === "string" && value.startsWith(FREJA_MASK_PREFIX);
+}
+
 // Intercept all fetch requests to inject X-Freja-Token automatically for F.R.E.J.A. API endpoints.
 window.originalFetch = window.fetch;
 window.fetch = async function(url, options = {}) {
@@ -45,7 +53,14 @@ window.fetch = async function(url, options = {}) {
         // No fallback to a legacy default: the backend seeds a random token per-install
         // and rejects unknown/missing tokens, so an empty value here just surfaces a 401
         // until the real token (shown in the server console on first run) is entered in Settings.
-        const token = localStorage.getItem('freja_access_token') || '';
+        let token = localStorage.getItem('freja_access_token') || '';
+        if (isMaskedValue(token)) {
+            // Self-heal installs that cached the mask before this was guarded: the bullet is
+            // U+2022, which is not ISO-8859-1, so sending it throws before the request leaves
+            // the browser. Dropping it yields an actionable 401 login prompt instead.
+            localStorage.removeItem('freja_access_token');
+            token = '';
+        }
         options.headers = options.headers || {};
         
         if (options.headers instanceof Headers) {
@@ -169,56 +184,36 @@ class FrejaUIController {
             const response = await fetch('/api/keys');
             if (response.ok) {
                 const keys = await response.json();
-                if (keys.freja_access_token !== undefined) {
-                    localStorage.setItem("freja_access_token", keys.freja_access_token);
+                // A sensitive key comes back masked, and a mask must not overwrite the real
+                // cached value — for freja_access_token that would break every later
+                // authenticated fetch, since the bullet is not an ISO-8859-1 header value.
+                const MIRRORED_KEYS = [
+                    "freja_access_token",
+                    "freja_gemini_apikey",
+                    "freja_eleven_apikey",
+                    "freja_mem0_apikey",
+                    "freja_garmin_email",
+                    "freja_garmin_password",
+                    "freja_strava_client_id",
+                    "freja_strava_client_secret",
+                    "freja_strava_refresh_token",
+                    "freja_withings_client_id",
+                    "freja_withings_client_secret",
+                    "freja_withings_refresh_token",
+                    "freja_google_calendar_client_id",
+                    "freja_google_calendar_client_secret",
+                    "freja_google_calendar_refresh_token"
+                ];
+                for (const name of MIRRORED_KEYS) {
+                    const value = keys[name];
+                    if (value === undefined || isMaskedValue(value)) continue;
+                    localStorage.setItem(name, value);
                 }
-                if (keys.freja_gemini_apikey !== undefined) {
-                    localStorage.setItem("freja_gemini_apikey", keys.freja_gemini_apikey);
-                }
-                if (keys.freja_eleven_apikey !== undefined) {
-                    localStorage.setItem("freja_eleven_apikey", keys.freja_eleven_apikey);
-                }
-                if (keys.freja_mem0_apikey !== undefined) {
-                    localStorage.setItem("freja_mem0_apikey", keys.freja_mem0_apikey);
-                }
-                if (keys.freja_garmin_email !== undefined) {
-                    localStorage.setItem("freja_garmin_email", keys.freja_garmin_email);
-                }
-                if (keys.freja_garmin_password !== undefined) {
-                    localStorage.setItem("freja_garmin_password", keys.freja_garmin_password);
-                }
-                if (keys.freja_strava_client_id !== undefined) {
-                    localStorage.setItem("freja_strava_client_id", keys.freja_strava_client_id);
-                }
-                if (keys.freja_strava_client_secret !== undefined) {
-                    localStorage.setItem("freja_strava_client_secret", keys.freja_strava_client_secret);
-                }
-                if (keys.freja_strava_refresh_token !== undefined) {
-                    localStorage.setItem("freja_strava_refresh_token", keys.freja_strava_refresh_token);
-                }
-                if (keys.freja_withings_client_id !== undefined) {
-                    localStorage.setItem("freja_withings_client_id", keys.freja_withings_client_id);
-                }
-                if (keys.freja_withings_client_secret !== undefined) {
-                    localStorage.setItem("freja_withings_client_secret", keys.freja_withings_client_secret);
-                }
-                if (keys.freja_withings_refresh_token !== undefined) {
-                    localStorage.setItem("freja_withings_refresh_token", keys.freja_withings_refresh_token);
-                }
-                if (keys.freja_google_calendar_client_id !== undefined) {
-                    localStorage.setItem("freja_google_calendar_client_id", keys.freja_google_calendar_client_id);
-                }
-                if (keys.freja_google_calendar_client_secret !== undefined) {
-                    localStorage.setItem("freja_google_calendar_client_secret", keys.freja_google_calendar_client_secret);
-                }
-                if (keys.freja_google_calendar_refresh_token !== undefined) {
-                    localStorage.setItem("freja_google_calendar_refresh_token", keys.freja_google_calendar_refresh_token);
-                }
-                
+
                 // Refresh components keys if already instantiated
                 if (this.gemini) this.gemini.loadApiKey();
                 if (this.memory) this.memory.loadSettings();
-                if (this.speech) this.speech.elevenApiKey = keys.freja_eleven_apikey || "";
+                if (this.speech) this.speech.elevenApiKey = localStorage.getItem("freja_eleven_apikey") || "";
                 
                 this.writeLog("API KEYS SYNCHRONIZED WITH DATABASE", "sys");
             } else {

@@ -259,9 +259,18 @@ class TestPerformSearch:
 
 
 # ---------------------------------------------------------------------------
-# KNOWN BUGS (xfail) — pin the desired behaviour for tracked issues
+# REGRESSION TESTS — bugs found during the review, now fixed; these pin the behaviour
 # ---------------------------------------------------------------------------
-class TestKnownBugs:
+class _FakePage:
+    """Stands in for a Playwright page so a run's cancellation can be observed."""
+    def __init__(self):
+        self.closed = False
+
+    async def close(self):
+        self.closed = True
+
+
+class TestFixedBugs:
     @pytest.fixture
     def _seed_strava(self):
         """Insert 5 QA activities all dated TODAY; clean up after."""
@@ -280,16 +289,106 @@ class TestKnownBugs:
             cur.execute("DELETE FROM strava_activities WHERE name LIKE 'QA_TEST_%'")
             conn.commit()
 
-    @pytest.mark.xfail(reason="Bug: get_strava_data treats `days` as a SQL LIMIT (row count), "
-                              "not a date window. 5 activities all within today cannot all be "
-                              "returned when days<5, and the coach's reported period is wrong.")
     def test_strava_days_should_be_a_date_window(self, _seed_strava):
         from backend.routes.strava import get_strava_data
         # All 5 QA activities are dated today, so a correct "last 3 days" query must return
-        # every one of them. The current LIMIT-based query caps the whole result at 3 rows.
+        # every one of them. A LIMIT-based query would cap the whole result at 3 rows.
         results = asyncio.run(get_strava_data(days=3))
         qa = [r for r in results if str(r.get("name", "")) == "QA_TEST_today"]
         assert len(qa) == 5, (
             f"expected all 5 same-day activities within the window, got {len(qa)} "
             "(days is being used as a row LIMIT, not a date window)"
         )
+
+    def test_strava_excludes_activities_outside_the_window(self, _seed_strava):
+        from backend.routes.strava import get_strava_data
+        old_date = (datetime.date.today() - datetime.timedelta(days=40)).strftime("%Y-%m-%d")
+        with get_db_connection() as conn:
+            conn.execute(
+                "INSERT INTO strava_activities (name, type, date, distance, moving_time) "
+                "VALUES ('QA_TEST_old', 'Löpning', ?, 1000.0, 300)", (old_date,)
+            )
+            conn.commit()
+        names = [str(r.get("name", "")) for r in asyncio.run(get_strava_data(days=7))]
+        assert "QA_TEST_old" not in names, "a 40-day-old activity must fall outside days=7"
+        assert "QA_TEST_today" in names
+
+    def test_google_calendar_sync_does_not_block_the_event_loop(self):
+        """The sync task must yield to the loop rather than hold it with a blocking sleep."""
+        from backend.routes.google_calendar import run_google_calendar_sync_task
+
+        async def scenario():
+            ticks = 0
+
+            async def ticker():
+                nonlocal ticks
+                while True:
+                    await asyncio.sleep(0.01)
+                    ticks += 1
+
+            ticker_task = asyncio.create_task(ticker())
+            sync_task = asyncio.create_task(run_google_calendar_sync_task())
+            try:
+                # Sample while the sync is still inside its artificial start-up delay. A
+                # blocking sleep there freezes the loop and the ticker cannot advance.
+                await asyncio.sleep(0.3)
+                return ticks
+            finally:
+                for task in (ticker_task, sync_task):
+                    task.cancel()
+                await asyncio.gather(ticker_task, sync_task, return_exceptions=True)
+
+        assert asyncio.run(scenario()) >= 5
+
+    def test_aborting_one_learning_run_leaves_others_alone(self):
+        """Overlapping runs must not share an abort flag or close each other's page."""
+        from backend.services.learning_service import LearningRun
+
+        async def scenario():
+            first, second = LearningRun(), LearningRun()
+            first.page, second.page = _FakePage(), _FakePage()
+            first.abort()
+            await asyncio.sleep(0.01)   # let the page-close task run
+            return first, second
+
+        first, second = asyncio.run(scenario())
+        assert first.aborted is True and first.page.closed is True
+        assert second.aborted is False, "one run's abort must not leak into another run"
+        assert second.page.closed is False, "abort must not close another run's page"
+
+    def test_starting_a_learning_run_does_not_reset_an_active_one(self):
+        """A second run starting must not clear the first run's abort flag."""
+        from backend.services.learning_service import LearningRun
+        first = LearningRun()
+        first.abort()
+        LearningRun()   # a second run starts while the first is still aborting
+        assert first.aborted is True
+
+    def test_cancel_learning_reaches_every_registered_run(self):
+        from backend.services.learning_service import LearningRun, ACTIVE_RUNS, cancel_learning
+
+        first, second = LearningRun(), LearningRun()
+        ACTIVE_RUNS.update({first, second})
+        try:
+            cancel_learning()
+            assert first.aborted is True and second.aborted is True
+        finally:
+            ACTIVE_RUNS.difference_update({first, second})
+
+    def test_learning_run_is_unregistered_after_the_run(self):
+        """A finished run must not linger in ACTIVE_RUNS, even when it raises."""
+        from backend.services import learning_service
+        from backend.services.learning_service import ACTIVE_RUNS, learn_topic_impl
+
+        async def boom(topic, run, progress_callback=None):
+            raise RuntimeError("scrape exploded")
+
+        original = learning_service._learn_topic
+        learning_service._learn_topic = boom
+        try:
+            before = set(ACTIVE_RUNS)
+            with pytest.raises(RuntimeError):
+                asyncio.run(learn_topic_impl("kaffe"))
+            assert set(ACTIVE_RUNS) == before, "run must be unregistered even on failure"
+        finally:
+            learning_service._learn_topic = original
