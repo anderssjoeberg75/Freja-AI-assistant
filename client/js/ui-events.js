@@ -1405,6 +1405,19 @@ FrejaUIController.prototype.bindEvents = function () {
         });
     });
 
+    // Light interface mode toggle handler
+    const chkLightMode = document.getElementById('chk-light-mode');
+    if (chkLightMode) {
+        const isLight = localStorage.getItem("freja_light_mode") === "true";
+        chkLightMode.checked = isLight;
+        
+        chkLightMode.addEventListener('change', (e) => {
+            soundSynth.playClick();
+            window.FrejaTheme.setLightMode(e.target.checked);
+            self.writeLog(`LIGHT INTERFACE MODE: ${e.target.checked ? 'ENABLED' : 'DISABLED'}`, "sys");
+        });
+    }
+
     // Speech engine dynamic local voices lists filler callback
     this.speech.voiceUpdateCallback = (voices) => {
         selectVoice.innerHTML = '<option value="">Default voice (automatic)</option>';

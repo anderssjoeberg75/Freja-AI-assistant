@@ -1706,3 +1706,352 @@ body {
     transform: translateY(-2px);
 }
 
+/* ==========================================================================
+   LIGHT HUD INTERFACE (LIGHT MODE OVERRIDES)
+   ========================================================================== */
+body.light-mode {
+    --color-bg: #eef4f8; /* Soft metallic silver canvas background */
+    --color-panel-bg: rgba(255, 255, 255, 0.72); /* Semi-transparent polished glass */
+    --color-border: hsla(var(--hue), 60%, 45%, 0.22); /* Bold border */
+    --color-border-glow: hsla(var(--hue), 80%, 40%, 0.45);
+    
+    --color-primary: hsla(var(--hue), 85%, 38%, 1); /* Bolder color accent for legibility */
+    --color-primary-glow: hsla(var(--hue), 85%, 38%, 0.4);
+    --color-primary-dim: hsla(var(--hue), 70%, 28%, 1);
+    --color-text-bright: #0c1829; /* Deep slate-blue body text */
+    --color-text-muted: #536f8a; /* Steel grey secondary text */
+    --color-text-dark: #ffffff; /* Contrast text inside primary active buttons */
+    
+    --shadow-neon: 0 0 10px hsla(var(--hue), 80%, 45%, 0.25);
+    --shadow-neon-inset: inset 0 0 8px hsla(var(--hue), 80%, 45%, 0.1);
+}
+
+/* Base Light Mode Adjustments */
+body.light-mode {
+    background-color: var(--color-bg);
+    color: var(--color-text-bright);
+}
+
+body.light-mode .scanlines {
+    opacity: 0.12;
+    background: linear-gradient(
+        rgba(255, 255, 255, 0) 50%, 
+        rgba(0, 0, 0, 0.04) 50%
+    );
+}
+
+body.light-mode .grid-overlay {
+    background-image: 
+        linear-gradient(rgba(0, 100, 200, 0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0, 100, 200, 0.04) 1px, transparent 1px);
+}
+
+body.light-mode .ambient-glow {
+    background: radial-gradient(circle at 50% 50%, hsla(var(--hue), 65%, 82%, 0.24) 0%, transparent 80%);
+}
+
+/* Headers and Badges */
+body.light-mode .hud-header {
+    background: rgba(240, 244, 248, 0.75);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+    border-bottom-color: var(--color-border);
+}
+
+body.light-mode .status-indicator {
+    background: rgba(255, 255, 255, 0.7);
+    border-color: var(--color-border);
+}
+
+body.light-mode .badge-label {
+    background: rgba(255, 255, 255, 0.7);
+}
+
+body.light-mode .badge-status {
+    background: rgba(var(--hue), 100%, 50%, 0.08);
+}
+
+body.light-mode .hud-btn-icon {
+    background: rgba(255, 255, 255, 0.7);
+    border-color: var(--color-border);
+    box-shadow: none;
+}
+
+body.light-mode .hud-btn-icon:hover {
+    background: var(--color-primary);
+    color: #ffffff;
+    box-shadow: var(--shadow-neon);
+}
+
+/* Modals and Glassmorphism */
+body.light-mode .hud-modal {
+    background: rgba(230, 235, 245, 0.65);
+}
+
+body.light-mode .glass-morphic {
+    background: rgba(255, 255, 255, 0.88);
+    border-color: hsla(var(--hue), 60%, 45%, 0.3);
+    box-shadow: 0 15px 50px rgba(0, 0, 0, 0.1), var(--shadow-neon);
+}
+
+body.light-mode .modal-header {
+    border-bottom-color: var(--color-border);
+}
+
+body.light-mode .modal-footer {
+    border-top-color: var(--color-border);
+    background: rgba(240, 244, 248, 0.5);
+}
+
+/* Panels */
+body.light-mode .hud-panel {
+    background: var(--color-panel-bg);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.04), var(--shadow-neon-inset);
+}
+
+body.light-mode .panel-header {
+    background: rgba(240, 244, 248, 0.7);
+    border-bottom-color: var(--color-border);
+}
+
+/* Inputs and Forms */
+body.light-mode .hud-select,
+body.light-mode .hud-input,
+body.light-mode .hud-textarea,
+body.light-mode .hud-select option,
+body.light-mode .trainer-profile-form select,
+body.light-mode .trainer-profile-form input,
+body.light-mode .trainer-profile-form option {
+    background: rgba(255, 255, 255, 0.95) !important;
+    color: #0c1829 !important;
+    border: 1px solid var(--color-border) !important;
+}
+
+body.light-mode .hud-select:focus,
+body.light-mode .hud-input:focus,
+body.light-mode .hud-textarea:focus {
+    border-color: var(--color-primary) !important;
+    box-shadow: var(--shadow-neon) !important;
+}
+
+/* Toggle slider switch */
+body.light-mode .slider {
+    background-color: rgba(0, 0, 0, 0.08);
+    border-color: rgba(0, 0, 0, 0.15);
+}
+
+body.light-mode .slider:before {
+    background-color: #7a8e9e;
+}
+
+body.light-mode .hud-switch input:checked + .slider {
+    background-color: rgba(var(--hue), 100%, 50%, 0.12);
+}
+
+body.light-mode .hud-switch input:checked + .slider:before {
+    background-color: var(--color-primary);
+}
+
+/* Accent Modal Choices cards */
+body.light-mode .theme-choice-card {
+    background: rgba(255, 255, 255, 0.8);
+    border-color: rgba(0, 0, 0, 0.08);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.03);
+}
+
+body.light-mode .theme-choice-card span {
+    color: var(--color-text-muted);
+}
+
+body.light-mode .theme-choice-card.active {
+    background: rgba(var(--hue), 100%, 50%, 0.06);
+    border-color: var(--color-primary);
+}
+
+body.light-mode .theme-choice-card.active span {
+    color: var(--color-primary);
+}
+
+body.light-mode .color-preview {
+    border-color: rgba(0, 0, 0, 0.08);
+}
+
+/* Chat Messages bubbles styles override */
+body.light-mode .chat-history {
+    background: rgba(255, 255, 255, 0.4);
+    border-color: rgba(0, 0, 0, 0.05);
+}
+
+body.light-mode .user-msg .msg-content {
+    background: rgba(var(--hue), 100%, 50%, 0.08);
+    border-color: rgba(var(--hue), 100%, 50%, 0.22);
+    color: #0c1829;
+}
+
+body.light-mode .assistant-msg .msg-content {
+    background: rgba(255, 255, 255, 0.9);
+    border-color: var(--color-border);
+    color: #0c1829;
+}
+
+body.light-mode .system-msg .msg-content {
+    background: rgba(255, 255, 255, 0.6);
+    border-color: rgba(0, 0, 0, 0.05);
+    color: var(--color-text-muted);
+}
+
+body.light-mode .msg-content code {
+    background: rgba(0, 0, 0, 0.05);
+    color: var(--color-primary);
+}
+
+body.light-mode .msg-content pre {
+    background: #f4f7f9;
+    border-color: rgba(0, 0, 0, 0.06);
+    color: #0c1829;
+}
+
+body.light-mode .copy-code-btn {
+    background: rgba(255, 255, 255, 0.9);
+    border-color: var(--color-border);
+}
+
+/* Terminal Console logs overrides */
+body.light-mode .terminal-container {
+    background: #f0f4f8;
+    border-color: var(--color-border);
+    box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.04);
+}
+
+body.light-mode .terminal-log {
+    color: #2c3e50;
+}
+
+body.light-mode .tag-user {
+    color: #1a73e8;
+}
+
+body.light-mode .log-time {
+    color: #7f8c8d;
+}
+
+/* Inline colored sections in dialog modals (Garmin, trainer, calendars, withings, etc.) */
+body.light-mode .trainer-checkin,
+body.light-mode .trainer-profile-form,
+body.light-mode .trainer-strength-form,
+body.light-mode .trainer-settings,
+body.light-mode .weekly-workouts-list,
+body.light-mode .trainer-chat-section,
+body.light-mode #trainer-chat-history,
+body.light-mode .weekly-workouts-container,
+body.light-mode .trainer-left-panel,
+body.light-mode .trainer-right-panel,
+body.light-mode .google-calendar-form,
+body.light-mode .google-calendar-list,
+body.light-mode .google-calendar-api-details,
+body.light-mode .telegram-form,
+body.light-mode .telegram-list,
+body.light-mode .withings-form,
+body.light-mode .withings-list,
+body.light-mode .withings-api-details,
+body.light-mode .garmin-form,
+body.light-mode .garmin-list,
+body.light-mode .garmin-api-details,
+body.light-mode .add-memory-container,
+body.light-mode .memories-list,
+body.light-mode .memory-api-details,
+body.light-mode .learning-trigger-panel,
+body.light-mode #learning-active-status,
+body.light-mode .credentials-panel,
+body.light-mode #credentials-list,
+body.light-mode .knowledge-vault-panel,
+body.light-mode .knowledge-list {
+    background: rgba(255, 255, 255, 0.6) !important;
+    border-color: hsla(var(--hue), 60%, 45%, 0.16) !important;
+    color: #0c1829 !important;
+}
+
+body.light-mode .weekly-workouts-list div,
+body.light-mode .google-calendar-list div,
+body.light-mode .telegram-list div,
+body.light-mode .withings-list div,
+body.light-mode .garmin-list div,
+body.light-mode .memories-list div,
+body.light-mode .knowledge-list div {
+    color: #0c1829 !important;
+}
+
+body.light-mode .progress-bar-container {
+    background: rgba(0, 0, 0, 0.06);
+    border-color: rgba(0, 0, 0, 0.05);
+}
+
+body.light-mode .cap-item {
+    background: rgba(255, 255, 255, 0.6);
+    border-color: rgba(0, 0, 0, 0.05);
+}
+
+body.light-mode .cap-item.active {
+    background: rgba(var(--hue), 100%, 50%, 0.06);
+}
+
+/* Reactor Core visualizer overrides */
+body.light-mode .arc-container::before {
+    border-color: rgba(var(--hue), 100%, 50%, 0.08);
+}
+
+body.light-mode .arc-core-inner {
+    background: radial-gradient(circle, rgba(var(--hue), 100%, 50%, 0.15) 0%, rgba(255, 255, 255, 0.95) 75%);
+    border-color: var(--color-primary);
+    box-shadow: 0 0 15px rgba(var(--hue), 100%, 50%, 0.15), inset 0 0 10px rgba(var(--hue), 100%, 50%, 0.1);
+}
+
+/* Generic buttons inside modals and lists */
+body.light-mode .hud-btn {
+    background: rgba(var(--hue), 100%, 50%, 0.06);
+    border-color: var(--color-border);
+    color: var(--color-primary);
+}
+
+body.light-mode .hud-btn:hover {
+    background: var(--color-primary);
+    border-color: var(--color-primary);
+    color: #ffffff;
+}
+
+body.light-mode .hud-btn.btn-secondary {
+    background: rgba(0, 0, 0, 0.03);
+    border-color: rgba(0, 0, 0, 0.1);
+    color: var(--color-text-muted);
+}
+
+body.light-mode .hud-btn.btn-secondary:hover {
+    background: rgba(0, 0, 0, 0.07);
+    color: #0c1829;
+}
+
+body.light-mode .hud-btn.btn-primary {
+    background: var(--color-primary);
+    border-color: var(--color-primary);
+    color: #ffffff;
+}
+
+body.light-mode .hud-btn.btn-primary:hover {
+    background: var(--color-primary-dim);
+    border-color: var(--color-primary-dim);
+}
+
+body.light-mode .btn-mic {
+    background: rgba(255, 255, 255, 0.7);
+    border-color: var(--color-border);
+}
+
+body.light-mode .btn-mic:hover {
+    border-color: var(--color-primary);
+    box-shadow: var(--shadow-neon);
+}
+
+body.light-mode .btn-mic.listening {
+    background: var(--color-primary);
+    color: #ffffff;
+}
+

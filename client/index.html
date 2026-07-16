@@ -13,6 +13,16 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body class="theme-cyan">
+    <script>
+        (function() {
+            const savedTheme = localStorage.getItem("freja_theme") || "cyan";
+            const isLightMode = localStorage.getItem("freja_light_mode") === "true";
+            document.body.className = 'theme-' + savedTheme;
+            if (isLightMode) {
+                document.body.classList.add('light-mode');
+            }
+        })();
+    </script>
     <!-- Grid overlay and Scanlines for futuristic screen effect -->
     <div class="grid-overlay"></div>
     <div class="scanlines"></div>
@@ -393,23 +403,34 @@
                 <h2><i class="fa-solid fa-palette"></i> ACCENT SYSTEMS</h2>
                 <button class="modal-close" id="btn-close-theme">&times;</button>
             </div>
-            <div class="modal-body select-theme-grid">
-                <button class="theme-choice-card cyan active" data-theme="cyan">
-                    <div class="color-preview"></div>
-                    <span>CYAN MATRIX (DEFAULT)</span>
-                </button>
-                <button class="theme-choice-card amber" data-theme="amber">
-                    <div class="color-preview"></div>
-                    <span>STARK GOLD (AMBER)</span>
-                </button>
-                <button class="theme-choice-card crimson" data-theme="crimson">
-                    <div class="color-preview"></div>
-                    <span>HULKBUSTER (CRIMSON)</span>
-                </button>
-                <button class="theme-choice-card emerald" data-theme="emerald">
-                    <div class="color-preview"></div>
-                    <span>SHIELD EMERALD</span>
-                </button>
+            <div class="modal-body" style="gap: 15px;">
+                <!-- Light Mode Switch -->
+                <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 12px; border-bottom: 1px dashed var(--color-border); margin-bottom: 5px;">
+                    <span style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); letter-spacing: 1px;"><i class="fa-solid fa-sun" style="margin-right: 6px;"></i> LIGHT HUD INTERFACE</span>
+                    <label class="hud-switch">
+                        <input type="checkbox" id="chk-light-mode">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+                <!-- Accent Theme Selection Grid -->
+                <div class="select-theme-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; padding: 0;">
+                    <button class="theme-choice-card cyan active" data-theme="cyan">
+                        <div class="color-preview"></div>
+                        <span>CYAN MATRIX (DEFAULT)</span>
+                    </button>
+                    <button class="theme-choice-card amber" data-theme="amber">
+                        <div class="color-preview"></div>
+                        <span>STARK GOLD (AMBER)</span>
+                    </button>
+                    <button class="theme-choice-card crimson" data-theme="crimson">
+                        <div class="color-preview"></div>
+                        <span>HULKBUSTER (CRIMSON)</span>
+                    </button>
+                    <button class="theme-choice-card emerald" data-theme="emerald">
+                        <div class="color-preview"></div>
+                        <span>SHIELD EMERALD</span>
+                    </button>
+                </div>
             </div>
         </div>
     </div>
