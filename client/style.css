@@ -2125,77 +2125,64 @@ body.light-mode .glow-brain {
 }
 
 /* Generic buttons inside modals and lists (Light Gray Theme) */
-body.light-mode .hud-btn {
-    background: #f1f5f9;
-    border: 1px solid #cbd5e1;
-    color: #334155;
-    border-radius: 30px;
-    text-transform: none;
-    letter-spacing: 0px;
-    font-family: var(--font-display);
-    font-size: 11.5px;
-    font-weight: 500;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+body.light-mode .hud-btn,
+body.light-mode .hud-btn.btn-primary,
+body.light-mode .hud-btn.btn-secondary,
+body.light-mode .btn-primary,
+body.light-mode .btn-secondary {
+    background: #f1f5f9 !important;
+    border: 1px solid #cbd5e1 !important;
+    color: #334155 !important;
+    border-radius: 30px !important;
+    text-transform: none !important;
+    letter-spacing: 0px !important;
+    font-family: var(--font-display) !important;
+    font-size: 11.5px !important;
+    font-weight: 500 !important;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.02) !important;
+    text-shadow: none !important;
 }
 
-body.light-mode .hud-btn:hover {
-    background: #e2e8f0;
-    border-color: #cbd5e1;
-    color: #0f172a;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.04);
-}
-
-body.light-mode .hud-btn.btn-secondary {
-    background: #f1f5f9;
-    border: 1px solid #cbd5e1;
-    color: #334155;
-}
-
-body.light-mode .hud-btn.btn-secondary:hover {
-    background: #e2e8f0;
-    border-color: #cbd5e1;
-    color: #0f172a;
-}
-
-body.light-mode .hud-btn.btn-primary {
-    background: linear-gradient(135deg, var(--color-primary), var(--color-primary-dim));
-    border: none;
-    color: #ffffff;
-}
-
-body.light-mode .hud-btn.btn-primary:hover {
-    background: var(--color-primary-dim);
+body.light-mode .hud-btn:hover,
+body.light-mode .hud-btn.btn-primary:hover,
+body.light-mode .hud-btn.btn-secondary:hover,
+body.light-mode .btn-primary:hover,
+body.light-mode .btn-secondary:hover {
+    background: #e2e8f0 !important;
+    border-color: #cbd5e1 !important;
+    color: #0f172a !important;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.04) !important;
 }
 
 body.light-mode .btn-mic {
-    background: #f1f5f9;
-    border: 1px solid #cbd5e1;
-    color: #334155;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+    background: #f1f5f9 !important;
+    border: 1px solid #cbd5e1 !important;
+    color: #334155 !important;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.02) !important;
 }
 
 body.light-mode .btn-mic:hover {
-    border-color: var(--color-primary);
-    background: #e2e8f0;
-    box-shadow: 0 4px 12px rgba(var(--hue), 85%, 45%, 0.12);
+    border-color: var(--color-primary) !important;
+    background: #e2e8f0 !important;
+    box-shadow: 0 4px 12px rgba(var(--hue), 85%, 45%, 0.12) !important;
 }
 
 body.light-mode .btn-mic.listening {
-    background: var(--color-primary);
-    color: #ffffff;
-    border-color: var(--color-primary);
+    background: var(--color-primary) !important;
+    color: #ffffff !important;
+    border-color: var(--color-primary) !important;
 }
 
 body.light-mode .hud-btn-send {
-    color: #334155;
-    background: #f1f5f9;
-    border: 1px solid #cbd5e1;
+    color: #334155 !important;
+    background: #f1f5f9 !important;
+    border: 1px solid #cbd5e1 !important;
 }
 
 body.light-mode .hud-btn-send:hover {
-    background: var(--color-primary);
-    color: #ffffff;
-    border-color: var(--color-primary);
+    background: var(--color-primary) !important;
+    color: #ffffff !important;
+    border-color: var(--color-primary) !important;
 }
 
 /* Force inline-styled primary cyan headings and text in modals/panels to Slate Black */
@@ -2213,5 +2200,47 @@ body.light-mode .garmin-api-details summary::after,
 body.light-mode .withings-api-details summary::after,
 body.light-mode .google-calendar-api-details summary::after {
     color: #0f172a !important;
+}
+
+/* Force all input fields, select dropdowns, and date fields to look identical in light mode */
+body.light-mode .hud-modal input:not([type="checkbox"]):not([type="radio"]),
+body.light-mode .hud-modal select,
+body.light-mode .hud-modal textarea,
+body.light-mode .hud-panel input:not([type="checkbox"]):not([type="radio"]),
+body.light-mode .hud-panel select,
+body.light-mode .hud-panel textarea {
+    height: 36px !important;
+    padding: 6px 12px !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+    border: 1px solid rgba(203, 213, 225, 0.8) !important;
+    border-radius: 8px !important;
+    font-size: 13px !important;
+    font-family: var(--font-text) !important;
+    box-sizing: border-box !important;
+}
+
+/* Split the trainer right panel into three equal sections of 1/3 height each */
+body.light-mode .trainer-right-panel {
+    display: flex !important;
+    flex-direction: column !important;
+    height: 100% !important;
+    gap: 15px !important;
+    border-left: 1px dashed rgba(0, 0, 0, 0.08) !important;
+}
+
+body.light-mode .trainer-right-panel > div {
+    flex: 1 !important;
+    min-height: 0 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    border-top: 1px dashed rgba(0, 0, 0, 0.08) !important;
+    padding-top: 15px !important;
+    box-sizing: border-box !important;
+}
+
+body.light-mode .trainer-right-panel > div:first-child {
+    border-top: none !important;
+    padding-top: 0 !important;
 }
 
