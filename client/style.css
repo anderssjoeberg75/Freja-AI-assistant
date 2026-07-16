@@ -2273,6 +2273,14 @@ body.light-mode .interaction-shield {
                 #f1f5f9 !important;
 }
 
+body.light-mode .shield-prompt {
+    background: rgba(255, 255, 255, 0.75) !important;
+    border: 1px solid rgba(226, 232, 240, 0.8) !important;
+    box-shadow: 0 20px 40px rgba(15, 23, 42, 0.06) !important;
+    backdrop-filter: blur(16px) !important;
+    -webkit-backdrop-filter: blur(16px) !important;
+}
+
 body.light-mode .shield-prompt h1 {
     color: #0f172a !important;
     text-shadow: none !important;
