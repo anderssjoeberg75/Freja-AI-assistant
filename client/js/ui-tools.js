@@ -41,6 +41,11 @@ FrejaUIController.prototype.handleToolCall = async function(call) {
             displayName: "Strava athlete statistics",
             permissionKey: "freja_tool_get_strava_athlete_stats_allowed"
         },
+        "get_personal_trainer_advice": {
+            name: "get_personal_trainer_advice",
+            displayName: "Personal trainer advice",
+            permissionKey: "freja_tool_get_personal_trainer_advice_allowed"
+        },
         "manage_google_calendar": {
             name: "manage_google_calendar",
             displayName: "Google Calendar",
