@@ -563,12 +563,12 @@
                     <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 10px;">
                         <div style="display: flex; flex-direction: column; gap: 4px;">
                             <label for="input-garmin-email" style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary);">Garmin email</label>
-                            <input type="email" id="input-garmin-email" placeholder="Enter the Garmin email..." class="hud-input" style="height: 32px; font-size: 12px;">
+                            <input type="email" id="input-garmin-email" placeholder="Enter the Garmin email..." class="hud-input" style="height: 32px; font-size: 12px;" autocomplete="one-time-code">
                         </div>
                         <div style="display: flex; flex-direction: column; gap: 4px;">
                             <label for="input-garmin-password" style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary);">Garmin password</label>
                             <div class="input-password-container">
-                                <input type="password" id="input-garmin-password" placeholder="Enter the Garmin password..." class="hud-input" style="height: 32px; font-size: 12px; flex: 1;">
+                                <input type="password" id="input-garmin-password" placeholder="Enter the Garmin password..." class="hud-input" style="height: 32px; font-size: 12px; flex: 1;" autocomplete="one-time-code">
                                 <button type="button" id="btn-toggle-garmin-password" class="btn-toggle-input" style="height: 32px;"><i class="fa-solid fa-eye"></i></button>
                             </div>
                         </div>
@@ -667,19 +667,19 @@
                     <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 10px;">
                         <div style="display: flex; flex-direction: column; gap: 4px;">
                             <label for="input-strava-client-id" style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary);">Strava Client ID</label>
-                            <input type="text" id="input-strava-client-id" placeholder="Enter the Strava Client ID..." class="hud-input" style="height: 32px; font-size: 12px;" autocomplete="off">
+                            <input type="text" id="input-strava-client-id" placeholder="Enter the Strava Client ID..." class="hud-input" style="height: 32px; font-size: 12px;" autocomplete="one-time-code">
                         </div>
                         <div style="display: flex; flex-direction: column; gap: 4px;">
                             <label for="input-strava-client-secret" style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary);">Strava Client Secret</label>
                             <div class="input-password-container">
-                                <input type="password" id="input-strava-client-secret" placeholder="Enter the Strava Client Secret..." class="hud-input" style="height: 32px; font-size: 12px; flex: 1;" autocomplete="new-password">
+                                <input type="password" id="input-strava-client-secret" placeholder="Enter the Strava Client Secret..." class="hud-input" style="height: 32px; font-size: 12px; flex: 1;" autocomplete="one-time-code">
                                 <button type="button" id="btn-toggle-strava-secret" class="btn-toggle-input" style="height: 32px;"><i class="fa-solid fa-eye"></i></button>
                             </div>
                         </div>
                         <div style="display: flex; flex-direction: column; gap: 4px;">
                             <label for="input-strava-refresh-token" style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary);">Strava Refresh Token</label>
                             <div class="input-password-container">
-                                <input type="password" id="input-strava-refresh-token" placeholder="Enter the Strava Refresh Token..." class="hud-input" style="height: 32px; font-size: 12px; flex: 1;" autocomplete="new-password">
+                                <input type="password" id="input-strava-refresh-token" placeholder="Enter the Strava Refresh Token..." class="hud-input" style="height: 32px; font-size: 12px; flex: 1;" autocomplete="one-time-code">
                                 <button type="button" id="btn-toggle-strava-token" class="btn-toggle-input" style="height: 32px;"><i class="fa-solid fa-eye"></i></button>
                             </div>
                             <a id="lnk-strava-authorize" href="#" target="_blank" class="hud-link" style="display: none; margin-top: 6px; font-size: 11px; text-decoration: underline; color: #00f0ff;">
@@ -774,19 +774,19 @@
                     <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 10px;">
                         <div style="display: flex; flex-direction: column; gap: 4px;">
                             <label for="input-withings-client-id" style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary);">Withings Client ID</label>
-                            <input type="text" id="input-withings-client-id" placeholder="Enter the Withings Client ID..." class="hud-input" style="height: 32px; font-size: 12px;">
+                            <input type="text" id="input-withings-client-id" placeholder="Enter the Withings Client ID..." class="hud-input" style="height: 32px; font-size: 12px;" autocomplete="one-time-code">
                         </div>
                         <div style="display: flex; flex-direction: column; gap: 4px;">
                             <label for="input-withings-client-secret" style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary);">Withings Client Secret</label>
                             <div class="input-password-container">
-                                <input type="password" id="input-withings-client-secret" placeholder="Enter the Withings Client Secret..." class="hud-input" style="height: 32px; font-size: 12px; flex: 1;">
+                                <input type="password" id="input-withings-client-secret" placeholder="Enter the Withings Client Secret..." class="hud-input" style="height: 32px; font-size: 12px; flex: 1;" autocomplete="one-time-code">
                                 <button type="button" id="btn-toggle-withings-secret" class="btn-toggle-input" style="height: 32px;"><i class="fa-solid fa-eye"></i></button>
                             </div>
                         </div>
                         <div style="display: flex; flex-direction: column; gap: 4px;">
                             <label for="input-withings-refresh-token" style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary);">Withings Refresh Token</label>
                             <div class="input-password-container">
-                                <input type="password" id="input-withings-refresh-token" placeholder="Enter the Withings Refresh Token..." class="hud-input" style="height: 32px; font-size: 12px; flex: 1;">
+                                <input type="password" id="input-withings-refresh-token" placeholder="Enter the Withings Refresh Token..." class="hud-input" style="height: 32px; font-size: 12px; flex: 1;" autocomplete="one-time-code">
                                 <button type="button" id="btn-toggle-withings-token" class="btn-toggle-input" style="height: 32px;"><i class="fa-solid fa-eye"></i></button>
                             </div>
                         </div>
@@ -861,7 +861,7 @@
                     <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 10px;">
                         <div style="display: flex; flex-direction: column; gap: 4px;">
                             <label for="input-google-calendar-client-id" style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary);">Google Client ID</label>
-                            <input type="text" id="input-google-calendar-client-id" placeholder="Enter the Google Client ID..." class="hud-input" style="height: 32px; font-size: 12px;">
+                            <input type="text" id="input-google-calendar-client-id" placeholder="Enter the Google Client ID..." class="hud-input" style="height: 32px; font-size: 12px;" autocomplete="one-time-code">
                             <a id="lnk-google-calendar-authorize" href="#" class="hud-btn btn-primary" style="display: none; text-align: center; text-decoration: none; align-items: center; justify-content: center; height: 32px; font-family: var(--font-display); font-size: 11px; margin-top: 5px;">
                                 <i class="fa-brands fa-google" style="margin-right: 6px;"></i> KOPPLA GOOGLE-KONTO
                             </a>
@@ -872,14 +872,14 @@
                         <div style="display: flex; flex-direction: column; gap: 4px;">
                             <label for="input-google-calendar-client-secret" style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary);">Google Client Secret</label>
                             <div class="input-password-container">
-                                <input type="password" id="input-google-calendar-client-secret" placeholder="Enter the Google Client Secret..." class="hud-input" style="height: 32px; font-size: 12px; flex: 1;">
+                                <input type="password" id="input-google-calendar-client-secret" placeholder="Enter the Google Client Secret..." class="hud-input" style="height: 32px; font-size: 12px; flex: 1;" autocomplete="one-time-code">
                                 <button type="button" id="btn-toggle-google-calendar-secret" class="btn-toggle-input" style="height: 32px;"><i class="fa-solid fa-eye"></i></button>
                             </div>
                         </div>
                         <div style="display: flex; flex-direction: column; gap: 4px;">
                             <label for="input-google-calendar-refresh-token" style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary);">Google Refresh Token</label>
                             <div class="input-password-container">
-                                <input type="password" id="input-google-calendar-refresh-token" placeholder="Enter the Google Refresh Token..." class="hud-input" style="height: 32px; font-size: 12px; flex: 1;">
+                                <input type="password" id="input-google-calendar-refresh-token" placeholder="Enter the Google Refresh Token..." class="hud-input" style="height: 32px; font-size: 12px; flex: 1;" autocomplete="one-time-code">
                                 <button type="button" id="btn-toggle-google-calendar-token" class="btn-toggle-input" style="height: 32px;"><i class="fa-solid fa-eye"></i></button>
                             </div>
                         </div>
@@ -914,11 +914,11 @@
                 <div class="telegram-form" style="display: flex; flex-direction: column; gap: 10px; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--color-border); border-radius: 4px; padding: 12px;">
                     <div style="display: flex; flex-direction: column; gap: 4px;">
                         <label for="telegram-input-token" style="font-size: 11px; color: var(--color-text-muted);">Telegram bot token (from @BotFather)</label>
-                        <input type="password" id="telegram-input-token" placeholder="Enter your bot token..." class="hud-input" style="height: 32px; font-size: 12px;">
+                        <input type="password" id="telegram-input-token" placeholder="Enter your bot token..." class="hud-input" style="height: 32px; font-size: 12px;" autocomplete="one-time-code">
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 4px;">
                         <label for="telegram-input-chat-id" style="font-size: 11px; color: var(--color-text-muted);">Auktoriserat Chat ID (t.ex. 12345678)</label>
-                        <input type="text" id="telegram-input-chat-id" placeholder="Enter your Telegram chat ID..." class="hud-input" style="height: 32px; font-size: 12px;">
+                        <input type="text" id="telegram-input-chat-id" placeholder="Enter your Telegram chat ID..." class="hud-input" style="height: 32px; font-size: 12px;" autocomplete="one-time-code">
                     </div>
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
                         <span style="font-size: 11px; color: var(--color-text-muted);">Bot Status:</span>
