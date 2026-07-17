@@ -93,7 +93,14 @@ async def get_strava_callback(code: str = Query("", description="Authorization c
         """
         return HTMLResponse(success_html, status_code=200)
     except Exception as e:
-        return HTMLResponse(f'<h3>Authorization error: {str(e)}</h3>', status_code=500)
+        error_detail = str(e)
+        import httpx
+        if isinstance(e, httpx.HTTPStatusError):
+            try:
+                error_detail = f"{e} - Response body: {e.response.text}"
+            except Exception:
+                pass
+        return HTMLResponse(f'<h3>Authorization error: {error_detail}</h3>', status_code=500)
 
 async def run_strava_sync_task(client_id, client_secret, refresh_token, days: int = 14):
     try:
