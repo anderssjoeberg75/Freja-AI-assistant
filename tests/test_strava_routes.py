@@ -79,3 +79,34 @@ def test_strava_credentials_via_keys_endpoint(auth_headers):
     response = client.get("/api/keys", headers=auth_headers)
     assert response.status_code == 200
     assert isinstance(response.json(), dict)
+
+def test_strava_sync_endpoint_overwrite(auth_headers):
+    from backend.database import set_api_key
+    set_api_key('freja_strava_client_id', '123456')
+    set_api_key('freja_strava_client_secret', 'mock_secret')
+    set_api_key('freja_strava_refresh_token', 'MOCK_REFRESH_TOKEN')
+    
+    client = TestClient(app)
+    response = client.get("/api/strava/sync?days=30&overwrite=true", headers=auth_headers)
+    assert response.status_code == 200
+    assert response.json()["status"] == "syncing"
+
+@pytest.mark.asyncio
+async def test_run_strava_sync_task_overwrite():
+    from backend.database import get_db_connection
+    from backend.routes.strava import run_strava_sync_task
+    
+    # Seed an activity
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("INSERT OR REPLACE INTO strava_activities (id, name, type, date) VALUES (9999, 'To Delete', 'Run', '2026-06-01')")
+        conn.commit()
+        
+    # Run sync task in mock mode with overwrite=True
+    await run_strava_sync_task('123456', 'mock_secret', 'MOCK_REFRESH_TOKEN', days=14, overwrite=True)
+    
+    # Verify the old activity was deleted
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM strava_activities WHERE id = 9999")
+        assert cursor.fetchone()[0] == 0

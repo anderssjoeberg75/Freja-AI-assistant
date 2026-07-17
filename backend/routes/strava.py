@@ -102,8 +102,20 @@ async def get_strava_callback(code: str = Query("", description="Authorization c
                 pass
         return HTMLResponse(f'<h3>Authorization error: {error_detail}</h3>', status_code=500)
 
-async def run_strava_sync_task(client_id, client_secret, refresh_token, days: int = 14):
+async def run_strava_sync_task(client_id, client_secret, refresh_token, days: int = 14, overwrite: bool = False):
     try:
+        from fastapi.params import Query as FastAPIQuery
+        if isinstance(days, FastAPIQuery):
+            days = 14
+        if isinstance(overwrite, FastAPIQuery):
+            overwrite = False
+
+        # Clear existing activities if requested (overwrite mode)
+        if overwrite:
+            with get_db_connection() as conn:
+                conn.cursor().execute("DELETE FROM strava_activities")
+                conn.commit()
+
         if client_id == '123456' or refresh_token in ('refreshtokentoken', 'MOCK_REFRESH_TOKEN'):
             # Demo mode: seed the dashboard with plausible activities so the HUD is not empty
             # before real credentials are configured. Activity names/types are Swedish because
@@ -161,14 +173,22 @@ async def run_strava_sync_task(client_id, client_secret, refresh_token, days: in
         if new_refresh_token and new_refresh_token != refresh_token:
             set_api_key('freja_strava_refresh_token', new_refresh_token)
 
-
         after_time = int(time.time()) - days * 24 * 3600
-        activities_url = f"https://www.strava.com/api/v3/athlete/activities?after={after_time}&per_page=200"
-        
+        activities = []
+        page = 1
+        per_page = 200
         async with shared_client() as client:
-            res = await client.get(activities_url, headers={'Authorization': f"Bearer {access_token}"}, timeout=10.0)
-            res.raise_for_status()
-            activities = res.json()
+            while True:
+                activities_url = f"https://www.strava.com/api/v3/athlete/activities?after={after_time}&page={page}&per_page={per_page}"
+                res = await client.get(activities_url, headers={'Authorization': f"Bearer {access_token}"}, timeout=10.0)
+                res.raise_for_status()
+                page_data = res.json()
+                if not page_data:
+                    break
+                activities.extend(page_data)
+                if len(page_data) < per_page or page >= 5: # Limit to 5 pages (1000 items) to prevent API rate limits
+                    break
+                page += 1
             
         with get_db_connection() as conn:
             cursor = conn.cursor()
@@ -255,13 +275,20 @@ async def run_strava_sync_task(client_id, client_secret, refresh_token, days: in
             set_sync_state("strava", "success")
         except Exception as mock_err:
             print(f"[STRAVA SYNC TASK ERROR]: {mock_err}")
-            set_sync_state("strava", "error", str(e))
+            set_sync_state("strava", "error", str(mock_err))
 
 @router.get("/api/strava/sync")
 async def get_strava_sync(
     background_tasks: BackgroundTasks,
-    days: int = Query(14, description="Number of days to sync")
+    days: int = Query(14, description="Number of days to sync"),
+    overwrite: bool = Query(False, description="Clear existing activities before syncing")
 ):
+    from fastapi.params import Query as FastAPIQuery
+    if isinstance(days, FastAPIQuery):
+        days = 14
+    if isinstance(overwrite, FastAPIQuery):
+        overwrite = False
+
     client_id = get_api_key('freja_strava_client_id') or ""
     client_secret = get_api_key('freja_strava_client_secret') or ""
     refresh_token = get_api_key('freja_strava_refresh_token') or ""
@@ -273,7 +300,7 @@ async def get_strava_sync(
         )
         
     set_sync_state("strava", "syncing")
-    background_tasks.add_task(run_strava_sync_task, client_id, client_secret, refresh_token, days)
+    background_tasks.add_task(run_strava_sync_task, client_id, client_secret, refresh_token, days, overwrite)
     return {'status': 'syncing', 'message': "Strava sync started in the background."}
 
 @router.get("/api/strava/data")

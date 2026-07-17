@@ -702,9 +702,9 @@ FrejaUIController.prototype.bindEvents = function () {
     if (btnSyncStravaAll) {
         btnSyncStravaAll.addEventListener('click', async () => {
             soundSynth.playClick();
-            self.writeLog("INITIATING STRAVA HISTORICAL SYNCHRONIZATION (365 DAYS)", "sys");
+            self.writeLog("INITIATING STRAVA HISTORICAL SYNCHRONIZATION (10 YEARS) WITH OVERWRITE", "sys");
             try {
-                const res = await fetch('/api/strava/sync?days=365');
+                const res = await fetch('/api/strava/sync?days=3650&overwrite=true');
                 const resData = await res.json();
                 if (res.ok && resData.status === 'syncing') {
                     self.pollSyncStatus('strava');
