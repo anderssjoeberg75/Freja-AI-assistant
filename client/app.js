@@ -430,10 +430,38 @@ class FrejaUIController {
         // Quick custom regex parser for markdown elements
         const formattedText = this.parseMarkdown(text);
         
-        msgDiv.innerHTML = `
-            <div class="msg-sender">${senderTag}</div>
-            <div class="msg-content">${formattedText}</div>
-        `;
+        if (sender === 'assistant') {
+            msgDiv.innerHTML = `
+                <div class="msg-sender">${senderTag}</div>
+                <div class="msg-content" style="position: relative; padding-right: 28px;">
+                    ${formattedText}
+                    <button class="btn-copy-msg" title="Kopiera svar" style="position: absolute; top: 8px; right: 8px; background: transparent; border: none; color: var(--color-text-muted); cursor: pointer; font-size: 11px; transition: color 0.2s;" onmouseover="this.style.color='var(--color-primary)'" onmouseout="this.style.color='var(--color-text-muted)'">
+                        <i class="fa-regular fa-copy"></i>
+                    </button>
+                </div>
+            `;
+            const copyBtn = msgDiv.querySelector('.btn-copy-msg');
+            if (copyBtn) {
+                copyBtn.addEventListener('click', () => {
+                    navigator.clipboard.writeText(text);
+                    if (window.soundSynth) {
+                        window.soundSynth.playClick();
+                    }
+                    const icon = copyBtn.querySelector('i');
+                    icon.className = 'fa-solid fa-check';
+                    copyBtn.style.color = '#00ff66';
+                    setTimeout(() => {
+                        icon.className = 'fa-regular fa-copy';
+                        copyBtn.style.color = 'var(--color-text-muted)';
+                    }, 2000);
+                });
+            }
+        } else {
+            msgDiv.innerHTML = `
+                <div class="msg-sender">${senderTag}</div>
+                <div class="msg-content">${formattedText}</div>
+            `;
+        }
         
         chatHistory.appendChild(msgDiv);
         chatHistory.scrollTop = chatHistory.scrollHeight;
