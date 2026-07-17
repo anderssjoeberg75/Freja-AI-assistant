@@ -235,21 +235,14 @@ def format_trends_summary(trends: dict) -> str:
 
 
 def recompute_health_baselines(force: bool = False) -> dict:
-    """Recomputes the profile's RHR / sleep / HRV baselines from a rolling window.
+    """Updates the profile's RHR / sleep / HRV baselines from the latest synced daily data.
 
-    Averages the last ``BASELINE_WINDOW_DAYS`` of Garmin health data (resting HR,
-    sleep hours, HRV), falling back to Withings for resting HR and sleep when Garmin
-    has no value. Writes the results back to ``trainer_profile`` and stamps
-    ``baselines_updated_at`` so the next call respects the weekly cadence.
-
-    Unless ``force`` is set, this is a no-op when the baselines were refreshed within
-    the last ``BASELINE_REFRESH_DAYS`` days. A metric is only written when at least
-    ``BASELINE_MIN_SAMPLES`` data points back it, so a sparse window never overwrites a
-    good baseline with noise. Returns a summary dict describing what happened.
+    Finds the most recent non-zero/non-null health metrics from Garmin (falling back to Withings).
+    If a metric is not found in recent records, it preserves the existing baseline value in the profile.
     """
     profile = get_trainer_profile()
 
-    # Respect the weekly cadence unless forced.
+    # Respect the refresh cadence unless forced.
     if not force and profile.get("baselines_updated_at"):
         try:
             last = datetime.datetime.strptime(
@@ -258,63 +251,65 @@ def recompute_health_baselines(force: bool = False) -> dict:
             if (datetime.datetime.now() - last).days < BASELINE_REFRESH_DAYS:
                 return {"status": "skipped", "reason": "refreshed_recently", "updated": {}}
         except (ValueError, TypeError):
-            pass  # Unparseable timestamp — treat as stale and recompute.
+            pass
 
-    cutoff = (today_local() - datetime.timedelta(days=BASELINE_WINDOW_DAYS)).strftime('%Y-%m-%d')
-
-    garmin_rhr, garmin_sleep, garmin_hrv = [], [], []
-    withings_rhr, withings_sleep = [], []
+    garmin_rows = []
+    withings_rows = []
     with get_db_connection() as conn:
         cursor = conn.cursor()
         try:
             cursor.execute(
-                'SELECT resting_hr, sleep_hours, hrv FROM garmin_health WHERE date >= ?',
-                (cutoff,)
+                'SELECT resting_hr, sleep_hours, hrv FROM garmin_health ORDER BY date DESC LIMIT 7'
             )
-            for r in cursor.fetchall():
-                if r[0] is not None:
-                    garmin_rhr.append(r[0])
-                if r[1] is not None:
-                    garmin_sleep.append(r[1])
-                if r[2] is not None:
-                    garmin_hrv.append(r[2])
+            garmin_rows = cursor.fetchall()
         except Exception as e:
             print(f"[TRAINER BASELINES] Error reading Garmin health: {e}")
         try:
             cursor.execute(
-                'SELECT heart_pulse, sleep_duration FROM withings_measurements WHERE date >= ?',
-                (cutoff,)
+                'SELECT heart_pulse, sleep_duration FROM withings_measurements ORDER BY date DESC LIMIT 7'
             )
-            for r in cursor.fetchall():
-                if r[0] is not None:
-                    withings_rhr.append(r[0])
-                if r[1]:  # sleep_duration is stored in seconds
-                    withings_sleep.append(r[1] / 3600.0)
+            withings_rows = cursor.fetchall()
         except Exception as e:
             print(f"[TRAINER BASELINES] Error reading Withings measurements: {e}")
 
-    def _avg(vals):
-        return sum(vals) / len(vals) if len(vals) >= BASELINE_MIN_SAMPLES else None
+    rhr = None
+    sleep = None
+    hrv = None
 
-    # Prefer Garmin; fall back to Withings for RHR and sleep (Withings has no HRV).
-    rhr = _avg(garmin_rhr)
+    # 1. Check Garmin first
+    for row in garmin_rows:
+        db_rhr, db_sleep, db_hrv = row[0], row[1], row[2]
+        if rhr is None and db_rhr is not None and db_rhr > 0:
+            rhr = db_rhr
+        if sleep is None and db_sleep is not None and db_sleep > 0:
+            sleep = db_sleep
+        if hrv is None and db_hrv is not None and db_hrv > 0:
+            hrv = db_hrv
+
+    # 2. Fallback to Withings for missing RHR and Sleep
     if rhr is None:
-        rhr = _avg(withings_rhr)
-    sleep = _avg(garmin_sleep)
+        for row in withings_rows:
+            db_pulse = row[0]
+            if db_pulse is not None and db_pulse > 0:
+                rhr = db_pulse
+                break
     if sleep is None:
-        sleep = _avg(withings_sleep)
-    hrv = _avg(garmin_hrv)
+        for row in withings_rows:
+            db_duration = row[1]
+            if db_duration is not None and db_duration > 0:
+                sleep = db_duration / 3600.0
+                break
 
     updated = {}
     if rhr is not None:
-        updated["baseline_resting_hr"] = round(rhr, 1)
+        updated["baseline_resting_hr"] = round(float(rhr), 1)
     if sleep is not None:
-        updated["baseline_sleep_hours"] = round(sleep, 1)
+        updated["baseline_sleep_hours"] = round(float(sleep), 1)
     if hrv is not None:
-        updated["baseline_hrv"] = round(hrv, 1)
+        updated["baseline_hrv"] = round(float(hrv), 1)
 
     if not updated:
-        return {"status": "no_data", "reason": "insufficient_samples", "updated": {}}
+        return {"status": "no_data", "reason": "no_recent_metrics", "updated": {}}
 
     now_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     try:
@@ -343,7 +338,7 @@ def recompute_health_baselines(force: bool = False) -> dict:
         print(f"[TRAINER BASELINES] Could not persist baselines: {e}")
         return {"status": "error", "reason": str(e), "updated": {}}
 
-    return {"status": "success", "updated": updated, "window_days": BASELINE_WINDOW_DAYS}
+    return {"status": "success", "updated": updated}
 
 
 # --- Strength logging (Issue #34) -------------------------------------------

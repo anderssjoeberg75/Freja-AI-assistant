@@ -302,7 +302,7 @@ async def run_garmin_sync_flow(email, password, days):
         # safe to call after every sync.
         try:
             from backend.routes.trainer import recompute_health_baselines
-            result = recompute_health_baselines()
+            result = recompute_health_baselines(force=True)
             if isinstance(result, dict) and result.get("status") == "success":
                 print(f"[GARMIN SYNC] PT-hälsobaslinjer uppdaterade: {result.get('updated')}")
         except Exception as base_err:
