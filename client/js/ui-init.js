@@ -107,18 +107,28 @@ FrejaUIController.prototype.initializeUI = function() {
         console.log("[DEBUG STRAVA LINK] clientId:", clientId, "authLink:", authLink);
         if (authLink) {
             if (clientId) {
-                const redirectUri = window.location.origin + '/api/strava/callback';
-                authLink.href = `https://www.strava.com/oauth/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=activity:read,activity:read_all`;
                 authLink.style.display = 'block';
-                console.log("[DEBUG STRAVA LINK] Updated link: display block, href:", authLink.href);
             } else {
                 authLink.style.display = 'none';
-                console.log("[DEBUG STRAVA LINK] Hidden link: display none");
             }
         }
     };
     if (inputStravaClientId) {
         inputStravaClientId.addEventListener('input', updateStravaLink);
+        inputStravaClientId.addEventListener('change', updateStravaLink);
+    }
+    const authLink = document.getElementById('lnk-strava-authorize');
+    if (authLink) {
+        authLink.addEventListener('click', (e) => {
+            const clientId = inputStravaClientId ? inputStravaClientId.value.trim() : "";
+            if (!clientId) {
+                e.preventDefault();
+                alert("Please enter a Client ID first.");
+                return;
+            }
+            const redirectUri = window.location.origin + '/api/strava/callback';
+            authLink.href = `https://www.strava.com/oauth/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=activity:read,activity:read_all`;
+        });
     }
     updateStravaLink();
     

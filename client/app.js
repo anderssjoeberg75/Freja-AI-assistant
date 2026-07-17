@@ -208,6 +208,15 @@ class FrejaUIController {
                     const value = keys[name];
                     if (value === undefined || isMaskedValue(value)) continue;
                     localStorage.setItem(name, value);
+                    
+                    // Also populate the corresponding UI input field if it exists
+                    const inputId = name.replace(/^freja_/, 'input-').replace(/_/g, '-');
+                    const inputEl = document.getElementById(inputId);
+                    if (inputEl) {
+                        inputEl.value = value;
+                        inputEl.dispatchEvent(new Event('input'));
+                        inputEl.dispatchEvent(new Event('change'));
+                    }
                 }
 
                 // Refresh components keys if already instantiated
