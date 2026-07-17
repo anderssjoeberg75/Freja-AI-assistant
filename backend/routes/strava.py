@@ -270,17 +270,34 @@ async def get_strava_sync(
     return {'status': 'syncing', 'message': "Strava sync started in the background."}
 
 @router.get("/api/strava/data")
-async def get_strava_data(days: int = Query(7, description="Number of days to retrieve")):
+async def get_strava_data(
+    days: int = Query(7, description="Number of days to retrieve"),
+    limit: int = Query(None, description="Number of activities to retrieve. If provided, overrides days and works as a record limit.")
+):
     try:
-        cutoff = (datetime.date.today() - datetime.timedelta(days=days)).strftime('%Y-%m-%d')
+        from fastapi.params import Query as FastAPIQuery
+        if isinstance(limit, FastAPIQuery):
+            limit = None
+        if isinstance(days, FastAPIQuery):
+            days = 7
+
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('''
-                SELECT id, name, type, date, distance, moving_time, elapsed_time, total_elevation_gain, average_speed, max_speed, average_heartrate, max_heartrate, calories
-                FROM strava_activities
-                WHERE date >= ?
-                ORDER BY date DESC
-            ''', (cutoff,))
+            if limit is not None:
+                cursor.execute('''
+                    SELECT id, name, type, date, distance, moving_time, elapsed_time, total_elevation_gain, average_speed, max_speed, average_heartrate, max_heartrate, calories
+                    FROM strava_activities
+                    ORDER BY date DESC, id DESC
+                    LIMIT ?
+                ''', (limit,))
+            else:
+                cutoff = (datetime.date.today() - datetime.timedelta(days=days)).strftime('%Y-%m-%d')
+                cursor.execute('''
+                    SELECT id, name, type, date, distance, moving_time, elapsed_time, total_elevation_gain, average_speed, max_speed, average_heartrate, max_heartrate, calories
+                    FROM strava_activities
+                    WHERE date >= ?
+                    ORDER BY date DESC, id DESC
+                ''', (cutoff,))
             rows = cursor.fetchall()
         
         results = []

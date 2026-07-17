@@ -933,7 +933,7 @@ FrejaUIController.prototype.loadStravaDashboardUI = async function () {
     stravaList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Loading history...</div>';
 
     try {
-        const res = await fetch('/api/strava/data?days=15');
+        const res = await fetch('/api/strava/data?limit=15');
         if (!res.ok) throw new Error(`HTTP error ${res.status}`);
 
         const logs = await res.json();

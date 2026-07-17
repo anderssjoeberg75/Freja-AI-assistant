@@ -15,6 +15,43 @@ def test_get_strava_data(auth_headers):
     data = response.json()
     assert isinstance(data, list)
 
+def test_strava_data_limit_logic(auth_headers):
+    from backend.database import get_db_connection
+    client = TestClient(app)
+    # Clear any previous test activities
+    with get_db_connection() as conn:
+        conn.cursor().execute("DELETE FROM strava_activities")
+        conn.commit()
+
+    # Save multiple test activities
+    for i in range(5):
+        payload = {
+            "name": f"Run {i}",
+            "type": "Run",
+            "date": f"2026-07-0{i+1}",
+            "distance": 5.0 + i,
+            "moving_time": 1800,
+            "elapsed_time": 1800,
+            "total_elevation_gain": 50,
+            "average_speed": 3.0,
+            "max_speed": 4.0,
+            "average_heartrate": 140,
+            "max_heartrate": 160,
+            "calories": 400
+        }
+        response = client.post("/api/strava/data", json=payload, headers=auth_headers)
+        assert response.status_code == 200
+
+    # Fetch with limit=3
+    response = client.get("/api/strava/data?limit=3", headers=auth_headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 3
+    # Check that they are ordered reverse-chronologically (newest date first)
+    assert data[0]["name"] == "Run 4"
+    assert data[1]["name"] == "Run 3"
+    assert data[2]["name"] == "Run 2"
+
 def test_save_strava_data(auth_headers):
     client = TestClient(app)
     payload = {
