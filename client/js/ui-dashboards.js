@@ -1462,8 +1462,36 @@ FrejaUIController.prototype.appendTrainerChatMessage = function(sender, text) {
         const copyBtn = msgDiv.querySelector('.btn-copy-msg');
         if (copyBtn) {
             copyBtn.addEventListener('click', () => {
-                navigator.clipboard.writeText(text);
-                if (window.soundSynth) {
+                const fallbackCopy = (val) => {
+                    try {
+                        const textarea = document.createElement('textarea');
+                        textarea.value = val;
+                        textarea.style.position = 'fixed';
+                        textarea.style.top = '0';
+                        textarea.style.left = '0';
+                        textarea.style.opacity = '0';
+                        document.body.appendChild(textarea);
+                        textarea.select();
+                        const res = document.execCommand('copy');
+                        document.body.removeChild(textarea);
+                        return res;
+                    } catch (err) {
+                        console.error("Fallback copy failed:", err);
+                        return false;
+                    }
+                };
+
+                let success = true;
+                if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+                    navigator.clipboard.writeText(text).catch(err => {
+                        console.error("Clipboard API failed, using fallback:", err);
+                        fallbackCopy(text);
+                    });
+                } else {
+                    success = fallbackCopy(text);
+                }
+
+                if (success && window.soundSynth) {
                     window.soundSynth.playClick();
                 }
                 const icon = copyBtn.querySelector('i');
