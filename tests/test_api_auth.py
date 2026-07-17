@@ -26,6 +26,21 @@ def test_api_auth_valid_token(db_token):
     response = client.get("/api/keys", headers={"X-Freja-Token": db_token})
     assert response.status_code == 200
 
+def test_api_keys_endpoint_supports_unmask(db_token):
+    from backend.database import set_api_key
+    client = TestClient(app)
+    set_api_key("freja_gemini_apikey", "test_gemini_key")
+    
+    # Without unmask query param (defaults to false)
+    response = client.get("/api/keys", headers={"X-Freja-Token": db_token})
+    assert response.status_code == 200
+    assert response.json().get("freja_gemini_apikey") == "••••••••"
+    
+    # With unmask query param set to true
+    response = client.get("/api/keys?unmask=true", headers={"X-Freja-Token": db_token})
+    assert response.status_code == 200
+    assert response.json().get("freja_gemini_apikey") == "test_gemini_key"
+
 def test_api_auth_bypass_strava_callback():
     client = TestClient(app)
     # The Strava OAuth callback path should bypass and succeed (or at least not return 401)

@@ -8,7 +8,7 @@ import os
 import sys
 import subprocess
 import json
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Query
 from fastapi.responses import FileResponse
 
 from backend.config import PROJECT_ROOT
@@ -71,9 +71,9 @@ logging.getLogger("freja").addHandler(log_handler)
 logging.getLogger("uvicorn.access").addHandler(log_handler)
 
 @router.get("/api/keys")
-async def get_keys():
+async def get_keys(unmask: bool = Query(False, description="Unmask sensitive keys")):
     try:
-        return get_all_api_keys()
+        return get_all_api_keys(unmask=unmask)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

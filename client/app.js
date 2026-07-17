@@ -181,7 +181,7 @@ class FrejaUIController {
     async loadKeysFromServer() {
         try {
             this.writeLog("CONNECTING TO SECURE DATABASE...", "sys");
-            const response = await fetch('/api/keys');
+            const response = await fetch('/api/keys?unmask=true');
             if (response.ok) {
                 const keys = await response.json();
                 // A sensitive key comes back masked, and a mask must not overwrite the real

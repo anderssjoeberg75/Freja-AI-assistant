@@ -107,9 +107,10 @@ def set_api_key(key_name: str, value: str):
         conn.commit()
 
 
-def get_all_api_keys() -> dict:
+def get_all_api_keys(unmask: bool = False) -> dict:
     """Returns every stored key, keyed by key_name (used by the settings endpoint).
-    Sensitive values (API keys, client secrets, passwords, and tokens) are masked automatically.
+    Sensitive values (API keys, client secrets, passwords, and tokens) are masked automatically
+    unless unmask is set to True.
     """
     sensitive_keywords = {"secret", "token", "password", "apikey", "api_key"}
     non_sensitive_keys = {
@@ -134,7 +135,7 @@ def get_all_api_keys() -> dict:
             and name not in non_sensitive_keys
         )
         
-        if decrypted and is_sensitive:
+        if decrypted and is_sensitive and not unmask:
             result[name] = "••••••••"
         else:
             result[name] = decrypted

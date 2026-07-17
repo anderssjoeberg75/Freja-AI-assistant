@@ -237,6 +237,12 @@ class TestDatabaseKeys:
         allkeys = get_all_api_keys()
         assert allkeys.get("freja_qa_probe_secret") == "••••••••"
 
+    def test_sensitive_values_can_be_unmasked(self):
+        from backend.database import set_api_key, get_all_api_keys
+        set_api_key("freja_qa_probe_secret", "supersecret123")
+        allkeys = get_all_api_keys(unmask=True)
+        assert allkeys.get("freja_qa_probe_secret") == "supersecret123"
+
     def test_access_token_is_masked_by_get_all_api_keys(self):
         # Documents the root cause behind the corrupt-token bug: the access token the HUD
         # needs for auth is masked here, so any client that mirrors /api/keys into

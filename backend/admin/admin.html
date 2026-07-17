@@ -1016,7 +1016,7 @@
             if (token) headers['X-Freja-Token'] = token;
 
             try {
-                const res = await fetch('/api/keys', { headers: headers });
+                const res = await fetch('/api/keys?unmask=true', { headers: headers });
                 if (!res.ok) {
                     if (res.status === 401) {
                         showAuthOverlay();
