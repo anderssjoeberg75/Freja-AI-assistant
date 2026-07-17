@@ -667,19 +667,19 @@
                     <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 10px;">
                         <div style="display: flex; flex-direction: column; gap: 4px;">
                             <label for="input-strava-client-id" style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary);">Strava Client ID</label>
-                            <input type="text" id="input-strava-client-id" placeholder="Enter the Strava Client ID..." class="hud-input" style="height: 32px; font-size: 12px;">
+                            <input type="text" id="input-strava-client-id" placeholder="Enter the Strava Client ID..." class="hud-input" style="height: 32px; font-size: 12px;" autocomplete="off">
                         </div>
                         <div style="display: flex; flex-direction: column; gap: 4px;">
                             <label for="input-strava-client-secret" style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary);">Strava Client Secret</label>
                             <div class="input-password-container">
-                                <input type="password" id="input-strava-client-secret" placeholder="Enter the Strava Client Secret..." class="hud-input" style="height: 32px; font-size: 12px; flex: 1;">
+                                <input type="password" id="input-strava-client-secret" placeholder="Enter the Strava Client Secret..." class="hud-input" style="height: 32px; font-size: 12px; flex: 1;" autocomplete="new-password">
                                 <button type="button" id="btn-toggle-strava-secret" class="btn-toggle-input" style="height: 32px;"><i class="fa-solid fa-eye"></i></button>
                             </div>
                         </div>
                         <div style="display: flex; flex-direction: column; gap: 4px;">
                             <label for="input-strava-refresh-token" style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary);">Strava Refresh Token</label>
                             <div class="input-password-container">
-                                <input type="password" id="input-strava-refresh-token" placeholder="Enter the Strava Refresh Token..." class="hud-input" style="height: 32px; font-size: 12px; flex: 1;">
+                                <input type="password" id="input-strava-refresh-token" placeholder="Enter the Strava Refresh Token..." class="hud-input" style="height: 32px; font-size: 12px; flex: 1;" autocomplete="new-password">
                                 <button type="button" id="btn-toggle-strava-token" class="btn-toggle-input" style="height: 32px;"><i class="fa-solid fa-eye"></i></button>
                             </div>
                             <a id="lnk-strava-authorize" href="#" target="_blank" class="hud-link" style="display: none; margin-top: 6px; font-size: 11px; text-decoration: underline; color: #00f0ff;">
