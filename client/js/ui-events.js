@@ -489,9 +489,9 @@ FrejaUIController.prototype.bindEvents = function () {
     if (btnSyncGarminDashboard) {
         btnSyncGarminDashboard.addEventListener('click', async () => {
             soundSynth.playClick();
-            self.writeLog("INITIATING GARMIN DEVICE SYNCHRONIZATION (LATEST DAY)", "sys");
+            self.writeLog("INITIATING GARMIN DEVICE SYNCHRONIZATION (SINCE LAST SYNC)", "sys");
             try {
-                const res = await fetch('/api/garmin/sync?days=1');
+                const res = await fetch('/api/garmin/sync');
                 const resData = await res.json();
                 if (res.ok && resData.status === 'syncing') {
                     self.pollSyncStatus('garmin');

@@ -320,7 +320,7 @@ async def run_garmin_sync_flow(email, password, days):
 
 @router.get("/api/garmin/sync")
 async def get_garmin_sync(
-    days: int = Query(7, description="Number of days to sync")
+    days: int = Query(None, description="Number of days to sync. If not provided, syncs since the last sync date (capped at 30).")
 ):
     email = get_api_key('freja_garmin_email') or ""
     password = get_api_key('freja_garmin_password') or ""
@@ -330,6 +330,22 @@ async def get_garmin_sync(
             status_code=400,
             detail="Garmin Connect credentials are missing. Enter the email and password in Settings."
         )
+        
+    if days is None:
+        last_sync_val = get_api_key("last_sync_garmin")
+        if last_sync_val:
+            try:
+                # Parse the last sync date and calculate difference
+                last_sync_dt = datetime.datetime.strptime(last_sync_val, "%Y-%m-%d %H:%M:%S").date()
+                today = datetime.date.today()
+                delta = today - last_sync_dt
+                # Add 1 day to include today, and cap at 30 days to prevent API rate-limiting
+                days = max(1, min(30, delta.days + 1))
+            except Exception as e:
+                print(f"[Garmin Sync] Error calculating days since last sync: {e}")
+                days = 1
+        else:
+            days = 7  # Fallback to last 7 days if no sync history exists
         
     set_sync_state("garmin", "syncing")
     
