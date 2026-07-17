@@ -120,14 +120,15 @@ FrejaUIController.prototype.initializeUI = function() {
     const authLink = document.getElementById('lnk-strava-authorize');
     if (authLink) {
         authLink.addEventListener('click', (e) => {
+            e.preventDefault();
             const clientId = inputStravaClientId ? inputStravaClientId.value.trim() : "";
             if (!clientId) {
-                e.preventDefault();
                 alert("Please enter a Client ID first.");
                 return;
             }
             const redirectUri = window.location.origin + '/api/strava/callback';
-            authLink.href = `https://www.strava.com/oauth/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=activity:read,activity:read_all`;
+            const oauthUrl = `https://www.strava.com/oauth/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=activity:read,activity:read_all`;
+            window.open(oauthUrl, '_blank');
         });
     }
     updateStravaLink();
