@@ -1953,24 +1953,6 @@ FrejaUIController.prototype.bindEvents = function () {
         });
     }
 
-    // Trainer Chat send actions
-    const trainerChatInput = document.getElementById('trainer-chat-input');
-    const btnTrainerChatSend = document.getElementById('btn-trainer-chat-send');
-
-    const submitTrainerChatQuery = () => {
-        if (!trainerChatInput) return;
-        const query = trainerChatInput.value.trim();
-        if (!query) return;
-        soundSynth.playClick();
-        self.processTrainerChatQuery(query);
-    };
-
-    if (btnTrainerChatSend) {
-        btnTrainerChatSend.addEventListener('click', submitTrainerChatQuery);
-    }
-    if (trainerChatInput) {
-        trainerChatInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') submitTrainerChatQuery();
-        });
-    }
+    // The PT panel's own chat box was removed - its wiring lived here. Training questions
+    // go to the main chat, which now has the live program in its system prompt.
 };

@@ -1115,19 +1115,11 @@
                             <div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">No history loaded...</div>
                         </div>
                     </div>
-                    <div class="trainer-chat-section" style="display: flex; flex-direction: column; flex: 1; min-height: 0; border-top: 1px dashed rgba(0, 242, 254, 0.15); padding-top: 15px; gap: 10px;">
-                        <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); margin: 0; letter-spacing: 1px;"><i class="fa-solid fa-comments"></i> CHAT WITH FREJA</h3>
-                        <div id="trainer-chat-history" style="flex: 1; overflow-y: auto; background: rgba(0, 0, 0, 0.3); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px; display: flex; flex-direction: column; gap: 8px;">
-                            <div class="chat-msg assistant-msg">
-                                <div class="msg-sender">[FREJA]</div>
-                                <div class="msg-content">Hej! Hur kan jag hjälpa dig med din träning eller återhämtning idag?</div>
-                            </div>
-                        </div>
-                        <div style="display: flex; gap: 8px; flex-shrink: 0;">
-                            <input type="text" id="trainer-chat-input" placeholder="Ask Freja about training, recovery..." class="hud-input" style="flex: 1; height: 34px; font-size: 12px;">
-                            <button id="btn-trainer-chat-send" class="hud-btn btn-primary" style="height: 34px; font-family: var(--font-display); font-size: 11px; padding: 0 15px; display: flex; align-items: center; gap: 5px;"><i class="fa-solid fa-paper-plane"></i> SEND</button>
-                        </div>
-                    </div>
+                    <!-- The PT panel used to carry its own "CHAT WITH FREJA" box. It was a second,
+                         weaker chat: separate history, no tool access, and no memory of the main
+                         conversation. Since the main chat now gets the live training program
+                         injected into its system prompt (/api/trainer/context), asking Freja about
+                         a session there is strictly better, so the duplicate was removed. -->
                 </div>
             </div>
             <div class="modal-footer" style="display: flex; flex-direction: column; gap: 10px;">

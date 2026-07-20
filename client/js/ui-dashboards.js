@@ -1953,137 +1953,10 @@ FrejaUIController.prototype.loadLearningVaultUI = async function () {
     }
 };
 
-FrejaUIController.prototype.appendTrainerChatMessage = function(sender, text) {
-    const trainerChatHistory = document.getElementById('trainer-chat-history');
-    if (!trainerChatHistory) return;
-
-    const msgDiv = document.createElement('div');
-    msgDiv.className = `chat-msg ${sender}-msg`;
-
-    const senderTag = sender === 'user' ? '[USER]' : '[FREJA]';
-    const formattedText = window.FrejaMarkdown.parseMarkdown(text);
-
-    if (sender === 'assistant') {
-        msgDiv.innerHTML = `
-            <div class="msg-sender">${senderTag}</div>
-            <div class="msg-content" style="position: relative; padding-right: 28px;">
-                ${formattedText}
-                <button class="btn-copy-msg" title="Kopiera svar" style="position: absolute; top: 8px; right: 8px; background: transparent; border: none; color: var(--color-text-muted); cursor: pointer; font-size: 11px; transition: color 0.2s;" onmouseover="this.style.color='var(--color-primary)'" onmouseout="this.style.color='var(--color-text-muted)'">
-                    <i class="fa-regular fa-copy"></i>
-                </button>
-            </div>
-        `;
-        const copyBtn = msgDiv.querySelector('.btn-copy-msg');
-        if (copyBtn) {
-            copyBtn.addEventListener('click', () => {
-                const fallbackCopy = (val) => {
-                    try {
-                        const textarea = document.createElement('textarea');
-                        textarea.value = val;
-                        textarea.style.position = 'fixed';
-                        textarea.style.top = '0';
-                        textarea.style.left = '0';
-                        textarea.style.opacity = '0';
-                        document.body.appendChild(textarea);
-                        textarea.select();
-                        const res = document.execCommand('copy');
-                        document.body.removeChild(textarea);
-                        return res;
-                    } catch (err) {
-                        console.error("Fallback copy failed:", err);
-                        return false;
-                    }
-                };
-
-                let success = true;
-                if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
-                    navigator.clipboard.writeText(text).catch(err => {
-                        console.error("Clipboard API failed, using fallback:", err);
-                        fallbackCopy(text);
-                    });
-                } else {
-                    success = fallbackCopy(text);
-                }
-
-                if (success && window.soundSynth) {
-                    window.soundSynth.playClick();
-                }
-                const icon = copyBtn.querySelector('i');
-                icon.className = 'fa-solid fa-check';
-                copyBtn.style.color = '#00ff66';
-                setTimeout(() => {
-                    icon.className = 'fa-regular fa-copy';
-                    copyBtn.style.color = 'var(--color-text-muted)';
-                }, 2000);
-            });
-        }
-    } else {
-        msgDiv.innerHTML = `
-            <div class="msg-sender">${senderTag}</div>
-            <div class="msg-content">${formattedText}</div>
-        `;
-    }
-
-    trainerChatHistory.appendChild(msgDiv);
-    trainerChatHistory.scrollTop = trainerChatHistory.scrollHeight;
-};
-
-FrejaUIController.prototype.processTrainerChatQuery = async function(query) {
-    const inputEl = document.getElementById('trainer-chat-input');
-    const sendBtn = document.getElementById('btn-trainer-chat-send');
-    if (inputEl) inputEl.disabled = true;
-    if (sendBtn) sendBtn.disabled = true;
-
-    this.writeLog(`TRAINER QUERY SUBMITTED: "${query}"`, "user");
-    this.appendTrainerChatMessage("user", query);
-    
-    // Save message to database
-    this.saveChatMessage("user", query);
-
-    try {
-        if (window.visualizer) {
-            window.visualizer.state = 'PROCESSING';
-        }
-        
-        this.writeLog("NEURAL COGNITION UPLINK ENGAGED", "gemini");
-        
-        // Request response from Google Gemini Client (no webcam snapshot)
-        const response = await this.gemini.generateResponse(query, false);
-        
-        this.writeLog("RESPONSE SECURED. INITIATING AUDIO SYNTHESIS", "gemini");
-        this.appendTrainerChatMessage("assistant", response);
-        
-        // Save response to database
-        this.saveChatMessage("assistant", response);
-        
-        // Synthesize response speech audio
-        await this.speech.speak(response);
-
-        // Add exchange to memory store asynchronously in background
-        if (this.memory && this.memory.enabled) {
-            this.memory.addMemory(query, response).then((res) => {
-                if (res) {
-                    this.writeLog("NEURAL ENGRAM ENCODED SECURELY", "sys");
-                }
-            }).catch(e => {
-                console.warn("[MEM0] Background memory extraction failed:", e);
-            });
-        }
-    } catch (err) {
-        console.error("Trainer chat query failure:", err);
-        this.appendTrainerChatMessage("assistant", "[ANOMALI] Kunde inte behandla din förfrågan.");
-    } finally {
-        if (inputEl) {
-            inputEl.disabled = false;
-            inputEl.value = "";
-            inputEl.focus();
-        }
-        if (sendBtn) sendBtn.disabled = false;
-        if (window.visualizer) {
-            window.visualizer.state = 'SLEEPING';
-        }
-    }
-};
+// appendTrainerChatMessage / processTrainerChatQuery lived here to drive the PT panel's
+// own chat box. That box was removed: it was a second, weaker chat with its own history
+// and no tool access, and the main chat now carries the live training program in its
+// system prompt (/api/trainer/context), which makes it strictly better for the same job.
 
 /**
  * Guided onboarding (step 1): let Freja analyse Garmin/Strava/Withings and interview the user.
@@ -2119,6 +1992,13 @@ FrejaUIController.prototype.startTrainerOnboarding = async function () {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({})
         });
+        if (res.status === 404) {
+            // The onboarding endpoints ship with the backend, not the HUD. A 404 here means
+            // the two are on different versions - the panel updated, the server did not.
+            throw new Error("the backend does not have the onboarding endpoint. "
+                + "It is running an older version than this HUD - update and restart it "
+                + "(ask Freja to 'uppdatera dig från GitHub', or pull and restart server.py).");
+        }
         if (!res.ok) {
             const err = await res.json().catch(() => ({}));
             throw new Error(err.detail || `HTTP ${res.status}`);
