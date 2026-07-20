@@ -275,7 +275,7 @@ FrejaUIController.prototype.initializeUI = function() {
 
     const capGarmin = document.getElementById('cap-garmin');
     if (capGarmin) {
-        if (garminAllowed) {
+        if (garminAllowed || garminEmail) {
             capGarmin.classList.add('active');
         } else {
             capGarmin.classList.remove('active');
@@ -300,9 +300,10 @@ FrejaUIController.prototype.initializeUI = function() {
         chkStravaStats.checked = stravaStatsAllowed;
     }
 
+    const stravaClientId = localStorage.getItem("freja_strava_client_id") || "";
     const capStrava = document.getElementById('cap-strava');
     if (capStrava) {
-        if (stravaAllowed || stravaAnalysisAllowed || stravaStatsAllowed) {
+        if (stravaAllowed || stravaAnalysisAllowed || stravaStatsAllowed || stravaClientId) {
             capStrava.classList.add('active');
         } else {
             capStrava.classList.remove('active');

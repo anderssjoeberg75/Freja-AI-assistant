@@ -202,7 +202,13 @@ class FrejaUIController {
                     "freja_withings_refresh_token",
                     "freja_google_calendar_client_id",
                     "freja_google_calendar_client_secret",
-                    "freja_google_calendar_refresh_token"
+                    "freja_google_calendar_refresh_token",
+                    "freja_tool_get_garmin_health_allowed",
+                    "freja_tool_get_strava_data_allowed",
+                    "freja_tool_get_strava_activity_analysis_allowed",
+                    "freja_tool_get_strava_athlete_stats_allowed",
+                    "freja_tool_get_withings_health_allowed",
+                    "freja_tool_manage_google_calendar_allowed"
                 ];
                 for (const name of MIRRORED_KEYS) {
                     const value = keys[name];
@@ -219,10 +225,18 @@ class FrejaUIController {
                     }
                 }
 
+                // Also sync any other freja_tool_ keys directly into localStorage
+                for (const [k, v] of Object.entries(keys)) {
+                    if (k.startsWith('freja_tool_') && v !== undefined && !isMaskedValue(v)) {
+                        localStorage.setItem(k, v);
+                    }
+                }
+
                 // Refresh components keys if already instantiated
                 if (this.gemini) this.gemini.loadApiKey();
                 if (this.memory) this.memory.loadSettings();
                 if (this.speech) this.speech.elevenApiKey = localStorage.getItem("freja_eleven_apikey") || "";
+                if (typeof this.initializeUI === 'function') this.initializeUI();
                 
                 this.writeLog("API KEYS SYNCHRONIZED WITH DATABASE", "sys");
             } else {
