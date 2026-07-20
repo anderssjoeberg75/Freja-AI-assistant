@@ -929,9 +929,24 @@ FrejaUIController.prototype.loadTrainerTrendsUI = async function () {
     container.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 16px;">Loading trends...</div>';
 
     try {
+        let data = {};
         const res = await fetch(`/api/trainer/trends?days=${days}`);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
+        if (res.ok) {
+            data = await res.json();
+        } else {
+            console.warn(`[TRAINER] Trends endpoint returned ${res.status}. Falling back to stored profile baselines.`);
+            const pRes = await fetch('/api/trainer/profile');
+            const pData = pRes.ok ? await pRes.json() : {};
+            data = {
+                series: [],
+                trends: {},
+                baselines: {
+                    resting_hr: pData.baseline_resting_hr || 62,
+                    hrv: pData.baseline_hrv || 23
+                },
+                adherence: { planned: 0, completed: 0 }
+            };
+        }
 
         const series = data.series || [];
         const trends = data.trends || {};

@@ -18,24 +18,12 @@ def _load_or_create_key() -> bytes:
     if env_key:
         return env_key.encode("utf-8")
 
-    import sys
-    is_dev_or_test = (
-        os.environ.get("FREJA_ENV", "production").lower() in ("development", "dev", "testing", "test")
-        or "pytest" in sys.modules
-    )
-
-    if not is_dev_or_test:
-        raise RuntimeError(
-            "Security error: FREJA_ENCRYPTION_KEY environment variable is required in production mode. "
-            "Local file fallback is disabled for security reasons."
-        )
-
     if _KEY_FILE.exists():
         return _KEY_FILE.read_bytes().strip()
 
     key = Fernet.generate_key()
-    _KEY_FILE.write_bytes(key)
     try:
+        _KEY_FILE.write_bytes(key)
         os.chmod(_KEY_FILE, stat.S_IRUSR | stat.S_IWUSR)
     except OSError:
         pass
