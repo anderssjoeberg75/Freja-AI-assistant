@@ -205,3 +205,158 @@ async def test_health_averages_ignore_days_without_a_reading(monkeypatch):
     assert averages["avg_daily_steps"] == 10000
     assert averages["avg_sleep_hours"] == 8.0
     assert averages["avg_active_calories"] == 500
+
+
+def test_long_absence_queues_the_uncovered_days(auth_headers, monkeypatch):
+    """A gap longer than the cap must be remembered, not silently dropped.
+
+    The window is anchored on today and clamped to MAX_SYNC_DAYS, while last_sync_garmin
+    jumps to now on success - so without a queue the trimmed days are never fetched by any
+    later sync and become a permanent hole in the history.
+    """
+    import datetime
+    from backend.database import set_api_key
+    import backend.routes.garmin as gm
+
+    set_api_key(gm.BACKFILL_KEY, "")
+    today = datetime.date.today()
+    last_sync = today - datetime.timedelta(days=60)
+    set_api_key("last_sync_garmin", last_sync.strftime("%Y-%m-%d %H:%M:%S"))
+    set_api_key("freja_garmin_email", "a@b.c")
+    set_api_key("freja_garmin_password", "pw")
+
+    captured = {}
+
+    def fake_enqueue(fn, *args, **kwargs):
+        captured["days"] = args[2]
+
+    monkeypatch.setattr("backend.services.task_queue.enqueue_task", fake_enqueue)
+
+    client = TestClient(app)
+    res = client.get("/api/garmin/sync", headers=auth_headers)
+    assert res.status_code == 200
+
+    # The run itself stays capped...
+    assert captured["days"] == gm.MAX_SYNC_DAYS
+    # ...and the days it could not reach are queued rather than forgotten.
+    pending = gm._read_backfill_range()
+    assert pending is not None, "the uncovered days were dropped"
+    start, end = pending
+    oldest_covered = today - datetime.timedelta(days=gm.MAX_SYNC_DAYS - 1)
+    assert start == last_sync
+    assert end == oldest_covered - datetime.timedelta(days=1)
+    # No day is both covered by the run and left in the queue.
+    assert end < oldest_covered
+
+    set_api_key(gm.BACKFILL_KEY, "")
+
+
+def test_short_absence_queues_nothing(auth_headers, monkeypatch):
+    """A gap inside the cap is fully covered, so nothing should be queued."""
+    import datetime
+    from backend.database import set_api_key
+    import backend.routes.garmin as gm
+
+    set_api_key(gm.BACKFILL_KEY, "")
+    set_api_key("last_sync_garmin", (datetime.date.today() - datetime.timedelta(days=3)).strftime("%Y-%m-%d %H:%M:%S"))
+    set_api_key("freja_garmin_email", "a@b.c")
+    set_api_key("freja_garmin_password", "pw")
+
+    def fake_enqueue(fn, *args, **kwargs):
+        pass
+    monkeypatch.setattr("backend.services.task_queue.enqueue_task", fake_enqueue)
+
+    client = TestClient(app)
+    assert client.get("/api/garmin/sync", headers=auth_headers).status_code == 200
+    assert gm._read_backfill_range() is None
+
+
+@pytest.mark.asyncio
+async def test_backfill_drains_oldest_first_and_completes(monkeypatch):
+    """Draining walks the queued window oldest-first and clears it when done."""
+    import datetime
+    from backend.database import set_api_key
+    import backend.routes.garmin as gm
+
+    today = datetime.date.today()
+    start = today - datetime.timedelta(days=59)
+    end = today - datetime.timedelta(days=30)
+    gm._write_backfill_range(start, end)
+
+    windows = []
+
+    def fake_blocking(email, password, days, end_date=None):
+        windows.append((end_date - datetime.timedelta(days=days - 1), end_date))
+
+    monkeypatch.setattr(gm, "run_garmin_sync_task_blocking", fake_blocking)
+
+    first = await gm.drain_garmin_backfill("a@b.c", "pw")
+    assert first["status"] == "success"
+    # Oldest days first, so history fills forwards from the gap's start.
+    assert windows[0][0] == start
+
+    # Keep draining until the queue empties; it must terminate.
+    guard = 0
+    while gm._read_backfill_range() is not None and guard < 10:
+        await gm.drain_garmin_backfill("a@b.c", "pw")
+        guard += 1
+    assert guard < 10, "backfill did not terminate"
+    assert gm._read_backfill_range() is None
+
+    # Every queued day was covered exactly once, with no gaps between chunks.
+    covered = set()
+    for w_start, w_end in windows:
+        d = w_start
+        while d <= w_end:
+            covered.add(d)
+            d += datetime.timedelta(days=1)
+    expected = set()
+    d = start
+    while d <= end:
+        expected.add(d)
+        d += datetime.timedelta(days=1)
+    assert covered == expected
+
+
+@pytest.mark.asyncio
+async def test_failed_backfill_keeps_the_days_queued(monkeypatch):
+    """If the chunk fails, its days stay queued for the next run."""
+    import datetime
+    from backend.database import set_api_key
+    import backend.routes.garmin as gm
+
+    today = datetime.date.today()
+    start = today - datetime.timedelta(days=59)
+    end = today - datetime.timedelta(days=30)
+    gm._write_backfill_range(start, end)
+
+    def failing_blocking(*a, **k):
+        raise RuntimeError("Garmin unavailable")
+    monkeypatch.setattr(gm, "run_garmin_sync_task_blocking", failing_blocking)
+
+    with pytest.raises(RuntimeError):
+        await gm.drain_garmin_backfill("a@b.c", "pw")
+
+    assert gm._read_backfill_range() == (start, end), "a failed chunk lost its days"
+    set_api_key(gm.BACKFILL_KEY, "")
+
+
+def test_unparseable_last_sync_does_not_shrink_the_window(auth_headers, monkeypatch):
+    """A corrupt timestamp must not narrow every future sync to a single day."""
+    from backend.database import set_api_key
+    import backend.routes.garmin as gm
+
+    set_api_key(gm.BACKFILL_KEY, "")
+    set_api_key("last_sync_garmin", "not-a-timestamp")
+    set_api_key("freja_garmin_email", "a@b.c")
+    set_api_key("freja_garmin_password", "pw")
+
+    captured = {}
+
+    def fake_enqueue(fn, *args, **kwargs):
+        captured["days"] = args[2]
+    monkeypatch.setattr("backend.services.task_queue.enqueue_task", fake_enqueue)
+
+    client = TestClient(app)
+    assert client.get("/api/garmin/sync", headers=auth_headers).status_code == 200
+    assert captured["days"] == gm.DEFAULT_SYNC_DAYS

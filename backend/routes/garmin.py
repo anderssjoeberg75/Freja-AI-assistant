@@ -5,8 +5,52 @@ import os
 import asyncio
 from fastapi import APIRouter, HTTPException, Query, Request
 from backend.config import PROJECT_ROOT
-from backend.database import get_db_connection, get_api_key
+from backend.database import get_db_connection, get_api_key, set_api_key
 from backend.services.sync_status import set_sync_state
+
+# --- Sync window sizing (Issue #56) ------------------------------------------
+# A run fetches at most this many days, to stay clear of Garmin's rate limits. The days a
+# longer gap leaves uncovered are remembered in BACKFILL_KEY instead of being dropped:
+# `last_sync_garmin` jumps to now after every successful run, so anything the cap trimmed
+# would otherwise never be fetched by any later sync.
+MAX_SYNC_DAYS = 30
+BACKFILL_CHUNK_DAYS = 30
+BACKFILL_KEY = "garmin_backfill_range"   # "YYYY-MM-DD:YYYY-MM-DD", inclusive, or absent
+DEFAULT_SYNC_DAYS = 7                    # used when there is no sync history to measure from
+
+
+def _read_backfill_range():
+    """Returns the pending backfill window as (start_date, end_date), or None."""
+    raw = get_api_key(BACKFILL_KEY)
+    if not raw or ":" not in raw:
+        return None
+    try:
+        start_str, end_str = raw.split(":", 1)
+        start = datetime.datetime.strptime(start_str.strip(), "%Y-%m-%d").date()
+        end = datetime.datetime.strptime(end_str.strip(), "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        return None
+    return (start, end) if start <= end else None
+
+
+def _write_backfill_range(start, end):
+    """Persists (or clears, when the window is empty) the pending backfill window."""
+    set_api_key(BACKFILL_KEY, f"{start.isoformat()}:{end.isoformat()}" if start <= end else "")
+
+
+def _queue_backfill(start, end):
+    """Records days [start..end] as still needing a sync, merging with anything pending.
+
+    Merging takes the union rather than replacing, so a second long absence cannot discard
+    a gap that is still waiting to be drained."""
+    if start > end:
+        return
+    pending = _read_backfill_range()
+    if pending:
+        start = min(start, pending[0])
+        end = max(end, pending[1])
+    _write_backfill_range(start, end)
+    print(f"[Garmin Sync] Queued backfill for {start} .. {end} ({(end - start).days + 1} days).")
 
 router = APIRouter()
 
@@ -51,17 +95,22 @@ async def get_garmin_data(days: int = Query(7, description="Number of days to re
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-def run_garmin_sync_task_blocking(email, password, days):
+def run_garmin_sync_task_blocking(email, password, days, end_date=None):
+    """Syncs `days` days of Garmin data ending on `end_date` (default: today).
+
+    `end_date` exists so a window can be anchored somewhere other than today, which is what
+    lets the backfill drain an older gap without disturbing the recent window (Issue #56).
+    """
     try:
         from garminconnect import Garmin
         token_dir = os.path.join(os.path.dirname(os.path.abspath(PROJECT_ROOT)), '.garminconnect')
         os.makedirs(token_dir, exist_ok=True)
-        
+
         client = Garmin(email, password)
         client.login(tokenstore=token_dir)
-        
-        today = datetime.date.today()
-        dates_to_sync = [(today - datetime.timedelta(days=i)).strftime('%Y-%m-%d') for i in range(days)]
+
+        window_end = end_date or datetime.date.today()
+        dates_to_sync = [(window_end - datetime.timedelta(days=i)).strftime('%Y-%m-%d') for i in range(days)]
         dates_to_sync.reverse()
         
         activities = []
@@ -282,6 +331,31 @@ async def auto_optimize_workouts_after_sync_async():
         print(f"[GARMIN SYNC] COACH AI justerade {result['changes_count']} kommande pass efter ny Garmin-data.")
 
 
+async def drain_garmin_backfill(email, password) -> dict:
+    """Syncs one chunk of the pending backfill window, oldest days first.
+
+    Advances the stored range only after the chunk lands, so a failure mid-drain leaves the
+    days queued for the next run rather than skipping them. Returns a summary of what moved.
+    """
+    pending = _read_backfill_range()
+    if not pending:
+        return {"status": "idle", "remaining_days": 0}
+
+    start, end = pending
+    chunk_end = min(start + datetime.timedelta(days=BACKFILL_CHUNK_DAYS - 1), end)
+    chunk_days = (chunk_end - start).days + 1
+
+    print(f"[Garmin Sync] Backfilling {start} .. {chunk_end} ({chunk_days} days).")
+    await asyncio.to_thread(run_garmin_sync_task_blocking, email, password, chunk_days, chunk_end)
+
+    next_start = chunk_end + datetime.timedelta(days=1)
+    _write_backfill_range(next_start, end)
+    remaining = max(0, (end - next_start).days + 1)
+    if remaining == 0:
+        print("[Garmin Sync] Backfill complete.")
+    return {"status": "success", "synced_days": chunk_days, "remaining_days": remaining}
+
+
 async def run_garmin_sync_flow(email, password, days):
     """Asynchronous orchestrator for Garmin Connect synchronization.
     Runs the blocking sync in a thread executor, then executes optimization in the main event loop.
@@ -290,6 +364,16 @@ async def run_garmin_sync_flow(email, password, days):
         # Run blocking HTTP requests / SQLite updates in a background thread executor
         await asyncio.to_thread(run_garmin_sync_task_blocking, email, password, days)
         set_sync_state("garmin", "success")
+
+        # Drain a chunk of any gap a previous cap left behind (Issue #56). Done after the
+        # recent window so today's data is never held up by history, and one chunk per run
+        # so a long absence spreads its catch-up over several syncs instead of one burst.
+        try:
+            await drain_garmin_backfill(email, password)
+        except Exception as backfill_err:
+            # A failed backfill must not fail the sync that already succeeded; the range
+            # stays queued and the next run retries it.
+            print(f"[GARMIN SYNC] Backfill chunk was skipped: {backfill_err}")
         
         # Refresh the PT health baselines from the freshly-synced data. This is a
         # cheap SQLite pass that self-limits to a weekly cadence (Issue #35), so it is
@@ -332,14 +416,22 @@ async def get_garmin_sync(
                 # Parse the last sync date and calculate difference
                 last_sync_dt = datetime.datetime.strptime(last_sync_val, "%Y-%m-%d %H:%M:%S").date()
                 today = datetime.date.today()
-                delta = today - last_sync_dt
-                # Add 1 day to include today, and cap at 30 days to prevent API rate-limiting
-                days = max(1, min(30, delta.days + 1))
+                wanted = max(1, (today - last_sync_dt).days + 1)  # +1 so today is included
+                days = min(MAX_SYNC_DAYS, wanted)
+                if wanted > days:
+                    # The cap trimmed the window. Remember the part it cut off, because
+                    # last_sync_garmin advances to now on success and would otherwise
+                    # strand those days permanently.
+                    oldest_covered = today - datetime.timedelta(days=days - 1)
+                    _queue_backfill(last_sync_dt, oldest_covered - datetime.timedelta(days=1))
             except Exception as e:
+                # An unparseable timestamp says nothing about how much is missing, so fall
+                # back to the same window used when there is no history at all. Narrowing
+                # to a single day here would quietly shrink every future sync.
                 print(f"[Garmin Sync] Error calculating days since last sync: {e}")
-                days = 1
+                days = DEFAULT_SYNC_DAYS
         else:
-            days = 7  # Fallback to last 7 days if no sync history exists
+            days = DEFAULT_SYNC_DAYS  # No sync history yet
         
     set_sync_state("garmin", "syncing")
     
