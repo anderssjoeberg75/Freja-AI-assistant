@@ -854,6 +854,9 @@ async def exec_trainer_advice(args):
     from backend.routes.trainer import fetch_7day_weather_forecast
     weather_forecast = await fetch_7day_weather_forecast("Stockholm")
 
+    # Fetch complete PT plan context (scheduled workouts, today's workout, active plan, injuries)
+    pt_context = await _build_trainer_context_summary(days=14)
+
     garmin_data = []
     try:
         with get_db_connection() as conn:
@@ -893,6 +896,12 @@ async def exec_trainer_advice(args):
     return {
         "goal": goal,
         "limitations": limitations,
+        "today_date": pt_context.get("today_date"),
+        "today_weekday": pt_context.get("today_weekday"),
+        "today_scheduled_workout": pt_context.get("today_scheduled_workout"),
+        "active_plan": pt_context.get("active_plan"),
+        "scheduled_workouts": pt_context.get("scheduled_workouts"),
+        "injuries": pt_context.get("injuries"),
         "weather_forecast_next_7_days": weather_forecast,
         "garmin_health_last_7_days": garmin_data,
         "strava_activities_last_7_activities": strava_data,
