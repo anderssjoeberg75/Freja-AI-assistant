@@ -377,4 +377,8 @@ FrejaUIController.prototype.initializeUI = function() {
     }
 
     this.applyTheme(theme);
+    // Preload PT onboarding profile values immediately on app startup
+    if (typeof this.loadTrainerProfileUI === 'function') {
+        this.loadTrainerProfileUI();
+    }
 };

@@ -585,7 +585,28 @@ FrejaUIController.prototype.loadTrainerProfileUI = async function () {
         const p = await res.json();
         if (!p || typeof p !== 'object') return;
 
-        // Fetch the last 7 days of Garmin data to pull the latest valid daily values
+        // Set stored profile values IMMEDIATELY so fields fill in with 0 delay
+        const setVal = (id, value) => {
+            const el = document.getElementById(id);
+            if (el && value !== null && value !== undefined) el.value = value;
+        };
+        setVal('trainer-input-goal', p.goals || p.goal || '');
+        setVal('trainer-input-limitations', p.limitations || '');
+        setVal('trainer-input-event', p.event || '');
+        setVal('trainer-input-event-date', p.event_date || '');
+        setVal('trainer-input-availability', p.availability || '');
+        setVal('trainer-input-location', p.location || '');
+        setVal('trainer-input-baseline-rhr', p.baseline_resting_hr || '');
+        setVal('trainer-input-baseline-sleep', p.baseline_sleep_hours || '');
+        setVal('trainer-input-baseline-hrv', p.baseline_hrv || '');
+
+        const fitnessSel = document.getElementById('trainer-select-fitness-level');
+        if (fitnessSel && p.fitness_level) {
+            const match = Array.from(fitnessSel.options).some(o => o.value.toLowerCase() === p.fitness_level.toLowerCase());
+            if (match) fitnessSel.value = p.fitness_level.toLowerCase();
+        }
+
+        // Fetch Garmin data in background without blocking form population
         try {
             const garminRes = await fetch('/api/garmin/data?days=7');
             if (garminRes.ok) {
@@ -593,45 +614,19 @@ FrejaUIController.prototype.loadTrainerProfileUI = async function () {
                 let latestRhr = null;
                 let latestSleep = null;
                 let latestHrv = null;
-                
+
                 for (const d of garminData) {
-                    if (latestRhr === null && d.resting_hr && d.resting_hr > 0) {
-                        latestRhr = d.resting_hr;
-                    }
-                    if (latestSleep === null && d.sleep_hours && d.sleep_hours > 0) {
-                        latestSleep = d.sleep_hours;
-                    }
-                    if (latestHrv === null && d.hrv && d.hrv > 0) {
-                        latestHrv = d.hrv;
-                    }
+                    if (latestRhr === null && d.resting_hr && d.resting_hr > 0) latestRhr = d.resting_hr;
+                    if (latestSleep === null && d.sleep_hours && d.sleep_hours > 0) latestSleep = d.sleep_hours;
+                    if (latestHrv === null && d.hrv && d.hrv > 0) latestHrv = d.hrv;
                 }
-                
-                if (latestRhr !== null) p.baseline_resting_hr = latestRhr;
-                if (latestSleep !== null) p.baseline_sleep_hours = latestSleep;
-                if (latestHrv !== null) p.baseline_hrv = latestHrv;
+
+                if (latestRhr !== null) setVal('trainer-input-baseline-rhr', latestRhr);
+                if (latestSleep !== null) setVal('trainer-input-baseline-sleep', latestSleep);
+                if (latestHrv !== null) setVal('trainer-input-baseline-hrv', latestHrv);
             }
         } catch (garminErr) {
             console.warn('[TRAINER] Could not pull latest Garmin data for baselines:', garminErr);
-        }
-
-        const setVal = (id, value) => {
-            const el = document.getElementById(id);
-            if (el && value !== null && value !== undefined) el.value = value;
-        };
-        setVal('trainer-input-goal', p.goals);
-        setVal('trainer-input-limitations', p.limitations);
-        setVal('trainer-input-event', p.event);
-        setVal('trainer-input-event-date', p.event_date);
-        setVal('trainer-input-availability', p.availability);
-        setVal('trainer-input-location', p.location);
-        setVal('trainer-input-baseline-rhr', p.baseline_resting_hr);
-        setVal('trainer-input-baseline-sleep', p.baseline_sleep_hours);
-        setVal('trainer-input-baseline-hrv', p.baseline_hrv);
-
-        const fitnessSel = document.getElementById('trainer-select-fitness-level');
-        if (fitnessSel && p.fitness_level) {
-            const match = Array.from(fitnessSel.options).some(o => o.value === p.fitness_level);
-            if (match) fitnessSel.value = p.fitness_level;
         }
     } catch (e) {
         console.error('[TRAINER] Failed to load profile form:', e);
