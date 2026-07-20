@@ -1265,7 +1265,7 @@ Instructions for the answer:
             ],
             "generationConfig": {
                 "temperature": 0.2,
-                "maxOutputTokens": 2000,
+                "maxOutputTokens": 4000,
                 "responseMimeType": "application/json",
                 # Every free-text field below is rendered straight into the HUD, so the schema
                 # tells the model to fill them in Swedish. `day` must stay a Swedish weekday
