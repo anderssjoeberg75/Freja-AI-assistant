@@ -8,6 +8,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from backend.database import get_api_key
+from backend.origins import is_allowed_origin
 
 logger = logging.getLogger("freja.auth")
 
@@ -69,12 +70,22 @@ def _record_success(ip: str):
 
 
 def _cors_response(request: Request, status_code: int, content: dict, headers: dict = None) -> JSONResponse:
-    origin = request.headers.get("origin", "*")
-    res_headers = {
-        "Access-Control-Allow-Origin": origin,
-        "Access-Control-Allow-Methods": "*",
-        "Access-Control-Allow-Headers": "*",
-    }
+    """Builds an error response, echoing the Origin back only when it is actually trusted.
+
+    This reflected whatever Origin the caller sent (issue #41). These responses are rejections,
+    so the body is not sensitive, but reflecting an arbitrary origin still tells a hostile page
+    that Freja is running here and hands it a readable response to probe with. An untrusted
+    origin now simply gets no CORS headers, and the browser drops the response.
+    """
+    res_headers = {}
+    origin = request.headers.get("origin")
+    if origin and is_allowed_origin(origin, request):
+        res_headers = {
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Methods": "*",
+            "Access-Control-Allow-Headers": "*",
+            "Vary": "Origin",
+        }
     if headers:
         res_headers.update(headers)
     return JSONResponse(status_code=status_code, content=content, headers=res_headers)

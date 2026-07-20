@@ -82,11 +82,29 @@ app = FastAPI(
 )
 
 # Register CORS Middleware.
-# allow_origins=["*"] is safe only because allow_credentials is False and every protected
-# route requires the X-Freja-Token header, which a browser will not attach automatically.
+#
+# This used to be allow_origins=["*"], argued safe because allow_credentials is False and
+# every protected route requires the X-Freja-Token header. The argument holds only while
+# authentication is airtight: with "*" any page on the internet may READ an API response,
+# so the moment a token check lapses, a contained auth bug becomes full credential
+# disclosure (exactly what happened - see #55, and #19/#41).
+#
+# Loopback and private/LAN origins are matched by regex because they are the ones a
+# self-hosted HUD actually uses (:5000 talking to :8000, or over the LAN) and no public
+# web page can present them. Anything beyond that must be listed in the
+# `freja_allowed_origins` setting; that list is read here at startup, so a change to it
+# needs a restart to affect CORS.
+from backend.origins import PRIVATE_ORIGIN_REGEX, configured_origins
+
+try:
+    _explicit_origins = configured_origins()
+except Exception:
+    _explicit_origins = []
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_explicit_origins,
+    allow_origin_regex=PRIVATE_ORIGIN_REGEX,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],

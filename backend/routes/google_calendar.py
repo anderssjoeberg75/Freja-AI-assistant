@@ -9,52 +9,21 @@ from fastapi import APIRouter, HTTPException, Query, Request, BackgroundTasks
 from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 from backend.database import get_db_connection, get_api_key, set_api_key
+from backend.origins import origin_of, is_allowed_origin
 from backend.services.sync_status import set_sync_state
 
 router = APIRouter()
 
 
-def _origin_of(url: str):
-    """Normalized 'scheme://host[:port]' for `url`, or None if it is not a usable http(s) origin.
-
-    Rebuilt from the parsed parts rather than sliced out of the string, so userinfo
-    ("https://evil.com@trusted.host") and paths cannot smuggle a different target through.
-    """
-    try:
-        parsed = urlparse((url or "").strip())
-        port = parsed.port
-    except ValueError:
-        return None
-    if parsed.scheme not in ("http", "https") or not parsed.hostname:
-        return None
-    return f"{parsed.scheme}://{parsed.hostname}" + (f":{port}" if port else "")
-
-
-LOOPBACK_HOSTS = ("localhost", "127.0.0.1", "::1")
+# The origin policy lives in backend/origins.py so CORS, the auth-failure headers and this
+# OAuth redirect check cannot drift apart; a redirect target trusted here is exactly one
+# that could have read the response anyway.
+_origin_of = origin_of
 
 
 def _is_allowed_redirect_origin(origin: str, request: Request) -> bool:
-    """Whether the OAuth callback may redirect to `origin`.
-
-    Loopback is always allowed, mirroring the IP whitelist in backend/middleware/auth.py:
-    the HUD normally runs on a different port than the backend (:5000 vs :8000), and a
-    redirect to the victim's own machine is not an exfiltration channel anyway.
-
-    Beyond that, only this backend's own origin and any origin opted into via the
-    comma-separated 'freja_allowed_origins' key are honoured — which is what a remote HUD
-    (see freja_backend_url) needs.
-    """
-    if not origin:
-        return False
-    if urlparse(origin).hostname in LOOPBACK_HOSTS:
-        return True
-    if origin == _origin_of(str(request.base_url)):
-        return True
-    try:
-        configured = get_api_key('freja_allowed_origins') or ""
-    except Exception:
-        configured = ""
-    return any(origin == _origin_of(entry) for entry in configured.split(',') if entry.strip())
+    """Whether the OAuth callback may redirect to `origin`."""
+    return is_allowed_origin(origin, request)
 
 async def get_google_access_token():
     """Tries to get a fresh access token from Google API using the stored refresh token."""
