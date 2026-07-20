@@ -6,7 +6,7 @@ FrejaUIController.prototype.initializeUI = function() {
     const inputAccessToken = document.getElementById('input-access-token');
     if (inputAccessToken) inputAccessToken.value = accessToken;
 
-    const backendUrl = localStorage.getItem("freja_backend_url") || (window.location.port === '5000' ? (window.location.protocol + '//' + window.location.hostname + ':8000') : "");
+    const backendUrl = localStorage.getItem("freja_backend_url") || "";
     const inputBackendUrl = document.getElementById('input-backend-url');
     if (inputBackendUrl) inputBackendUrl.value = backendUrl;
 
