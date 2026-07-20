@@ -37,6 +37,7 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             token = headers.get("X-Freja-Token", "")
             if not token or "•" in token:
                 try:
+                    os.environ.setdefault("FREJA_ENV", "dev")
                     from backend.database import get_api_key
                     db_token = get_api_key("freja_access_token")
                     if db_token:
@@ -107,6 +108,9 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     def do_OPTIONS(self):
         self.do_PROXY("OPTIONS")
 
+class ThreadingTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
+    daemon_threads = True
+
 def run_client_server(auto_open=True):
     if not CLIENT_DIR.exists():
         print(f"[ERROR] Client directory not found at: {CLIENT_DIR}")
@@ -126,8 +130,8 @@ def run_client_server(auto_open=True):
             pass
 
     handler = ProxyHTTPRequestHandler
-    socketserver.TCPServer.allow_reuse_address = True
-    with socketserver.TCPServer(("0.0.0.0", PORT), handler) as httpd:
+    ThreadingTCPServer.allow_reuse_address = True
+    with ThreadingTCPServer(("0.0.0.0", PORT), handler) as httpd:
         try:
             httpd.serve_forever()
         except KeyboardInterrupt:
