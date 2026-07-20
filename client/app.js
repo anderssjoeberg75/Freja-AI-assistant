@@ -42,12 +42,33 @@ window.fetch = async function(url, options = {}) {
         urlStr = url;
     }
     
-    // Append header only for F.R.E.J.A. backend api endpoints, excluding external URLs
-    const isBackendApi = urlStr.includes('/api/') && (
-        (backendUrl && urlStr.startsWith(backendUrl + '/api/')) ||
-        urlStr.startsWith('/api/') ||
-        (!urlStr.startsWith('http') || urlStr.startsWith(window.location.origin + '/api/'))
-    );
+    // Attach the token only to F.R.E.J.A.'s own backend. This is the single place that
+    // decides where the master credential goes, so the test is an exact origin comparison
+    // rather than string matching.
+    //
+    // The previous form tested `!urlStr.startsWith('http')` to mean "relative, therefore
+    // same-origin", which is also true of a protocol-relative URL: `//evil.example/api/x`
+    // passed, and would have sent the token to an arbitrary host. It also matched '/api/'
+    // anywhere in the URL (a query string counted) and compared the configured backend by
+    // raw string prefix rather than by origin.
+    const isBackendApi = (() => {
+        let target;
+        try {
+            // Resolves relative, protocol-relative and absolute URLs alike.
+            target = new URL(urlStr, window.location.href);
+        } catch (e) {
+            return false;   // Unparseable: never attach the token.
+        }
+        let allowedOrigin = window.location.origin;
+        if (backendUrl) {
+            try {
+                allowedOrigin = new URL(backendUrl, window.location.href).origin;
+            } catch (e) {
+                return false;
+            }
+        }
+        return target.origin === allowedOrigin && target.pathname.startsWith('/api/');
+    })();
     
     if (isBackendApi) {
         // No fallback to a legacy default: the backend seeds a random token per-install
