@@ -371,9 +371,13 @@ async def exec_garmin_health(args):
             
         # 3. Calculate summary stats
         total_steps = 0
+        steps_count = 0
         total_sleep = 0.0
+        sleep_count = 0
         total_hr = 0
+        hr_count = 0
         total_calories = 0
+        calories_count = 0
         workout_days = 0
         total_workout_min = 0
         total_bb = 0
@@ -390,10 +394,22 @@ async def exec_garmin_health(args):
         intensity_count = 0
 
         for day in data:
-            total_steps += day.get('steps', 0) or 0
-            total_sleep += day.get('sleep_hours', 0.0) or 0.0
-            total_hr += day.get('resting_hr', 0) or 0
-            total_calories += day.get('active_calories', 0) or 0
+            # Count each metric only on days that actually carry a reading. Days the watch
+            # was not worn store NULL, and averaging those in as 0 reported, for example, a
+            # resting heart rate far below the real one - the same distortion the counted
+            # metrics below already avoid by dividing by their own sample count.
+            if day.get('steps') is not None:
+                total_steps += day['steps']
+                steps_count += 1
+            if day.get('sleep_hours') is not None:
+                total_sleep += day['sleep_hours']
+                sleep_count += 1
+            if day.get('resting_hr') is not None:
+                total_hr += day['resting_hr']
+                hr_count += 1
+            if day.get('active_calories') is not None:
+                total_calories += day['active_calories']
+                calories_count += 1
             # "Ingen" is the Swedish placeholder get_garmin_data() substitutes for a NULL
             # workout_type, i.e. a rest day. Anything else counts as a real workout.
             if day.get('workout_type') and day.get('workout_type') != "Ingen":
@@ -419,10 +435,10 @@ async def exec_garmin_health(args):
                 intensity_count += 1
 
         num_days = len(data)
-        avg_steps = Math_round(total_steps / num_days) if num_days > 0 else 0
-        avg_sleep = round(total_sleep / num_days, 1) if num_days > 0 else 0.0
-        avg_hr = Math_round(total_hr / num_days) if num_days > 0 else 0
-        avg_calories = Math_round(total_calories / num_days) if num_days > 0 else 0
+        avg_steps = Math_round(total_steps / steps_count) if steps_count > 0 else 0
+        avg_sleep = round(total_sleep / sleep_count, 1) if sleep_count > 0 else 0.0
+        avg_hr = Math_round(total_hr / hr_count) if hr_count > 0 else 0
+        avg_calories = Math_round(total_calories / calories_count) if calories_count > 0 else 0
         avg_bb = Math_round(total_bb / bb_count) if bb_count > 0 else None
         avg_hrv = Math_round(total_hrv / hrv_count) if hrv_count > 0 else None
         avg_recovery = Math_round(total_recovery / recovery_count) if recovery_count > 0 else None

@@ -73,29 +73,22 @@ def run_garmin_sync_task_blocking(email, password, days):
         with get_db_connection() as conn:
             cursor = conn.cursor()
             
-            steps = 0
-            active_calories = 0
-            sleep_hours = 0.0
-            resting_hr = 0
-            workout_type = None
-            workout_duration = 0
-            body_battery = None
-            hrv = None
-            recovery_time = None
-            training_status = None
-            stress_avg = None
-            stress_max = None
-            sleep_deep_hours = None
-            sleep_light_hours = None
-            sleep_rem_hours = None
-            sleep_awake_hours = None
-            vo2max = None
-            intensity_minutes = None
-            sleep_score = None
-
             for date_str in dates_to_sync:
-                # Reset the per-day fields so a failed fetch leaves NULL instead of carrying
-                # over the previous day's value.
+                # Reset EVERY per-day field here, so a failed fetch leaves NULL instead of
+                # carrying over the previous day's value. Each metric below is assigned only
+                # inside its own try/if, so anything missing from this block silently
+                # duplicates yesterday's reading into today's row - which is worse than a
+                # gap, because a plausible number is invisible once it reaches the trend
+                # charts, the health baselines and the coach's recovery assessment.
+                # Keep this list exhaustive when adding a column.
+                steps = None
+                active_calories = None
+                sleep_hours = None
+                resting_hr = None
+                body_battery = None
+                hrv = None
+                recovery_time = None
+                training_status = None
                 stress_avg = None
                 stress_max = None
                 sleep_deep_hours = None
@@ -105,6 +98,11 @@ def run_garmin_sync_task_blocking(email, password, days):
                 vo2max = None
                 intensity_minutes = None
                 sleep_score = None
+                # workout_type/workout_duration are the one exception: they are derived from
+                # the `activities` list fetched once above, not from a per-day call, so "no
+                # workout that day" is a real answer and 0 minutes is the truthful value.
+                workout_type = None
+                workout_duration = 0
                 try:
                     stats = client.get_stats(date_str)
                     if stats:
@@ -157,8 +155,6 @@ def run_garmin_sync_task_blocking(email, password, days):
                 except Exception as hr_err:
                     print(f"Error fetching heart rates for {date_str}: {hr_err}")
                     
-                workout_type = None
-                workout_duration = 0
                 for act in activities:
                     start_time_local = act.get('startTimeLocal', '')
                     if start_time_local and start_time_local.startswith(date_str):
@@ -200,8 +196,6 @@ def run_garmin_sync_task_blocking(email, password, days):
                 except Exception as hrv_err:
                     print(f"Error fetching HRV for {date_str}: {hrv_err}")
                     
-                recovery_time = None
-                training_status = None
                 try:
                     ts_data = client.get_training_status(date_str)
                     if ts_data:

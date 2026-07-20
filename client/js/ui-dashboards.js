@@ -1379,9 +1379,14 @@ FrejaUIController.prototype.loadGarminDashboardUI = async function () {
             const bbInfo = log.body_battery ? ` | BB: ${log.body_battery}` : "";
             const hrvInfo = log.hrv ? ` | HRV: ${log.hrv}ms` : "";
 
+            // A day the watch recorded nothing stores NULL rather than 0, so render it as a
+            // dash. Printing the raw value would show "null steps"; printing 0 would claim
+            // the user genuinely took no steps.
+            const metric = (value) => (value === null || value === undefined ? "–" : value);
+
             item.innerHTML = `
                 <div style="flex: 1; color: var(--color-text-bright);">
-                    <span style="color: var(--color-primary);">${log.date}</span>: ${log.steps} steps | ${log.sleep_hours}h sleep | ${log.resting_hr} bpm | ${log.active_calories} kcal${workoutInfo}${bbInfo}${hrvInfo}
+                    <span style="color: var(--color-primary);">${log.date}</span>: ${metric(log.steps)} steps | ${metric(log.sleep_hours)}h sleep | ${metric(log.resting_hr)} bpm | ${metric(log.active_calories)} kcal${workoutInfo}${bbInfo}${hrvInfo}
                 </div>
                 <button class="garmin-delete-btn" data-date="${log.date}" title="Delete log" style="background: transparent; border: none; color: #ff3b30; cursor: pointer; padding: 2px 6px;">
                     <i class="fa-solid fa-trash-can"></i>
