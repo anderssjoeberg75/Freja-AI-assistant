@@ -1,5 +1,4 @@
 @echo off
 cd /d "%~dp0"
-start "FREJA Backend" /min "%CD%\venv\Scripts\python.exe" server.py
-timeout /t 5 /nobreak >nul
+set BACKEND_URL=http://192.168.107.15:8000
 start "FREJA Client" /min "%CD%\venv\Scripts\python.exe" run_client.py

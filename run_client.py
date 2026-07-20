@@ -32,6 +32,18 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             body = self.rfile.read(content_length) if content_length > 0 else None
 
             headers = {k: v for k, v in self.headers.items() if k.lower() not in ("host", "content-length")}
+
+            # Auto-inject valid access token from local DB if header is missing or masked
+            token = headers.get("X-Freja-Token", "")
+            if not token or "•" in token:
+                try:
+                    from backend.database import get_api_key
+                    db_token = get_api_key("freja_access_token")
+                    if db_token:
+                        headers["X-Freja-Token"] = db_token
+                except Exception:
+                    pass
+
             req = urllib.request.Request(target_url, data=body, headers=headers, method=method)
 
             try:
