@@ -1298,8 +1298,15 @@ async def exec_reply_to_instagram_comment(args):
 async def _build_trainer_context_summary(days: int = 14) -> dict:
     """Builds a comprehensive summary of active training plan, scheduled workouts,
     recent running history (Garmin/Strava), health recovery data, and active injuries."""
+    today = datetime.date.today()
+    swedish_weekdays = ["Måndag", "Tisdag", "Onsdag", "Torsdag", "Fredag", "Lördag", "Söndag"]
+    today_weekday_str = swedish_weekdays[today.weekday()]
+
     result = {
         "status": "success",
+        "today_date": today.isoformat(),
+        "today_weekday": today_weekday_str,
+        "today_scheduled_workout": None,
         "active_plan": None,
         "scheduled_workouts": [],
         "recent_runs": [],
@@ -1340,7 +1347,6 @@ async def _build_trainer_context_summary(days: int = 14) -> dict:
 
             # 2. Fetch scheduled workouts for current week
             try:
-                today = datetime.date.today()
                 monday = today - datetime.timedelta(days=today.weekday())
                 sunday = monday + datetime.timedelta(days=6)
 
@@ -1352,28 +1358,60 @@ async def _build_trainer_context_summary(days: int = 14) -> dict:
                     ORDER BY b.workout_date ASC
                 ''', (monday.isoformat(), sunday.isoformat()))
                 rows = cursor.fetchall()
+                day_offsets = {"måndag": 0, "tisdag": 1, "onsdag": 2, "torsdag": 3, "fredag": 4, "lördag": 5, "söndag": 6}
+
                 for b_row in rows:
                     b_id, p_id, w_date_str, w_week, advice_text = b_row
                     w_title = "Scheduled Workout"
+                    w_desc = ""
+                    w_dur = 0
                     try:
                         p_obj = json.loads(advice_text.replace("```json", "").replace("```", "").strip())
                         w_list = p_obj.get("workouts", [])
                         w_date = datetime.datetime.strptime(w_date_str, "%Y-%m-%d").date()
                         w_dow = w_date.weekday()
-                        day_offsets = {"måndag": 0, "tisdag": 1, "onsdag": 2, "torsdag": 3, "fredag": 4, "lördag": 5, "söndag": 6}
                         for w in w_list:
                             d_name = str(w.get("day", "")).lower()
                             if day_offsets.get(d_name) == w_dow:
-                                w_title = f"{w.get('activity_type', 'Träning')}: {w.get('title', 'Pass')} ({w.get('duration_minutes', 0)} min)"
+                                w_dur = w.get("duration_minutes", 0)
+                                w_title = f"{w.get('activity_type', 'Träning')}: {w.get('title', 'Pass')} ({w_dur} min)"
+                                w_desc = w.get("description", "")
                                 break
                     except Exception:
                         pass
-                    result["scheduled_workouts"].append({
+
+                    w_date_obj = datetime.datetime.strptime(w_date_str, "%Y-%m-%d").date()
+                    dow_name = swedish_weekdays[w_date_obj.weekday()]
+
+                    item_info = {
                         "booking_id": b_id,
                         "plan_id": p_id,
                         "workout_date": w_date_str,
-                        "workout_summary": w_title
-                    })
+                        "weekday": dow_name,
+                        "workout_summary": w_title,
+                        "description": w_desc,
+                        "duration_minutes": w_dur,
+                        "is_today": (w_date_str == today.isoformat())
+                    }
+                    result["scheduled_workouts"].append(item_info)
+                    if w_date_str == today.isoformat():
+                        result["today_scheduled_workout"] = item_info
+
+                # If no booking exists specifically for today, match today's weekday against active_plan workouts
+                if not result["today_scheduled_workout"] and result["active_plan"] and result["active_plan"].get("workouts_defined"):
+                    for w in result["active_plan"]["workouts_defined"]:
+                        d_name = str(w.get("day", "")).lower()
+                        if day_offsets.get(d_name) == today.weekday():
+                            w_dur = w.get("duration_minutes", 0)
+                            result["today_scheduled_workout"] = {
+                                "workout_date": today.isoformat(),
+                                "weekday": today_weekday_str,
+                                "workout_summary": f"{w.get('activity_type', 'Träning')}: {w.get('title', 'Pass')} ({w_dur} min)",
+                                "description": w.get("description", ""),
+                                "duration_minutes": w_dur,
+                                "is_today": True
+                            }
+                            break
             except Exception as b_err:
                 print(f"[TRAINER CONTEXT] Booking fetch error: {b_err}")
 

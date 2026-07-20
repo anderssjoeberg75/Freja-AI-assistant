@@ -877,6 +877,44 @@ FrejaUIController.prototype.buildTrendCard = function (config) {
                 <span>${points[points.length - 1].date}</span>
             </div>
         </div>
+FrejaUIController.prototype.buildTrendCard = function (cfg) {
+    const label = cfg.label || 'METRIC';
+    const points = cfg.points || [];
+    const unit = cfg.unit || '';
+    const color = cfg.color || 'var(--color-primary)';
+    const baseline = cfg.baseline;
+    const changePct = cfg.changePct;
+    const goodDir = cfg.goodDirection || 'up';
+
+    let latestVal = '–';
+    if (points.length > 0) {
+        latestVal = `${points[points.length - 1].value}${unit}`;
+    }
+
+    let changeHtml = '';
+    if (changePct !== null && changePct !== undefined) {
+        const isGood = (goodDir === 'up' && changePct >= 0) || (goodDir === 'down' && changePct <= 0);
+        const arrow = changePct >= 0 ? '▲' : '▼';
+        const cColor = isGood ? '#30d158' : '#ff3b30';
+        changeHtml = `<span style="color: ${cColor}; font-size: 10px; font-family: var(--font-mono);">${arrow} ${Math.abs(changePct)}%</span>`;
+    }
+
+    let baselineHtml = '';
+    if (baseline !== null && baseline !== undefined) {
+        baselineHtml = `<span style="color: var(--color-text-muted); font-size: 9px; font-family: var(--font-mono);">Base: ${baseline}${unit}</span>`;
+    }
+
+    return `
+        <div style="background: rgba(0,0,0,0.3); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px; display: flex; flex-direction: column; gap: 6px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span style="font-size: 9px; color: var(--color-text-muted); font-family: var(--font-display); letter-spacing: 0.5px;">${label}</span>
+                ${changeHtml}
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: baseline;">
+                <span style="font-size: 16px; font-weight: bold; color: ${color}; font-family: var(--font-mono);">${latestVal}</span>
+                ${baselineHtml}
+            </div>
+        </div>
     `;
 };
 
