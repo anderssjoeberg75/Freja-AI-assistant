@@ -197,12 +197,23 @@ FrejaUIController.prototype.loadTrainerDashboardUI = async function () {
                 </div>
             `;
 
-            const showPlan = () => {
+            const showPlan = async () => {
                 soundSynth.playClick();
                 const outputContainer = document.getElementById('trainer-plan-output-container');
                 const outputDiv = document.getElementById('trainer-plan-output');
                 if (outputContainer && outputDiv) {
                     this.renderTrainerPlanDetails(plan.id, plan.advice_text);
+                }
+                try {
+                    const todayStr = new Date().toISOString().split('T')[0];
+                    await fetch('/api/trainer/plans/book', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ plan_id: plan.id, start_date: todayStr })
+                    });
+                    this.loadWeeklyWorkoutsUI();
+                } catch (bookErr) {
+                    console.warn("[TRAINER] Auto-book plan error:", bookErr);
                 }
             };
 

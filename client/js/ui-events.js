@@ -1817,6 +1817,18 @@ FrejaUIController.prototype.bindEvents = function () {
                     self.writeLog("COACH PLAN GENERATED AND SAVED", "sys");
                     soundSynth.playNotify();
 
+                    // Auto-book the generated plan into the weekly calendar for the current week
+                    try {
+                        const todayStr = new Date().toISOString().split('T')[0];
+                        await fetch('/api/trainer/plans/book', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ plan_id: data.plan_id, start_date: todayStr })
+                        });
+                    } catch (bookErr) {
+                        console.warn("[TRAINER] Auto-book error:", bookErr);
+                    }
+
                     const outputContainer = document.getElementById('trainer-plan-output-container');
                     const outputDiv = document.getElementById('trainer-plan-output');
                     if (outputContainer && outputDiv) {

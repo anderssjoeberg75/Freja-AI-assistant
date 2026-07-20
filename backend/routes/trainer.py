@@ -1243,6 +1243,12 @@ Instructions for the answer:
             conn.commit()
             plan_id = cursor.lastrowid
 
+        # 9. Automatically book the generated plan's workouts into weekly schedule
+        try:
+            await core_book_plan_internal(plan_id, today_local().date())
+        except Exception as book_err:
+            print(f"[TRAINER GENERATE] Auto-booking warning: {book_err}")
+
         return {
             "status": "success",
             "plan_id": plan_id,
@@ -1914,6 +1920,124 @@ def _find_free_slot(workout_date: datetime.date, duration: int, day_events: list
     return datetime.datetime.combine(workout_date, datetime.time(DEFAULT_WORKOUT_HOUR, 0))
 
 
+async def core_book_plan_internal(plan_id: int, start_date: datetime.date) -> dict:
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT advice_text FROM trainer_plans WHERE id = ?", (plan_id,))
+        row = cursor.fetchone()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="The training plan was not found.")
+
+    try:
+        plan_data = json.loads(row[0])
+    except Exception:
+        raise HTTPException(status_code=400, detail="This training plan has no structured data and cannot be booked into the calendar.")
+
+    workouts = plan_data.get("workouts", [])
+    if not workouts:
+        return {"status": "success", "message": "No workouts to book.", "booked_count": 0, "replaced_count": 0}
+
+    # The plan's `day` field is a Swedish weekday name (enforced by the generate schema).
+    # Offsets are relative to the plan's start_date, which the caller supplies. The
+    # mapping is shared with the plan export so both schedule a plan identically.
+    day_offsets = plan_export.SWEDISH_DAY_OFFSETS
+
+    from backend.routes.google_calendar import (
+        core_save_calendar_event, core_delete_calendar_event, core_get_calendar_data
+    )
+
+    # --- Idempotency: remove any events previously booked for THIS plan so
+    #     re-booking updates instead of creating duplicates. ---
+    rebooked = 0
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, event_id FROM trainer_bookings WHERE plan_id = ?", (plan_id,))
+        prior = cursor.fetchall()
+    for booking_id, event_id in prior:
+        if event_id:
+            try:
+                await core_delete_calendar_event(event_id)
+                rebooked += 1
+            except Exception as del_err:
+                print(f"[TRAINER BOOK] Could not delete the previous event {event_id}: {del_err}")
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM trainer_bookings WHERE plan_id = ?", (plan_id,))
+        conn.commit()
+
+    # Existing calendar events used for conflict avoidance (mutated as we book).
+    all_events = core_get_calendar_data(days=60)
+
+    booked_count = 0
+    for w in workouts:
+        day_name = str(w.get("day", "")).lower()
+        offset = day_offsets.get(day_name)
+        if offset is None:
+            continue
+
+        try:
+            duration = int(w.get("duration_minutes", 0) or 0)
+        except (TypeError, ValueError):
+            duration = 0
+        if duration <= 0:
+            continue  # Skip rest day
+        duration = min(duration, MAX_WORKOUT_MINUTES)  # Sanity cap
+
+        try:
+            week = max(0, min(51, int(w.get("week", 0) or 0)))
+        except (TypeError, ValueError):
+            week = 0
+
+        workout_date = start_date + datetime.timedelta(days=offset + week * 7)
+
+        # Find a non-conflicting slot; format at minute precision so the
+        # Google push (which appends ":00") produces a valid RFC3339 time.
+        day_events = [e for e in all_events if (e.get("start_time") or "")[:10] == workout_date.isoformat()]
+        slot_start = _find_free_slot(workout_date, duration, day_events)
+        slot_end = slot_start + datetime.timedelta(minutes=duration)
+        start_dt = slot_start.strftime("%Y-%m-%dT%H:%M")
+        end_dt = slot_end.strftime("%Y-%m-%dT%H:%M")
+
+        # Event title/description land in the user's calendar, so they stay Swedish.
+        # The 💪 prefix and the "F.R.E.J.A. PT" location are what is_workout_event()
+        # later matches on to tell PT sessions apart from ordinary meetings.
+        summary = f"💪 {w.get('activity_type', 'Träning')}: {w.get('title', 'Pass')}"
+        exercises_block = _format_exercises_for_calendar(w.get("exercises"))
+        description = (
+            f"Träningspass genererat av COACH AI.\n\nBeskrivning:\n{w.get('description', '')}"
+            f"{exercises_block}\n\nTid: {duration} minuter."
+        )
+        location = WORKOUT_LOCATION_MARKER
+
+        result = await core_save_calendar_event(
+            summary=summary,
+            start_time=start_dt,
+            end_time=end_dt,
+            description=description,
+            location=location
+        )
+        event_id = (result.get("event") or {}).get("id")
+
+        # Record the booking so it can be de-duplicated / adjusted later.
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO trainer_bookings (plan_id, event_id, workout_date, week) VALUES (?, ?, ?, ?)",
+                (plan_id, event_id, workout_date.isoformat(), week)
+            )
+            conn.commit()
+
+        # Make this new event visible to the next same-day workout.
+        all_events.append({"start_time": f"{start_dt}:00", "end_time": f"{end_dt}:00"})
+        booked_count += 1
+
+    msg = f"Successfully booked {booked_count} workouts into your calendar."
+    if rebooked:
+        msg += f" ({rebooked} previously booked sessions were replaced.)"
+    return {"status": "success", "message": msg, "booked_count": booked_count, "replaced_count": rebooked}
+
+
 @router.post("/api/trainer/plans/book")
 async def book_trainer_plan(request: Request):
     try:
@@ -1929,121 +2053,7 @@ async def book_trainer_plan(request: Request):
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid start date format (use YYYY-MM-DD).")
 
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT advice_text FROM trainer_plans WHERE id = ?", (plan_id,))
-            row = cursor.fetchone()
-
-        if not row:
-            raise HTTPException(status_code=404, detail="The training plan was not found.")
-
-        try:
-            plan_data = json.loads(row[0])
-        except Exception:
-            raise HTTPException(status_code=400, detail="This training plan has no structured data and cannot be booked into the calendar.")
-
-        workouts = plan_data.get("workouts", [])
-        if not workouts:
-            return {"status": "success", "message": "No workouts to book."}
-
-        # The plan's `day` field is a Swedish weekday name (enforced by the generate schema).
-        # Offsets are relative to the plan's start_date, which the caller supplies. The
-        # mapping is shared with the plan export so both schedule a plan identically.
-        day_offsets = plan_export.SWEDISH_DAY_OFFSETS
-
-        from backend.routes.google_calendar import (
-            core_save_calendar_event, core_delete_calendar_event, core_get_calendar_data
-        )
-
-        # --- Idempotency: remove any events previously booked for THIS plan so
-        #     re-booking updates instead of creating duplicates. ---
-        rebooked = 0
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT id, event_id FROM trainer_bookings WHERE plan_id = ?", (plan_id,))
-            prior = cursor.fetchall()
-        for booking_id, event_id in prior:
-            if event_id:
-                try:
-                    await core_delete_calendar_event(event_id)
-                    rebooked += 1
-                except Exception as del_err:
-                    print(f"[TRAINER BOOK] Could not delete the previous event {event_id}: {del_err}")
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM trainer_bookings WHERE plan_id = ?", (plan_id,))
-            conn.commit()
-
-        # Existing calendar events used for conflict avoidance (mutated as we book).
-        all_events = core_get_calendar_data(days=60)
-
-        booked_count = 0
-        for w in workouts:
-            day_name = str(w.get("day", "")).lower()
-            offset = day_offsets.get(day_name)
-            if offset is None:
-                continue
-
-            try:
-                duration = int(w.get("duration_minutes", 0) or 0)
-            except (TypeError, ValueError):
-                duration = 0
-            if duration <= 0:
-                continue  # Skip rest day
-            duration = min(duration, MAX_WORKOUT_MINUTES)  # Sanity cap
-
-            try:
-                week = max(0, min(51, int(w.get("week", 0) or 0)))
-            except (TypeError, ValueError):
-                week = 0
-
-            workout_date = start_date + datetime.timedelta(days=offset + week * 7)
-
-            # Find a non-conflicting slot; format at minute precision so the
-            # Google push (which appends ":00") produces a valid RFC3339 time.
-            day_events = [e for e in all_events if (e.get("start_time") or "")[:10] == workout_date.isoformat()]
-            slot_start = _find_free_slot(workout_date, duration, day_events)
-            slot_end = slot_start + datetime.timedelta(minutes=duration)
-            start_dt = slot_start.strftime("%Y-%m-%dT%H:%M")
-            end_dt = slot_end.strftime("%Y-%m-%dT%H:%M")
-
-            # Event title/description land in the user's calendar, so they stay Swedish.
-            # The 💪 prefix and the "F.R.E.J.A. PT" location are what is_workout_event()
-            # later matches on to tell PT sessions apart from ordinary meetings.
-            summary = f"💪 {w.get('activity_type', 'Träning')}: {w.get('title', 'Pass')}"
-            exercises_block = _format_exercises_for_calendar(w.get("exercises"))
-            description = (
-                f"Träningspass genererat av COACH AI.\n\nBeskrivning:\n{w.get('description', '')}"
-                f"{exercises_block}\n\nTid: {duration} minuter."
-            )
-            location = WORKOUT_LOCATION_MARKER
-
-            result = await core_save_calendar_event(
-                summary=summary,
-                start_time=start_dt,
-                end_time=end_dt,
-                description=description,
-                location=location
-            )
-            event_id = (result.get("event") or {}).get("id")
-
-            # Record the booking so it can be de-duplicated / adjusted later.
-            with get_db_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                    "INSERT INTO trainer_bookings (plan_id, event_id, workout_date, week) VALUES (?, ?, ?, ?)",
-                    (plan_id, event_id, workout_date.isoformat(), week)
-                )
-                conn.commit()
-
-            # Make this new event visible to the next same-day workout.
-            all_events.append({"start_time": f"{start_dt}:00", "end_time": f"{end_dt}:00"})
-            booked_count += 1
-
-        msg = f"Successfully booked {booked_count} workouts into your calendar."
-        if rebooked:
-            msg += f" ({rebooked} previously booked sessions were replaced.)"
-        return {"status": "success", "message": msg, "booked_count": booked_count, "replaced_count": rebooked}
+        return await core_book_plan_internal(plan_id, start_date)
 
     except HTTPException:
         raise
