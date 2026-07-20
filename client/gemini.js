@@ -261,8 +261,20 @@ class GeminiClient {
         }
 
 
+        // Calculate live system date and weekday in Swedish
+        const nowChrono = new Date();
+        const swedishDays = ["söndag", "måndag", "tisdag", "onsdag", "torsdag", "fredag", "lördag"];
+        const swedishMonths = ["januari", "februari", "mars", "april", "maj", "juni", "juli", "augusti", "september", "oktober", "november", "december"];
+        const curWeekday = swedishDays[nowChrono.getDay()];
+        const curDateNum = nowChrono.getDate();
+        const curMonth = swedishMonths[nowChrono.getMonth()];
+        const curYear = nowChrono.getFullYear();
+        const curIso = nowChrono.toISOString().split('T')[0];
+
+        const chronoDirective = `\n\n[SYSTEM CHRONO DIRECTIVE: LIVE SYSTEM DATE & TIME]\nToday's exact live system date is: ${curWeekday} den ${curDateNum} ${curMonth} ${curYear} (ISO date: ${curIso}).\nIMPORTANT: Note that ${curDateNum} ${curMonth} ${curYear} is ${curWeekday.toUpperCase()} (${curWeekday}). Never claim or state an incorrect weekday!`;
+
         // Retrieve semantic memories and inject them into F.R.E.J.A.'s prompt directives
-        let dynamicSystemPrompt = this.systemPrompt;
+        let dynamicSystemPrompt = this.systemPrompt + chronoDirective;
         if (window.uiController && window.uiController.memory && window.uiController.memory.enabled) {
             try {
                 const memories = await window.uiController.memory.searchMemory(userMessage);
