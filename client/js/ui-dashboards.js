@@ -338,14 +338,11 @@ FrejaUIController.prototype.loadWeeklyWorkoutsUI = async function () {
                             }
                         }
 
-                        if (rawWorkouts.length === 0) {
-                            rawWorkouts = [
-                                { day: "Måndag", activity_type: "Löpning", title: "Distanspass", description: "Lugn löpning i samtalstempo", duration_minutes: 35 },
-                                { day: "Onsdag", activity_type: "Styrketräning", title: "Helkroppsstyrka", description: "Baskraft, knäböj & marklyft", duration_minutes: 45 },
-                                { day: "Fredag", activity_type: "Löpning", title: "Intervallpass", description: "Uppvärmning + 5x3 min tempo", duration_minutes: 40 }
-                            ];
-                        }
-
+                        // No placeholder sessions here. This used to fall back to three
+                        // invented workouts (a 35-minute run and friends) when the plan
+                        // could not be parsed, so the HUD showed a schedule the user had never
+                        // been given and Freja was asked about sessions that did not exist.
+                        // An unparseable plan must render as nothing.
                         rawWorkouts.forEach(w => {
                             const dName = String(w.day || "").toLowerCase().trim();
                             let offset = null;
@@ -358,7 +355,9 @@ FrejaUIController.prototype.loadWeeklyWorkoutsUI = async function () {
                                 const dateStr = wDate.toISOString().split('T')[0];
                                 const dur = parseInt(w.duration_minutes || 0) || 30;
                                 const exercisesText = Array.isArray(w.exercises) && w.exercises.length > 0
-                                    ? "\n\nÖvningar:\n" + w.exercises.map(ex => `• ${ex.name || 'Övning'}: ${ex.sets || 0}x${ex.reps || 0} @ ${ex.weight_kg ? ex.weight_kg + ' kg' : 'kroppsvikt'}`).join("\n")
+                                    // `target_weight` is what the plan schema emits; reading
+                                    // `weight_kg` made every loaded lift render as "kroppsvikt".
+                                    ? "\n\nÖvningar:\n" + w.exercises.map(ex => `• ${ex.name || 'Övning'}: ${ex.sets || 0}x${ex.reps || 0} @ ${ex.target_weight ? ex.target_weight + ' kg' : 'kroppsvikt'}`).join("\n")
                                     : "";
                                 workouts.push({
                                     id: `plan_${latestPlan.id}_${offset}`,
@@ -2082,6 +2081,202 @@ FrejaUIController.prototype.processTrainerChatQuery = async function(query) {
         if (sendBtn) sendBtn.disabled = false;
         if (window.visualizer) {
             window.visualizer.state = 'SLEEPING';
+        }
+    }
+};
+
+/**
+ * Guided onboarding (step 1): let Freja analyse Garmin/Strava/Withings and interview the user.
+ *
+ * The profile fields drive every generated plan, but nobody can state their own HRV baseline or
+ * describe their true weekly volume from memory. The backend derives all of that from the
+ * connected data and only asks about what the data cannot show - intent, schedule, equipment,
+ * and how the body actually feels.
+ */
+FrejaUIController.prototype.startTrainerOnboarding = async function () {
+    const panel = document.getElementById('trainer-onboarding-panel');
+    const statusEl = document.getElementById('trainer-onboarding-status');
+    const summaryEl = document.getElementById('trainer-onboarding-summary');
+    const questionsEl = document.getElementById('trainer-onboarding-questions');
+    const submitBtn = document.getElementById('btn-submit-onboarding');
+    const startBtn = document.getElementById('btn-trainer-onboarding');
+    if (!panel || !statusEl || !questionsEl) return;
+
+    panel.style.display = 'flex';
+    questionsEl.innerHTML = '';
+    if (summaryEl) summaryEl.style.display = 'none';
+    if (submitBtn) submitBtn.style.display = 'none';
+    statusEl.textContent = 'Analysing Garmin, Strava and Withings data...';
+    if (startBtn) {
+        startBtn.disabled = true;
+        startBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> ANALYSING...';
+    }
+    this.writeLog("PT ONBOARDING: ANALYSING CONNECTED HEALTH DATA", "sys");
+
+    try {
+        const res = await fetch('/api/trainer/onboarding/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({})
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || `HTTP ${res.status}`);
+        }
+        const data = await res.json();
+
+        // Keep the data-derived proposal for the completion call - the backend merges the
+        // user's answers into it rather than rebuilding the estimate from scratch.
+        this._onboardingProposal = data.proposed_profile || {};
+        this._onboardingQuestions = data.questions || [];
+
+        const s = data.signals || {};
+        statusEl.textContent =
+            `Analysed ${s.window_days || 90} days: ${s.sessions_last_30_days || 0} sessions in the last 30 days, `
+            + `${s.avg_weekly_minutes || 0} min/week on average, longest session ${s.longest_session_minutes || 0} min.`;
+
+        if (summaryEl && data.data_summary) {
+            summaryEl.textContent = data.data_summary;
+            summaryEl.style.display = 'block';
+        }
+
+        this.renderOnboardingQuestions(this._onboardingQuestions);
+        this.applyOnboardingProfileToForm(this._onboardingProposal);
+
+        if (submitBtn) submitBtn.style.display = 'block';
+        soundSynth.playNotify();
+        this.writeLog(`PT ONBOARDING: ${this._onboardingQuestions.length} QUESTIONS PREPARED`, "sys");
+    } catch (err) {
+        statusEl.textContent = `Onboarding failed: ${err.message}`;
+        this.writeLog(`PT ONBOARDING ERROR: ${err.message}`, "err");
+        soundSynth.playError();
+    } finally {
+        if (startBtn) {
+            startBtn.disabled = false;
+            startBtn.innerHTML = '<i class="fa-solid fa-user-plus"></i> ONBOARDING';
+        }
+    }
+};
+
+/** Renders the interview questions, pre-filled with Freja's data-based suggested answers. */
+FrejaUIController.prototype.renderOnboardingQuestions = function (questions) {
+    const questionsEl = document.getElementById('trainer-onboarding-questions');
+    if (!questionsEl) return;
+    questionsEl.innerHTML = '';
+
+    (questions || []).forEach((q, index) => {
+        const wrap = document.createElement('div');
+        wrap.style.display = 'flex';
+        wrap.style.flexDirection = 'column';
+        wrap.style.gap = '4px';
+
+        const label = document.createElement('label');
+        label.setAttribute('for', `onboarding-q-${index}`);
+        label.style.fontSize = '12px';
+        label.style.color = 'var(--color-text)';
+        label.textContent = `${index + 1}. ${q.question || ''}`;
+
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.id = `onboarding-q-${index}`;
+        input.className = 'hud-input';
+        input.style.height = '32px';
+        input.style.fontSize = '12px';
+        // Freja's own guess is pre-filled so the user can accept it by doing nothing.
+        input.value = q.suggested_answer || '';
+        input.dataset.question = q.question || '';
+        input.dataset.field = q.field || '';
+
+        wrap.appendChild(label);
+        if (q.why) {
+            const why = document.createElement('span');
+            why.style.fontSize = '10px';
+            why.style.color = 'var(--color-text-muted)';
+            why.textContent = q.why;
+            wrap.appendChild(why);
+        }
+        wrap.appendChild(input);
+        questionsEl.appendChild(wrap);
+    });
+};
+
+/** Writes a profile object into the PT form fields (shared by onboarding steps 1 and 2). */
+FrejaUIController.prototype.applyOnboardingProfileToForm = function (profile) {
+    if (!profile || typeof profile !== 'object') return;
+    const setVal = (id, value) => {
+        const el = document.getElementById(id);
+        if (el && value !== null && value !== undefined && value !== '' && value !== 0) el.value = value;
+    };
+    setVal('trainer-input-goal', profile.goals);
+    setVal('trainer-input-limitations', profile.limitations);
+    setVal('trainer-input-event', profile.event);
+    setVal('trainer-input-event-date', profile.event_date);
+    setVal('trainer-input-availability', profile.availability);
+    setVal('trainer-input-location', profile.location);
+    setVal('trainer-input-baseline-rhr', profile.baseline_resting_hr);
+    setVal('trainer-input-baseline-sleep', profile.baseline_sleep_hours);
+    setVal('trainer-input-baseline-hrv', profile.baseline_hrv);
+
+    const fitnessSel = document.getElementById('trainer-select-fitness-level');
+    const level = String(profile.fitness_level || '').toLowerCase();
+    if (fitnessSel && level && Array.from(fitnessSel.options).some(o => o.value === level)) {
+        fitnessSel.value = level;
+    }
+};
+
+/** Onboarding (step 2): send the answers back, save the merged profile and fill the form. */
+FrejaUIController.prototype.submitTrainerOnboarding = async function () {
+    const statusEl = document.getElementById('trainer-onboarding-status');
+    const summaryEl = document.getElementById('trainer-onboarding-summary');
+    const questionsEl = document.getElementById('trainer-onboarding-questions');
+    const submitBtn = document.getElementById('btn-submit-onboarding');
+    if (!questionsEl) return;
+
+    const answers = Array.from(questionsEl.querySelectorAll('input')).map(input => ({
+        question: input.dataset.question || '',
+        field: input.dataset.field || '',
+        answer: (input.value || '').trim()
+    })).filter(a => a.answer);
+
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> BUILDING PROFILE...';
+    }
+    if (statusEl) statusEl.textContent = 'Freja is merging your answers with the measured data...';
+    this.writeLog(`PT ONBOARDING: SUBMITTING ${answers.length} ANSWERS`, "sys");
+
+    try {
+        const res = await fetch('/api/trainer/onboarding/complete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ answers: answers, proposed_profile: this._onboardingProposal || {} })
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || `HTTP ${res.status}`);
+        }
+        const data = await res.json();
+
+        this.applyOnboardingProfileToForm(data.profile || {});
+        if (summaryEl && data.summary) {
+            summaryEl.textContent = data.summary;
+            summaryEl.style.display = 'block';
+        }
+        if (statusEl) statusEl.textContent = 'Profile saved. You can now generate a plan built on this data.';
+        questionsEl.innerHTML = '';
+        if (submitBtn) submitBtn.style.display = 'none';
+
+        soundSynth.playNotify();
+        this.writeLog("PT ONBOARDING COMPLETE: PROFILE SAVED", "sys");
+        this.loadTrainerProfileUI();
+    } catch (err) {
+        if (statusEl) statusEl.textContent = `Could not save the profile: ${err.message}`;
+        this.writeLog(`PT ONBOARDING ERROR: ${err.message}`, "err");
+        soundSynth.playError();
+    } finally {
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<i class="fa-solid fa-check"></i> SAVE ANSWERS &amp; BUILD PROFILE';
         }
     }
 };

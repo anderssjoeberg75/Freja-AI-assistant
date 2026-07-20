@@ -311,6 +311,30 @@ class GeminiClient {
         // Inject directive for Health and Fitness status queries
         dynamicSystemPrompt += "\n\n[DIRECTIVE: HEALTH AND FITNESS STATUS]\nIf the user asks how they are doing, how they slept, their steps, recovery, training status, or general well-being (e.g., 'Hur mår jag', 'Hur har jag sovit', 'Mina steg', 'Visa min hälsodata'), you must immediately call the 'get_garmin_health' tool (and/or 'get_personal_trainer_advice' with a general wellness goal like 'allmänt välmående') to retrieve their actual data from the database instead of asking them for permission first in a chat message. If the user specifically asks to fetch all historical Garmin data (e.g., 'hämta all garmin data', 'visa all historik', 'hämta all garmin datat'), you must call the 'get_garmin_health' tool with a large number of days, specifically 180 days (days=180). If the user asks for general/today's Garmin data (e.g., 'hämta garmin data'), call it with 1 day (days=1). Once you have the tool results, analyze the data and answer the user's question directly. Always include key metrics such as 'Body Battery' (both average and max/latest value) and detailed sleep metrics (such as Sleep Score, and the durations of deep, light, REM, and awake sleep phases) in your summary when presenting Garmin data, if they are available in the retrieved data.";
 
+        // Inject the live PT context (active plan, this week's booked sessions, today's
+        // session, injuries, real training load). Freja is the user's coach in ordinary
+        // conversation too, and a directive telling her to call a tool is not the same as
+        // knowing the schedule: when the tool call did not happen she improvised a workout
+        // that was nowhere in the plan. With the plan itself in the system prompt, "hur ser
+        // dagens pass ut" is answered from the actual schedule whether or not a tool fires.
+        try {
+            const ptRes = await fetch("/api/trainer/context");
+            if (ptRes.ok) {
+                const ptData = await ptRes.json();
+                if (ptData && ptData.has_context && ptData.context) {
+                    dynamicSystemPrompt += "\n\n[ACTIVE TRAINING PROGRAM - AUTHORITATIVE, ALREADY LOADED]\n"
+                        + "This is the user's real, currently booked training program, read from the PT tool's "
+                        + "database at this moment. Treat it as fact and answer directly from it - never invent a "
+                        + "session that is not listed here, and never claim you cannot see the schedule. Quote the "
+                        + "exact activity, title and duration. If the user wants a session changed, call "
+                        + "'update_trainer_workout'.\n" + ptData.context;
+                }
+            }
+        } catch (ptErr) {
+            // A missing PT context must never block the chat; she falls back to the tools.
+            console.warn("[GEMINI] Could not load PT context:", ptErr);
+        }
+
         // Inject directive for Personal Trainer & Workout Awareness & Discussion
         dynamicSystemPrompt += "\n\n[DIRECTIVE: PERSONAL TRAINER & WORKOUT DISCUSSION]\nYou ARE the user's Personal Trainer (COACH AI). You have complete awareness of the PT tool, active training plan, scheduled weekly workouts, limitations/injuries, health data, and running history.\n\nCRITICAL COACHING RULES:\n1. TODAY'S WORKOUT QUERY: If the user asks 'hur ser dagens träningspass ut', 'vad ska jag träna idag', 'dagens pass', or asks about scheduled workouts, you MUST call 'get_trainer_workouts' or 'get_personal_trainer_advice'. Inspect the returned 'today_scheduled_workout' or 'scheduled_workouts' and ALWAYS present the EXACT scheduled workout (activity type, title, duration in minutes, and structure). Do NOT suggest a general walk or make up a different activity when a workout is already scheduled in the PT plan!\n2. AUTHORITATIVE COACHING: You do NOT ask passive questions like 'Vad föredrar du?', 'Vad tycker du om det?', or 'Vad vill du göra?'. As an expert Personal Trainer, YOU make the technical decisions based on their health data, history, and physical progression. You present completed, ready-to-run workout recommendations directly to the user.\n3. DISCUSS & EXPLAIN RATIONALE: When discussing workouts or when the user asks why a specific workout duration or intensity was assigned, analyze their recent running history, health baselines, and limitations. Explain your reasoning clearly and constructively in Swedish, discussing progressive overload, recovery, and heart rate zones.\n4. DIRECTLY UPDATE SCHEDULE: If a workout needs adjustment based on your coaching judgment and conversation with the user (e.g. stepping down from 60 min to 35 min with walk/run intervals), YOU decide on the optimal workout parameters and IMMEDIATELY call the 'update_trainer_workout' tool to update the schedule in the PT tool. Then inform the user that you have updated their workout in the schedule.";
 

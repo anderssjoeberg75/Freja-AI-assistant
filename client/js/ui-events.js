@@ -1821,16 +1821,11 @@ FrejaUIController.prototype.bindEvents = function () {
                     self.writeLog("COACH PLAN GENERATED AND SAVED", "sys");
                     soundSynth.playNotify();
 
-                    // Auto-book the generated plan into the weekly calendar for the current week
-                    try {
-                        const todayStr = new Date().toISOString().split('T')[0];
-                        await fetch('/api/trainer/plans/book', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ plan_id: data.plan_id, start_date: todayStr })
-                        });
-                    } catch (bookErr) {
-                        console.warn("[TRAINER] Auto-book error:", bookErr);
+                    // The backend books the plan itself, anchored on this week's Monday. This
+                    // used to re-book it from today's date, which shifted every session by
+                    // today's weekday (a "Måndag" pass landing on a Thursday).
+                    if (data.booking && typeof data.booking.booked_count === 'number') {
+                        self.writeLog(`COACH PLAN BOOKED: ${data.booking.booked_count} SESSIONS`, "sys");
                     }
 
                     const outputContainer = document.getElementById('trainer-plan-output-container');
@@ -1854,6 +1849,33 @@ FrejaUIController.prototype.bindEvents = function () {
                 btnGenerateTrainerPlan.disabled = false;
                 btnGenerateTrainerPlan.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> GENERATE PLAN';
             }
+        });
+    }
+
+    // Guided onboarding: Freja analyses the connected data, then interviews the user
+    // and fills in the training profile from the combined picture.
+    const btnTrainerOnboarding = document.getElementById('btn-trainer-onboarding');
+    if (btnTrainerOnboarding) {
+        btnTrainerOnboarding.addEventListener('click', () => {
+            soundSynth.playClick();
+            self.startTrainerOnboarding();
+        });
+    }
+
+    const btnSubmitOnboarding = document.getElementById('btn-submit-onboarding');
+    if (btnSubmitOnboarding) {
+        btnSubmitOnboarding.addEventListener('click', () => {
+            soundSynth.playClick();
+            self.submitTrainerOnboarding();
+        });
+    }
+
+    const btnCloseOnboarding = document.getElementById('btn-close-onboarding');
+    if (btnCloseOnboarding) {
+        btnCloseOnboarding.addEventListener('click', () => {
+            soundSynth.playClick();
+            const panel = document.getElementById('trainer-onboarding-panel');
+            if (panel) panel.style.display = 'none';
         });
     }
 

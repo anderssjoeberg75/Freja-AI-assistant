@@ -513,6 +513,198 @@ def compute_adherence(days: int = 14) -> dict:
     }
 
 
+# --- Training-load history for safe progression ------------------------------
+# A plan built only from the last 7 days has no idea what the user can actually sustain: a
+# quiet week reads as "untrained" and the next plan jumps from a 20-minute jog to an hour.
+# These figures give the coach a month of real, completed training to progress FROM, plus
+# the hard ceilings below so a single session or a whole week cannot balloon.
+TRAINING_LOAD_DAYS = 30       # Lookback window summarised into the coach prompt
+MAX_SESSION_STEP_PCT = 20     # A session may exceed the recent longest one by at most this
+MAX_WEEKLY_STEP_PCT = 10      # Weekly volume may rise by at most this vs the recent average
+
+
+def build_training_load_summary(days: int = TRAINING_LOAD_DAYS) -> dict:
+    """Summarises actually-completed training over the last `days` days.
+
+    Reads Strava activities (the authoritative record of what was performed) and falls back
+    to Garmin's logged workouts for sessions Strava never saw. Returns per-week volume, the
+    longest single session, and per-activity typical/longest durations - the reference
+    points a progression has to be built on."""
+    days = max(7, min(int(days or TRAINING_LOAD_DAYS), 180))
+    today = today_local()
+    cutoff = today - datetime.timedelta(days=days)
+    cutoff_str = cutoff.strftime('%Y-%m-%d')
+
+    # date -> {type: minutes} so a Garmin row is only used when Strava has nothing that day.
+    sessions = []       # (date, activity_type, minutes, distance_km, avg_hr, source)
+    strava_dates = set()
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                '''SELECT SUBSTR(date, 1, 10), type, moving_time, distance, average_heartrate
+                   FROM strava_activities
+                   WHERE SUBSTR(date, 1, 10) >= ?
+                   ORDER BY date ASC''',
+                (cutoff_str,)
+            )
+            for d, a_type, moving_time, distance, avg_hr in cursor.fetchall():
+                if not d:
+                    continue
+                minutes = round((moving_time or 0) / 60.0, 1)
+                if minutes <= 0:
+                    continue
+                strava_dates.add(d)
+                sessions.append({
+                    "date": d,
+                    "type": (a_type or "Träning").strip(),
+                    "minutes": minutes,
+                    "distance_km": round((distance or 0) / 1000.0, 2),
+                    "avg_hr": avg_hr,
+                    "source": "Strava",
+                })
+        except Exception as e:
+            print(f"[TRAINER LOAD] Error reading Strava activities: {e}")
+
+        try:
+            cursor.execute(
+                '''SELECT date, workout_type, workout_duration
+                   FROM garmin_health
+                   WHERE date >= ?
+                   ORDER BY date ASC''',
+                (cutoff_str,)
+            )
+            for d, w_type, w_dur in cursor.fetchall():
+                if not d or d[:10] in strava_dates:
+                    continue  # Strava already has this day; don't double-count it.
+                minutes = round(float(w_dur or 0), 1)
+                if minutes <= 0 or not w_type:
+                    continue
+                sessions.append({
+                    "date": d[:10],
+                    "type": str(w_type).strip(),
+                    "minutes": minutes,
+                    "distance_km": None,
+                    "avg_hr": None,
+                    "source": "Garmin",
+                })
+        except Exception as e:
+            print(f"[TRAINER LOAD] Error reading Garmin workouts: {e}")
+
+    sessions.sort(key=lambda s: s["date"])
+
+    # Weekly buckets, counted back from today so "this week" is the most recent one.
+    weeks: dict = {}
+    for s in sessions:
+        try:
+            d = datetime.datetime.strptime(s["date"], "%Y-%m-%d").date()
+        except (ValueError, TypeError):
+            continue
+        bucket = (today - d).days // 7      # 0 = last 7 days, 1 = the 7 before that, ...
+        wk = weeks.setdefault(bucket, {"weeks_ago": bucket, "sessions": 0, "minutes": 0.0, "distance_km": 0.0})
+        wk["sessions"] += 1
+        wk["minutes"] += s["minutes"]
+        wk["distance_km"] += s["distance_km"] or 0.0
+
+    weekly = [
+        {
+            "weeks_ago": w["weeks_ago"],
+            "sessions": w["sessions"],
+            "minutes": round(w["minutes"], 1),
+            "distance_km": round(w["distance_km"], 2),
+        }
+        for w in sorted(weeks.values(), key=lambda x: x["weeks_ago"])
+    ]
+
+    by_type: dict = {}
+    for s in sessions:
+        t = by_type.setdefault(s["type"], {"activity_type": s["type"], "sessions": 0, "total_minutes": 0.0,
+                                           "longest_minutes": 0.0, "longest_distance_km": 0.0})
+        t["sessions"] += 1
+        t["total_minutes"] += s["minutes"]
+        t["longest_minutes"] = max(t["longest_minutes"], s["minutes"])
+        t["longest_distance_km"] = max(t["longest_distance_km"], s["distance_km"] or 0.0)
+    for t in by_type.values():
+        t["avg_minutes"] = round(t["total_minutes"] / t["sessions"], 1) if t["sessions"] else 0.0
+        t["total_minutes"] = round(t["total_minutes"], 1)
+        t["longest_minutes"] = round(t["longest_minutes"], 1)
+        t["longest_distance_km"] = round(t["longest_distance_km"], 2)
+
+    weekly_minutes = [w["minutes"] for w in weekly]
+    avg_weekly_minutes = round(sum(weekly_minutes) / len(weekly_minutes), 1) if weekly_minutes else 0.0
+    longest_session = max((s["minutes"] for s in sessions), default=0.0)
+
+    return {
+        "window_days": days,
+        "session_count": len(sessions),
+        "weekly": weekly,
+        "by_activity": sorted(by_type.values(), key=lambda t: -t["total_minutes"]),
+        "avg_weekly_minutes": avg_weekly_minutes,
+        "longest_session_minutes": round(longest_session, 1),
+        # The ceilings a new plan must respect, precomputed so the prompt states real numbers
+        # instead of asking the model to do the arithmetic.
+        "max_session_minutes": round(longest_session * (1 + MAX_SESSION_STEP_PCT / 100.0)) if longest_session else None,
+        "max_weekly_minutes": round(avg_weekly_minutes * (1 + MAX_WEEKLY_STEP_PCT / 100.0)) if avg_weekly_minutes else None,
+        "recent_sessions": sessions[-20:],
+    }
+
+
+def _format_progression_rules(load: dict) -> str:
+    """The hard progression ceilings for a new plan, stated as concrete minute figures.
+
+    Without these the model happily writes "60 min löpning" for someone whose longest run in
+    a month was 20 minutes. Expressed as numbers rather than percentages because the model
+    follows an explicit ceiling far more reliably than one it has to compute."""
+    if not load or not load.get("session_count"):
+        return (
+            "- The user has no recorded training in the last month. Cap every session at 30 minutes "
+            "in week 1 and increase by at most 10% per week."
+        )
+
+    rules = [
+        f"- HARD CEILING: no single session may exceed {load['max_session_minutes']} minutes "
+        f"(the longest session actually completed in the last {load['window_days']} days was "
+        f"{load['longest_session_minutes']} minutes, and a step of more than "
+        f"{MAX_SESSION_STEP_PCT}% is an injury risk).",
+        f"- HARD CEILING: total planned minutes for the week may not exceed "
+        f"{load['max_weekly_minutes']} minutes (recent average is {load['avg_weekly_minutes']} "
+        f"min/week; weekly volume must not rise by more than {MAX_WEEKLY_STEP_PCT}%).",
+        "- Progress FROM the durations listed per activity type above. If the user typically runs "
+        "20 minutes, the next step is roughly 22-24 minutes - never 60.",
+        "- If a requested goal would require breaking these ceilings, say so plainly in the summary "
+        "and lay out the build-up over several weeks instead of jumping straight to the target.",
+    ]
+    return "\n".join(rules)
+
+
+def format_training_load_summary(load: dict) -> str:
+    """Renders the training-load summary as the text block pasted into the coach prompt."""
+    if not load or not load.get("session_count"):
+        return (f"No completed training was recorded in the last {load.get('window_days', TRAINING_LOAD_DAYS)} days. "
+                "Treat the user as returning from a break: start conservatively and build up gradually.")
+
+    lines = [
+        f"Completed training over the last {load['window_days']} days: {load['session_count']} sessions, "
+        f"averaging {load['avg_weekly_minutes']} minutes per week.",
+        f"Longest single session in that period: {load['longest_session_minutes']} minutes.",
+        "Weekly volume (0 = the last 7 days):",
+    ]
+    for w in load["weekly"]:
+        lines.append(
+            f"- {w['weeks_ago']} weeks ago: {w['sessions']} sessions, {w['minutes']} min"
+            + (f", {w['distance_km']} km" if w["distance_km"] else "")
+        )
+    lines.append("Per activity type (typical vs longest session):")
+    for t in load["by_activity"]:
+        lines.append(
+            f"- {t['activity_type']}: {t['sessions']} sessions, typically {t['avg_minutes']} min, "
+            f"longest {t['longest_minutes']} min"
+            + (f" / {t['longest_distance_km']} km" if t["longest_distance_km"] else "")
+        )
+    return "\n".join(lines)
+
+
 # --- Trend series for the PT charts (Issue #36) ------------------------------
 MAX_TREND_DAYS = 180  # Longest window the trend chart may request
 
@@ -623,28 +815,34 @@ async def put_trainer_profile(request: Request):
             values[f] = val
 
     try:
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT id FROM trainer_profile WHERE id = 1")
-            exists = cursor.fetchone() is not None
-            now_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-
-            if exists:
-                if values:
-                    set_clause = ", ".join(f"{k} = ?" for k in values)
-                    params = list(values.values()) + [now_str]
-                    cursor.execute(f"UPDATE trainer_profile SET {set_clause}, updated_at = ? WHERE id = 1", params)
-                else:
-                    cursor.execute("UPDATE trainer_profile SET updated_at = ? WHERE id = 1", (now_str,))
-            else:
-                cols = ["id"] + list(values.keys()) + ["updated_at"]
-                placeholders = ", ".join("?" for _ in cols)
-                params = [1] + list(values.values()) + [now_str]
-                cursor.execute(f"INSERT INTO trainer_profile ({', '.join(cols)}) VALUES ({placeholders})", params)
-            conn.commit()
-        return {"status": "success", "message": "Training profile saved.", "profile": get_trainer_profile()}
+        return {"status": "success", "message": "Training profile saved.", "profile": _save_profile_values(values)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def _save_profile_values(values: dict) -> dict:
+    """Upserts the single training-profile row and returns it. Shared by the profile
+    endpoint and onboarding so both write the row the same way."""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM trainer_profile WHERE id = 1")
+        exists = cursor.fetchone() is not None
+        now_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+        if exists:
+            if values:
+                set_clause = ", ".join(f"{k} = ?" for k in values)
+                params = list(values.values()) + [now_str]
+                cursor.execute(f"UPDATE trainer_profile SET {set_clause}, updated_at = ? WHERE id = 1", params)
+            else:
+                cursor.execute("UPDATE trainer_profile SET updated_at = ? WHERE id = 1", (now_str,))
+        else:
+            cols = ["id"] + list(values.keys()) + ["updated_at"]
+            placeholders = ", ".join("?" for _ in cols)
+            params = [1] + list(values.values()) + [now_str]
+            cursor.execute(f"INSERT INTO trainer_profile ({', '.join(cols)}) VALUES ({placeholders})", params)
+        conn.commit()
+    return get_trainer_profile()
 
 
 @router.get("/api/trainer/adherence")
@@ -913,24 +1111,40 @@ async def delete_trainer_plan(plan_id: int = Query(..., description="ID of the p
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+def _workout_end_time(date_str: str, duration_minutes: int) -> str:
+    """End timestamp for a listed workout, derived from its duration (default start 08:00)."""
+    try:
+        minutes = max(1, min(int(duration_minutes or 0), MAX_WORKOUT_MINUTES))
+    except (TypeError, ValueError):
+        minutes = 60
+    start = datetime.datetime.strptime(f"{date_str}T08:00", "%Y-%m-%dT%H:%M")
+    return (start + datetime.timedelta(minutes=minutes)).strftime("%Y-%m-%dT%H:%M:%S")
+
+
 @router.get("/api/trainer/workouts")
 async def get_trainer_workouts(days: int = Query(14, description="Lookback/lookahead window in days")):
     """Returns scheduled PT workouts directly from local SQLite database (trainer_bookings or latest trainer_plan).
     Works independently of Google Calendar."""
     try:
-        today = today_local().date()
+        today = today_local()
         current_dow = today.weekday() # 0 = Monday
         monday = today - datetime.timedelta(days=current_dow)
+        days = max(1, min(int(days or 14), 365))
+        window_start = today - datetime.timedelta(days=days)
+        window_end = today + datetime.timedelta(days=days)
 
         results = []
         with get_db_connection() as conn:
             cursor = conn.cursor()
+            # `days` bounds the window in both directions. It used to be accepted and then
+            # ignored, so the list grew without limit and every plan ever booked came back.
             cursor.execute('''
                 SELECT b.id, b.plan_id, b.event_id, b.workout_date, b.week, p.advice_text
                 FROM trainer_bookings b
                 JOIN trainer_plans p ON b.plan_id = p.id
+                WHERE b.workout_date >= ? AND b.workout_date <= ?
                 ORDER BY b.workout_date ASC
-            ''')
+            ''', (window_start.isoformat(), window_end.isoformat()))
             rows = cursor.fetchall()
 
         day_offsets = plan_export.SWEDISH_DAY_OFFSETS
@@ -968,7 +1182,9 @@ async def get_trainer_workouts(days: int = Query(14, description="Lookback/looka
                         "summary": summary,
                         "description": description,
                         "start_time": f"{w_date_str}T08:00:00",
-                        "end_time": f"{w_date_str}T09:00:00",
+                        # Derived from the session's own duration. A fixed 09:00 made every
+                        # card read "(60 min)" regardless of what the plan actually said.
+                        "end_time": _workout_end_time(w_date_str, duration),
                         "location": WORKOUT_LOCATION_MARKER,
                         "duration_minutes": duration,
                         "activity_type": matching_w.get("activity_type", "Träning"),
@@ -1015,7 +1231,7 @@ async def get_trainer_workouts(days: int = Query(14, description="Lookback/looka
                             "summary": summary,
                             "description": description,
                             "start_time": f"{w_date_str}T08:00:00",
-                            "end_time": f"{w_date_str}T09:00:00",
+                            "end_time": _workout_end_time(w_date_str, duration),
                             "location": WORKOUT_LOCATION_MARKER,
                             "duration_minutes": duration,
                             "activity_type": w.get("activity_type", "Träning"),
@@ -1029,10 +1245,168 @@ async def get_trainer_workouts(days: int = Query(14, description="Lookback/looka
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# --- Chat context ------------------------------------------------------------
+# Freja is the user's coach in ordinary conversation too, not only when a tool fires. The
+# block below is injected into her system prompt on every turn so "hur ser dagens pass ut"
+# is answered from the actual plan even if the model never decides to call a tool - which is
+# what used to make her improvise a walk that was nowhere in the schedule.
+SWEDISH_WEEKDAYS = ["Måndag", "Tisdag", "Onsdag", "Torsdag", "Fredag", "Lördag", "Söndag"]
+CHAT_CONTEXT_MAX_WORKOUTS = 14   # Sessions listed before the block is truncated
+CHAT_CONTEXT_DESC_LEN = 400      # Per-session description budget
+
+
+def build_chat_context_block() -> str:
+    """Renders the active plan, this week's schedule and today's session as prompt text.
+
+    Swedish, because it is quoted more or less verbatim back to the user; everything else in
+    this file is English. Returns "" when there is nothing to say, so the caller can skip the
+    injection entirely rather than pasting an empty header."""
+    profile = get_trainer_profile()
+    today = today_local()
+    today_str = today.isoformat()
+
+    plan = None
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                "SELECT id, date, goal, advice_text, limitations FROM trainer_plans ORDER BY id DESC LIMIT 1"
+            )
+            plan = cursor.fetchone()
+        except Exception as e:
+            print(f"[TRAINER CONTEXT] Could not read the active plan: {e}")
+
+    lines = [f"Dagens datum: {today_str} ({SWEDISH_WEEKDAYS[today.weekday()]})."]
+
+    if profile:
+        prof_bits = []
+        for label, key in (("Mål", "goals"), ("Nivå", "fitness_level"), ("Tillgänglighet", "availability"),
+                           ("Tävling/mål-event", "event"), ("Eventdatum", "event_date"),
+                           ("Begränsningar", "limitations")):
+            val = str(profile.get(key) or "").strip()
+            if val:
+                prof_bits.append(f"{label}: {val}")
+        if prof_bits:
+            lines.append("Träningsprofil - " + "; ".join(prof_bits) + ".")
+
+    plan_data = {}
+    if plan:
+        plan_id, plan_date, goal, advice_text, limitations = plan
+        try:
+            plan_data = json.loads(str(advice_text or "").replace("```json", "").replace("```", "").strip())
+        except Exception:
+            plan_data = {}
+        lines.append(f"Aktivt träningsprogram (skapat {plan_date}, mål: \"{goal}\").")
+        if plan_data.get("weekly_focus"):
+            lines.append(f"Veckans fokus: {plan_data['weekly_focus']}")
+        if plan_data.get("summary"):
+            lines.append(f"Coachens analys: {str(plan_data['summary'])[:CHAT_CONTEXT_DESC_LEN]}")
+
+    # Booked sessions for the current week, newest plan first.
+    workouts = []
+    monday = today - datetime.timedelta(days=today.weekday())
+    sunday = monday + datetime.timedelta(days=6)
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                '''SELECT b.workout_date, p.advice_text
+                   FROM trainer_bookings b JOIN trainer_plans p ON b.plan_id = p.id
+                   WHERE b.workout_date >= ? AND b.workout_date <= ?
+                   ORDER BY b.workout_date ASC''',
+                (monday.isoformat(), sunday.isoformat())
+            )
+            booking_rows = cursor.fetchall()
+        except Exception as e:
+            print(f"[TRAINER CONTEXT] Could not read bookings: {e}")
+            booking_rows = []
+
+    day_offsets = plan_export.SWEDISH_DAY_OFFSETS
+    for w_date_str, advice_text in booking_rows:
+        try:
+            w_date = datetime.datetime.strptime(w_date_str, "%Y-%m-%d").date()
+            booked_plan = json.loads(str(advice_text or "").replace("```json", "").replace("```", "").strip())
+        except Exception:
+            continue
+        for w in booked_plan.get("workouts", []):
+            if day_offsets.get(str(w.get("day", "")).lower()) == w_date.weekday():
+                workouts.append((w_date, w))
+                break
+
+    # No bookings (e.g. calendar never connected): fall back to the plan's own weekdays,
+    # mapped onto the current week, so the schedule is still known in conversation.
+    if not workouts and plan_data.get("workouts"):
+        for w in plan_data["workouts"]:
+            offset = day_offsets.get(str(w.get("day", "")).lower())
+            if offset is not None:
+                workouts.append((monday + datetime.timedelta(days=offset), w))
+        workouts.sort(key=lambda item: item[0])
+
+    if workouts:
+        lines.append("Inbokade träningspass denna vecka:")
+        for w_date, w in workouts[:CHAT_CONTEXT_MAX_WORKOUTS]:
+            marker = " <-- IDAG" if w_date == today else ""
+            dur = w.get("duration_minutes", 0)
+            desc = str(w.get("description", "") or "").strip()[:CHAT_CONTEXT_DESC_LEN]
+            exercises = w.get("exercises") or []
+            ex_str = ""
+            if isinstance(exercises, list) and exercises:
+                ex_str = " Övningar: " + "; ".join(
+                    f"{e.get('name', 'Övning')} {e.get('sets', 0)}x{e.get('reps', 0)}"
+                    + (f" @ {e.get('target_weight')} kg" if e.get("target_weight") else "")
+                    for e in exercises[:8]
+                )
+            lines.append(
+                f"- {w_date.isoformat()} ({SWEDISH_WEEKDAYS[w_date.weekday()]}): "
+                f"{w.get('activity_type', 'Träning')} - {w.get('title', 'Pass')}, {dur} min.{marker}"
+                f" {desc}{ex_str}".rstrip()
+            )
+        if not any(w_date == today for w_date, _ in workouts):
+            lines.append(f"Inget pass är inbokat idag ({today_str}) - det är en vilodag enligt programmet.")
+    else:
+        lines.append("Inga inbokade träningspass hittades för den här veckan.")
+
+    injuries = format_active_injuries()
+    if injuries and not injuries.startswith("No active"):
+        lines.append("Aktiva skador/besvär (senast loggade):\n" + injuries)
+
+    load = build_training_load_summary(TRAINING_LOAD_DAYS)
+    if load.get("session_count"):
+        lines.append(
+            f"Faktiskt genomförd träning senaste {load['window_days']} dagarna: {load['session_count']} pass, "
+            f"i snitt {load['avg_weekly_minutes']} min/vecka, längsta pass {load['longest_session_minutes']} min."
+        )
+
+    return "\n".join(lines) if len(lines) > 1 else ""
+
+
+@router.get("/api/trainer/context")
+async def get_trainer_chat_context():
+    """The PT context block injected into Freja's system prompt on every chat turn."""
+    try:
+        block = build_chat_context_block()
+        return {"status": "success", "has_context": bool(block), "context": block}
+    except Exception as e:
+        # Never fail the chat over this: an empty context degrades to tool-call behaviour.
+        print(f"[TRAINER CONTEXT] Build error: {e}")
+        return {"status": "error", "has_context": False, "context": "", "detail": str(e)}
+
+
 def _next_monday(from_date: datetime.date = None) -> datetime.date:
     """The next upcoming Monday - the default start date for an exported plan."""
     d = from_date or today_local()
     return d + datetime.timedelta(days=(7 - d.weekday()) or 7)
+
+
+def _current_week_monday(from_date: datetime.date = None) -> datetime.date:
+    """The Monday of the week `from_date` falls in.
+
+    A plan's `day` field is a Swedish weekday name that book_plan_to_calendar turns into an
+    absolute offset from the start date (Måndag = 0). The start date must therefore BE a
+    Monday, or every session lands on the wrong weekday - generating a plan on a Wednesday
+    used to book "Måndag" on Wednesday, "Tisdag" on Thursday and so on."""
+    d = from_date or today_local()
+    return d - datetime.timedelta(days=d.weekday())
 
 
 # Swedish (and common accented) letters folded to ASCII so a filename built from a goal
@@ -1153,7 +1527,7 @@ async def generate_trainer_plan(request: Request):
                 SELECT name, type, date, distance, moving_time, total_elevation_gain, average_heartrate, max_heartrate, calories
                 FROM strava_activities
                 ORDER BY date DESC
-                LIMIT 7
+                LIMIT 20
             ''')
             for r in cursor.fetchall():
                 dist_km = round(r[3] / 1000.0, 2) if r[3] else 0
@@ -1189,12 +1563,21 @@ async def generate_trainer_plan(request: Request):
         # 5.45 Open injuries so affected sessions get eased or swapped (Issue #38)
         injuries_str = format_active_injuries()
 
+        # 5.47 A month of actually-completed training, so the plan progresses from what the
+        # user has really been doing instead of jumping from a 20-minute jog to an hour.
+        training_load = build_training_load_summary(TRAINING_LOAD_DAYS)
+        training_load_str = format_training_load_summary(training_load)
+        progression_rules = _format_progression_rules(training_load)
+
         # 5.5 Fetch 7-day weather forecast (for the profile's location)
         weather_forecast = await fetch_7day_weather_forecast(location)
 
         # 6. Compile Prompt
         garmin_data_str = "\n".join(garmin_summary) if garmin_summary else "No Garmin data available."
         strava_data_str = "\n".join(strava_summary) if strava_summary else "No Strava data available."
+        # The 7-day blocks below stay short on purpose: they describe current recovery state.
+        # The month of training volume the progression is built on comes from the
+        # TRAINING LOAD block, which is aggregated rather than row-by-row.
         withings_data_str = "\n".join(withings_summary) if withings_summary else "No Withings data available."
 
         limitations_prompt = (
@@ -1219,7 +1602,7 @@ GOAL: "{goal}"{limitations_prompt}
 [GARMIN HEALTH DATA (last 7 days)]:
 {garmin_data_str}
 
-[STRAVA WORKOUTS (last 7 sessions)]:
+[STRAVA WORKOUTS (most recent sessions)]:
 {strava_data_str}
 
 [WITHINGS MEASUREMENTS (last 7 measurements)]:
@@ -1230,6 +1613,12 @@ GOAL: "{goal}"{limitations_prompt}
 
 [ACTIVE INJURY / PAIN LOG (dated entries the user is still bothered by)]:
 {injuries_str}
+
+[TRAINING LOAD - WHAT THE USER HAS ACTUALLY COMPLETED IN THE LAST {TRAINING_LOAD_DAYS} DAYS]:
+{training_load_str}
+
+[PROGRESSION LIMITS - THESE ARE NOT SUGGESTIONS]:
+{progression_rules}
 
 Instructions for the answer:
 - Answer in Swedish.
@@ -1252,6 +1641,11 @@ Instructions for the answer:
   affected area, lower the intensity of sessions that would aggravate it, and scale that caution to the
   logged severity (7-10 means avoid loading the area entirely). Mention the adaptation briefly in the
   session description so the user can see why it differs.
+- Build the progression on the TRAINING LOAD block above and stay inside the PROGRESSION LIMITS.
+  Every session duration you write must be justifiable against what the user has actually been
+  doing over the past {TRAINING_LOAD_DAYS} days - a plan that doubles a session length is wrong
+  even if the goal is ambitious. Briefly state in the summary which recent sessions you are
+  progressing from.
 - Create a simple weekly plan the user can follow right away.
 """
 
@@ -1359,9 +1753,13 @@ Instructions for the answer:
             conn.commit()
             plan_id = cursor.lastrowid
 
-        # 9. Automatically book the generated plan's workouts into weekly schedule
+        # 9. Automatically book the generated plan's workouts into the weekly schedule.
+        # Anchored on this week's Monday because the plan's weekday names are offsets from
+        # the start date; passing today would shift every session by today's weekday. Days
+        # that already passed are skipped rather than booked into the past.
+        booking = None
         try:
-            await core_book_plan_internal(plan_id, today_local().date())
+            booking = await core_book_plan_internal(plan_id, _current_week_monday())
         except Exception as book_err:
             print(f"[TRAINER GENERATE] Auto-booking warning: {book_err}")
 
@@ -1371,13 +1769,383 @@ Instructions for the answer:
             "date": today_str,
             "goal": goal,
             "limitations": limitations,
-            "advice_text": advice_text
+            "advice_text": advice_text,
+            "booking": booking
         }
         
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=e.response.status_code, detail=f"Gemini API error: {e.response.text}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# --- Guided onboarding -------------------------------------------------------
+# The profile fields drive every plan, but a user cannot reasonably guess their own HRV
+# baseline or describe their real weekly volume. Onboarding derives everything the connected
+# devices already know (Garmin / Strava / Withings) and only asks about what data cannot
+# reveal: intent, schedule, preferences, equipment and how the body actually feels.
+ONBOARDING_LOOKBACK_DAYS = 90    # History window analysed before the interview
+MAX_ONBOARDING_QUESTIONS = 8
+MAX_ONBOARDING_ANSWER_LEN = 500
+
+# The profile columns onboarding is allowed to write, and how to coerce each one.
+ONBOARDING_TEXT_FIELDS = ("goals", "limitations", "fitness_level", "availability", "location", "event", "event_date")
+ONBOARDING_NUMERIC_FIELDS = ("baseline_resting_hr", "baseline_sleep_hours", "baseline_hrv")
+
+
+def _collect_onboarding_signals(days: int = ONBOARDING_LOOKBACK_DAYS) -> dict:
+    """Everything the connected devices can tell us about the user, as prompt-ready text."""
+    days = max(14, min(int(days or ONBOARDING_LOOKBACK_DAYS), 365))
+    cutoff = (today_local() - datetime.timedelta(days=days)).strftime('%Y-%m-%d')
+
+    garmin_lines, withings_lines = [], []
+    activity_types = {}
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                '''SELECT COUNT(*), AVG(steps), AVG(sleep_hours), AVG(resting_hr), AVG(hrv),
+                          AVG(sleep_score), MAX(vo2max)
+                   FROM garmin_health WHERE date >= ?''',
+                (cutoff,)
+            )
+            row = cursor.fetchone() or []
+            if row and row[0]:
+                def _fmt(v, unit, decimals=1):
+                    return f"{round(v, decimals)}{unit}" if v else "no data"
+                garmin_lines.append(
+                    f"{row[0]} days of Garmin data: avg {_fmt(row[1], ' steps', 0)}, "
+                    f"sleep {_fmt(row[2], 'h')}, resting HR {_fmt(row[3], ' bpm')}, "
+                    f"HRV {_fmt(row[4], ' ms')}, sleep score {_fmt(row[5], '')}, "
+                    f"VO2max {_fmt(row[6], '')}"
+                )
+            cursor.execute(
+                '''SELECT training_status, COUNT(*) FROM garmin_health
+                   WHERE date >= ? AND training_status IS NOT NULL AND training_status != ''
+                   GROUP BY training_status ORDER BY COUNT(*) DESC LIMIT 5''',
+                (cutoff,)
+            )
+            statuses = [f"{r[0]} ({r[1]} days)" for r in cursor.fetchall()]
+            if statuses:
+                garmin_lines.append("Garmin training status distribution: " + ", ".join(statuses))
+        except Exception as e:
+            print(f"[TRAINER ONBOARDING] Garmin read error: {e}")
+
+        try:
+            cursor.execute(
+                '''SELECT type, COUNT(*), AVG(moving_time), MAX(distance), AVG(average_heartrate), MAX(max_heartrate)
+                   FROM strava_activities WHERE SUBSTR(date, 1, 10) >= ?
+                   GROUP BY type ORDER BY COUNT(*) DESC''',
+                (cutoff,)
+            )
+            for a_type, count, avg_time, max_dist, avg_hr, max_hr in cursor.fetchall():
+                activity_types[a_type or "Träning"] = {
+                    "sessions": count,
+                    "avg_minutes": round((avg_time or 0) / 60.0, 1),
+                    "longest_km": round((max_dist or 0) / 1000.0, 2),
+                    "avg_hr": round(avg_hr, 0) if avg_hr else None,
+                    "max_hr": max_hr,
+                }
+        except Exception as e:
+            print(f"[TRAINER ONBOARDING] Strava read error: {e}")
+
+        try:
+            cursor.execute(
+                '''SELECT COUNT(*), AVG(weight), MIN(weight), MAX(weight), AVG(fat_ratio)
+                   FROM withings_measurements WHERE date >= ?''',
+                (cutoff,)
+            )
+            row = cursor.fetchone() or []
+            if row and row[0]:
+                withings_lines.append(
+                    f"{row[0]} Withings measurements: weight avg {round(row[1], 1) if row[1] else 'n/a'} kg "
+                    f"(range {round(row[2], 1) if row[2] else 'n/a'}-{round(row[3], 1) if row[3] else 'n/a'} kg), "
+                    f"body fat avg {round(row[4], 1) if row[4] else 'n/a'}%"
+                )
+        except Exception as e:
+            print(f"[TRAINER ONBOARDING] Withings read error: {e}")
+
+    activity_lines = [
+        f"- {t}: {v['sessions']} sessions, typically {v['avg_minutes']} min, longest {v['longest_km']} km, "
+        f"avg HR {v['avg_hr'] or 'n/a'}, max HR {v['max_hr'] or 'n/a'}"
+        for t, v in activity_types.items()
+    ]
+
+    load = build_training_load_summary(TRAINING_LOAD_DAYS)
+    return {
+        "window_days": days,
+        "garmin": "\n".join(garmin_lines) or "No Garmin data available.",
+        "withings": "\n".join(withings_lines) or "No Withings data available.",
+        "strava": "\n".join(activity_lines) or "No Strava activities available.",
+        "trends": format_trends_summary(calculate_trends()),
+        "training_load": format_training_load_summary(load),
+        "injuries": format_active_injuries(),
+        "strength": format_recent_strength_logs(),
+        "load": load,
+        "activity_types": activity_types,
+    }
+
+
+async def _call_gemini_json(prompt: str, schema: dict, max_tokens: int = 3000) -> dict:
+    """Posts a JSON-schema-constrained prompt to Gemini and returns the parsed object."""
+    api_key = get_api_key('freja_gemini_apikey') or ""
+    if not api_key:
+        raise HTTPException(status_code=400, detail="The Gemini API key is not configured on the server.")
+
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "temperature": 0.3,
+            "maxOutputTokens": max_tokens,
+            "responseMimeType": "application/json",
+            "responseSchema": schema,
+        },
+    }
+    async with shared_client() as client:
+        response = await client.post(build_generate_url(get_gemini_model(), api_key), json=payload, timeout=45.0)
+        response.raise_for_status()
+        res_json = response.json()
+
+    text = res_json.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+    if not text:
+        raise HTTPException(status_code=500, detail="Gemini returned an empty response.")
+    try:
+        return json.loads(text.replace("```json", "").replace("```", "").strip())
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=500, detail=f"Gemini returned malformed JSON: {e}")
+
+
+_ONBOARDING_PROFILE_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "goals": {"type": "STRING", "description": "Primary training goal, in Swedish."},
+        "fitness_level": {"type": "STRING", "description": "One of exactly: beginner, intermediate, advanced."},
+        "availability": {"type": "STRING", "description": "Weekly availability, e.g. '3 dagar/vecka, 45 min'. In Swedish."},
+        "location": {"type": "STRING", "description": "City used for the weather forecast."},
+        "event": {"type": "STRING", "description": "Target event, or empty string if none."},
+        "event_date": {"type": "STRING", "description": "Event date as YYYY-MM-DD, or empty string."},
+        "limitations": {"type": "STRING", "description": "Injuries, illnesses and limitations, in Swedish."},
+        "baseline_resting_hr": {"type": "NUMBER", "description": "Resting HR baseline in bpm (0 if unknown)."},
+        "baseline_sleep_hours": {"type": "NUMBER", "description": "Sleep baseline in hours (0 if unknown)."},
+        "baseline_hrv": {"type": "NUMBER", "description": "HRV baseline in ms (0 if unknown)."},
+    },
+    "required": ["goals", "fitness_level", "availability", "location", "limitations"],
+}
+
+
+@router.post("/api/trainer/onboarding/start")
+async def start_trainer_onboarding(request: Request):
+    """Step 1 of onboarding: analyse the connected data and return the interview questions.
+
+    Everything the devices can answer is filled in up front; the questions cover only what
+    the data cannot know (intent, schedule, equipment, how the body actually feels)."""
+    try:
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        days = int(body.get("days") or ONBOARDING_LOOKBACK_DAYS)
+
+        signals = _collect_onboarding_signals(days)
+        profile = get_trainer_profile()
+        existing = ", ".join(
+            f"{k}={v}" for k, v in profile.items()
+            if k in ONBOARDING_TEXT_FIELDS + ONBOARDING_NUMERIC_FIELDS and v
+        ) or "The profile is empty."
+
+        prompt = f"""
+You are COACH AI, F.R.E.J.A.'s personal trainer, running the onboarding interview for a new user.
+Analyse the connected health and training data below, then prepare the interview.
+
+[EXISTING TRAINING PROFILE]: {existing}
+
+[GARMIN - last {signals['window_days']} days]:
+{signals['garmin']}
+
+[STRAVA ACTIVITY BREAKDOWN - last {signals['window_days']} days]:
+{signals['strava']}
+
+[WITHINGS BODY MEASUREMENTS - last {signals['window_days']} days]:
+{signals['withings']}
+
+[HEALTH TRENDS]:
+{signals['trends']}
+
+[COMPLETED TRAINING LOAD]:
+{signals['training_load']}
+
+[LOGGED INJURIES]:
+{signals['injuries']}
+
+[LOGGED STRENGTH LOADS]:
+{signals['strength']}
+
+Produce:
+1. `data_summary`: a short Swedish analysis of what the data reveals about this user's current
+   fitness, training habits, recovery and body composition. Be concrete and quote real figures.
+2. `proposed_profile`: your best estimate of every profile field FROM THE DATA. Derive
+   fitness_level from real training volume and heart-rate data, availability from how often
+   they actually train, and the baselines from the measured averages. Use 0 for a baseline the
+   data cannot support. Keep any existing value that the data does not contradict.
+3. `questions`: {MAX_ONBOARDING_QUESTIONS} or fewer questions, in Swedish, covering ONLY what the data
+   cannot answer - the user's actual goal and motivation, their real weekly schedule, access to
+   gym/equipment, preferred activities, pain or health issues not yet logged, and any target
+   event. Never ask about something the data already shows (do not ask "how often do you train"
+   when the activity log answers it - instead confirm your reading of it). For each question
+   give `field` (the profile field it informs: goals, availability, limitations, event,
+   event_date, location, fitness_level, or "other") and `suggested_answer` (your data-based
+   guess the user can accept as-is).
+Answer every free-text field in Swedish.
+"""
+
+        schema = {
+            "type": "OBJECT",
+            "properties": {
+                "data_summary": {"type": "STRING", "description": "Swedish analysis of the connected data."},
+                "proposed_profile": _ONBOARDING_PROFILE_SCHEMA,
+                "questions": {
+                    "type": "ARRAY",
+                    "items": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "id": {"type": "STRING", "description": "Short stable id, e.g. 'goal'."},
+                            "question": {"type": "STRING", "description": "The question, in Swedish."},
+                            "why": {"type": "STRING", "description": "One sentence on why it matters, in Swedish."},
+                            "field": {"type": "STRING", "description": "Profile field this informs."},
+                            "suggested_answer": {"type": "STRING", "description": "Data-based suggested answer, in Swedish."},
+                        },
+                        "required": ["id", "question", "field"],
+                    },
+                },
+            },
+            "required": ["data_summary", "proposed_profile", "questions"],
+        }
+
+        result = await _call_gemini_json(prompt, schema)
+        result["questions"] = (result.get("questions") or [])[:MAX_ONBOARDING_QUESTIONS]
+        result["status"] = "success"
+        result["signals"] = {
+            "window_days": signals["window_days"],
+            "sessions_last_30_days": signals["load"].get("session_count", 0),
+            "avg_weekly_minutes": signals["load"].get("avg_weekly_minutes", 0),
+            "longest_session_minutes": signals["load"].get("longest_session_minutes", 0),
+            "activity_types": signals["activity_types"],
+        }
+        return result
+
+    except HTTPException:
+        raise
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"Gemini API error: {e.response.text}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def _coerce_onboarding_profile(proposed: dict) -> dict:
+    """Filters a model-proposed profile down to writable fields with sane values."""
+    values = {}
+    for f in ONBOARDING_TEXT_FIELDS:
+        val = str((proposed or {}).get(f) or "").strip()[:MAX_INPUT_LEN]
+        if val:
+            values[f] = val
+    if values.get("fitness_level", "").lower() not in ("beginner", "intermediate", "advanced"):
+        values.pop("fitness_level", None)
+    if "event_date" in values:
+        try:
+            datetime.datetime.strptime(values["event_date"][:10], "%Y-%m-%d")
+            values["event_date"] = values["event_date"][:10]
+        except ValueError:
+            values.pop("event_date")  # An unparseable date would break the date input.
+    for f in ONBOARDING_NUMERIC_FIELDS:
+        raw = (proposed or {}).get(f)
+        try:
+            num = float(raw)
+        except (TypeError, ValueError):
+            continue
+        if num > 0:  # 0 is the schema's "unknown", not a real baseline.
+            values[f] = round(num, 1)
+    return values
+
+
+@router.post("/api/trainer/onboarding/complete")
+async def complete_trainer_onboarding(request: Request):
+    """Step 2 of onboarding: merge the user's answers with the data and save the profile."""
+    try:
+        body = await request.json()
+        answers = body.get("answers") or []
+        proposed = body.get("proposed_profile") or {}
+
+        clean_answers = []
+        for a in answers[:MAX_ONBOARDING_QUESTIONS]:
+            question = str((a or {}).get("question") or "").strip()[:MAX_INPUT_LEN]
+            answer = str((a or {}).get("answer") or "").strip()[:MAX_ONBOARDING_ANSWER_LEN]
+            if question and answer:
+                clean_answers.append({"question": question, "answer": answer, "field": str((a or {}).get("field") or "")})
+
+        if not clean_answers:
+            # Nothing to merge - persist the data-derived proposal as-is rather than failing.
+            values = _coerce_onboarding_profile(proposed)
+            if not values:
+                raise HTTPException(status_code=400, detail="No answers and no usable proposed profile were provided.")
+            saved = _save_profile_values(values)
+            return {"status": "success", "profile": saved, "summary":
+                    "Profilen sparades utifrån din data. Inga frågor besvarades.", "answers_used": 0}
+
+        signals = _collect_onboarding_signals()
+        answers_block = "\n".join(f"- {a['question']}\n  Svar: {a['answer']}" for a in clean_answers)
+
+        prompt = f"""
+You are COACH AI completing F.R.E.J.A.'s onboarding for a user.
+
+[YOUR DATA-BASED PROPOSAL]:
+{json.dumps(proposed, ensure_ascii=False)}
+
+[THE USER'S ANSWERS]:
+{answers_block}
+
+[COMPLETED TRAINING LOAD]:
+{signals['training_load']}
+
+[HEALTH TRENDS]:
+{signals['trends']}
+
+Merge the answers with your data-based proposal into the final training profile.
+The user's own answers WIN over your estimate for intent, schedule, limitations and events.
+Your measured values win for the physiological baselines - do not let a guess overwrite a
+measured resting HR, sleep or HRV baseline. Use 0 for a baseline the data cannot support.
+Write `summary` as a short Swedish confirmation of what you understood and how the plan will
+be shaped, mentioning the training volume the progression will start from.
+Answer every free-text field in Swedish.
+"""
+
+        schema = {
+            "type": "OBJECT",
+            "properties": {
+                "profile": _ONBOARDING_PROFILE_SCHEMA,
+                "summary": {"type": "STRING", "description": "Swedish confirmation of the finished profile."},
+            },
+            "required": ["profile", "summary"],
+        }
+
+        result = await _call_gemini_json(prompt, schema)
+        values = _coerce_onboarding_profile(result.get("profile") or {})
+        if not values:
+            raise HTTPException(status_code=500, detail="The onboarding produced no usable profile fields.")
+
+        saved = _save_profile_values(values)
+        return {
+            "status": "success",
+            "profile": saved,
+            "summary": result.get("summary", ""),
+            "answers_used": len(clean_answers),
+        }
+
+    except HTTPException:
+        raise
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"Gemini API error: {e.response.text}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.put("/api/trainer/plans")
 async def update_trainer_plan(request: Request):
@@ -2036,7 +2804,15 @@ def _find_free_slot(workout_date: datetime.date, duration: int, day_events: list
     return datetime.datetime.combine(workout_date, datetime.time(DEFAULT_WORKOUT_HOUR, 0))
 
 
-async def core_book_plan_internal(plan_id: int, start_date: datetime.date) -> dict:
+async def core_book_plan_internal(plan_id: int, start_date: datetime.date, skip_past: bool = True) -> dict:
+    """Books a plan's workouts into the calendar, anchored on `start_date`.
+
+    `start_date` must be a Monday: the plan's Swedish weekday names are turned into absolute
+    offsets from it (Måndag = 0). `skip_past` drops sessions that would land before today,
+    which is what makes booking a plan mid-week sane - a plan generated on Thursday keeps
+    Friday/Saturday/Sunday and silently forgets the Monday session that already passed.
+    Callers that deliberately book a historical window pass skip_past=False.
+    """
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT advice_text FROM trainer_plans WHERE id = ?", (plan_id,))
@@ -2086,6 +2862,7 @@ async def core_book_plan_internal(plan_id: int, start_date: datetime.date) -> di
     all_events = core_get_calendar_data(days=60)
 
     booked_count = 0
+    skipped_past = 0
     for w in workouts:
         day_name = str(w.get("day", "")).lower()
         offset = day_offsets.get(day_name)
@@ -2106,6 +2883,9 @@ async def core_book_plan_internal(plan_id: int, start_date: datetime.date) -> di
             week = 0
 
         workout_date = start_date + datetime.timedelta(days=offset + week * 7)
+        if skip_past and workout_date < today_local():
+            skipped_past += 1
+            continue
 
         # Find a non-conflicting slot; format at minute precision so the
         # Google push (which appends ":00") produces a valid RFC3339 time.
@@ -2151,7 +2931,15 @@ async def core_book_plan_internal(plan_id: int, start_date: datetime.date) -> di
     msg = f"Successfully booked {booked_count} workouts into your calendar."
     if rebooked:
         msg += f" ({rebooked} previously booked sessions were replaced.)"
-    return {"status": "success", "message": msg, "booked_count": booked_count, "replaced_count": rebooked}
+    if skipped_past:
+        msg += f" ({skipped_past} sessions fell before today and were skipped.)"
+    return {
+        "status": "success",
+        "message": msg,
+        "booked_count": booked_count,
+        "replaced_count": rebooked,
+        "skipped_past_count": skipped_past,
+    }
 
 
 @router.post("/api/trainer/plans/book")
@@ -2169,7 +2957,9 @@ async def book_trainer_plan(request: Request):
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid start date format (use YYYY-MM-DD).")
 
-        return await core_book_plan_internal(plan_id, start_date)
+        # An explicitly requested start date is honoured in full, including sessions in the
+        # past - the caller picked that date deliberately (e.g. re-booking a past week).
+        return await core_book_plan_internal(plan_id, start_date, skip_past=False)
 
     except HTTPException:
         raise

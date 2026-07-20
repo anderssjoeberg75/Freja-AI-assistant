@@ -1011,8 +1011,22 @@
                     </div>
 
                     <div style="display: flex; gap: 10px; margin-top: 5px;">
+                        <button id="btn-trainer-onboarding" class="hud-btn btn-primary" style="flex: 1; height: 34px; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-user-plus"></i> ONBOARDING</button>
                         <button id="btn-save-trainer-profile" class="hud-btn btn-primary" style="flex: 1; height: 34px; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-floppy-disk"></i> SAVE PROFILE</button>
                         <button id="btn-generate-trainer-plan" class="hud-btn btn-primary" style="flex: 1; height: 34px; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-wand-magic-sparkles"></i> GENERATE PLAN</button>
+                    </div>
+
+                    <!-- Guided onboarding: Freja analyses Garmin/Strava/Withings, then interviews
+                         the user about what the data cannot show, and fills the fields above. -->
+                    <div id="trainer-onboarding-panel" style="display: none; flex-direction: column; gap: 10px; margin-top: 8px; background: rgba(0, 242, 254, 0.04); border: 1px solid rgba(0, 242, 254, 0.2); border-radius: 4px; padding: 12px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span style="font-size: 11px; color: var(--color-primary); font-family: var(--font-display); letter-spacing: 0.5px;"><i class="fa-solid fa-clipboard-question"></i> ONBOARDING INTERVIEW</span>
+                            <button id="btn-close-onboarding" class="hud-btn btn-secondary" style="height: 26px; font-size: 10px; padding: 0 10px;">CLOSE</button>
+                        </div>
+                        <div id="trainer-onboarding-status" style="font-family: var(--font-mono); font-size: 11px; color: var(--color-text-muted);"></div>
+                        <div id="trainer-onboarding-summary" style="display: none; font-size: 12px; line-height: 1.5; color: var(--color-text); background: rgba(0,0,0,0.35); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px; white-space: pre-wrap;"></div>
+                        <div id="trainer-onboarding-questions" style="display: flex; flex-direction: column; gap: 10px;"></div>
+                        <button id="btn-submit-onboarding" class="hud-btn btn-primary" style="display: none; height: 34px; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-check"></i> SAVE ANSWERS &amp; BUILD PROFILE</button>
                     </div>
                 </div>
 

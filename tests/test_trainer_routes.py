@@ -757,3 +757,151 @@ def test_trainer_booking_is_idempotent(auth_headers):
         cursor.execute("SELECT COUNT(*) FROM trainer_bookings WHERE plan_id = ?", (plan_id,))
         booking_count = cursor.fetchone()[0]
     assert booking_count == 2
+
+
+# --- Training-load history, booking anchor and chat context -------------------
+# The three regressions below all produced silently wrong coaching rather than an error:
+# the workouts endpoint 500'd on every call, plans were booked onto the wrong weekdays, and
+# a plan could jump from a 20-minute jog to an hour because only 7 days of data were seen.
+
+def test_trainer_workouts_endpoint_returns_a_list(auth_headers):
+    """Regression: `today_local()` returns a date, so `.date()` on it raised AttributeError
+    and this endpoint answered 500 on every single request - the PT panel's weekly workout
+    list was dead, and the get_trainer_workouts tool had nothing to read."""
+    client = TestClient(app)
+    response = client.get("/api/trainer/workouts?days=14", headers=auth_headers)
+    assert response.status_code == 200
+    assert isinstance(response.json(), list)
+
+
+def test_trainer_workouts_end_time_follows_duration(auth_headers):
+    """A fixed 09:00 end time made every session render as 60 minutes in the HUD."""
+    mock_plan = json.dumps({"workouts": [
+        {"day": "Måndag", "activity_type": "Löpning", "title": "Kort pass",
+         "description": "20 min lugnt", "duration_minutes": 20}
+    ]})
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO trainer_plans (date, goal, advice_text, limitations) VALUES (?, ?, ?, ?)",
+            ("2026-07-20", "Sluttid-test", mock_plan, ""),
+        )
+        plan_id = cursor.lastrowid
+        monday = trainer_module.today_local() - __import__("datetime").timedelta(
+            days=trainer_module.today_local().weekday()
+        )
+        cursor.execute(
+            "INSERT INTO trainer_bookings (plan_id, event_id, workout_date, week) VALUES (?, ?, ?, ?)",
+            (plan_id, None, monday.isoformat(), 0),
+        )
+        conn.commit()
+
+    client = TestClient(app)
+    workouts = client.get("/api/trainer/workouts?days=14", headers=auth_headers).json()
+    match = [w for w in workouts if w.get("plan_id") == plan_id]
+    assert match, "the freshly booked workout was not returned"
+    assert match[0]["start_time"].endswith("T08:00:00")
+    assert match[0]["end_time"].endswith("T08:20:00")
+
+
+def test_current_week_monday_anchors_booking():
+    """Plan weekdays are offsets from the start date, so it has to BE a Monday."""
+    import datetime as dt
+    for day in range(7):
+        d = dt.date(2026, 7, 20) + dt.timedelta(days=day)   # 2026-07-20 is a Monday
+        assert trainer_module._current_week_monday(d).weekday() == 0
+        assert trainer_module._current_week_monday(d) <= d
+
+
+def test_training_load_summary_caps_progression():
+    """The plan prompt must carry hard minute ceilings derived from real training.
+
+    Without them a plan happily jumped from the user's habitual 20-minute jog straight to a
+    one-hour run, which is the injury risk this window exists to prevent.
+    """
+    load = trainer_module.build_training_load_summary(30)
+    assert load["window_days"] == 30
+    assert "session_count" in load
+    if load["session_count"]:
+        assert load["max_session_minutes"] >= load["longest_session_minutes"]
+        # A 20% step ceiling must never allow tripling the longest recent session.
+        assert load["max_session_minutes"] < load["longest_session_minutes"] * 2
+        rules = trainer_module._format_progression_rules(load)
+        assert str(load["max_session_minutes"]) in rules
+        assert "HARD CEILING" in rules
+
+
+def test_generate_prompt_includes_thirty_day_history(auth_headers, monkeypatch):
+    """The generated plan must be built on a month of completed training, not just 7 days."""
+    captured = {}
+
+    monkeypatch.setattr(trainer_module, "get_api_key", lambda name: "MOCK_GEMINI_KEY")
+
+    async def fake_weather(location="Stockholm"):
+        return "Väderprognos: mulet."
+    monkeypatch.setattr(trainer_module, "fetch_7day_weather_forecast", fake_weather)
+
+    plan_obj = {"summary": "s", "resting_hr_trend": "r", "hrv_trend": "h", "weekly_focus": "f",
+                "workouts": [{"day": "Tisdag", "activity_type": "Löpning", "title": "Pass",
+                              "description": "d", "duration_minutes": 25}]}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+        def json(self):
+            return {"candidates": [{"content": {"parts": [{"text": json.dumps(plan_obj)}]}}]}
+
+    class CapturingClient:
+        def __init__(self, *a, **kw):
+            pass
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *a):
+            return False
+        async def post(self, url, **kwargs):
+            captured["prompt"] = kwargs["json"]["contents"][0]["parts"][0]["text"]
+            return FakeResponse()
+
+    monkeypatch.setattr(trainer_module, "shared_client", CapturingClient)
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/trainer/generate",
+        json={"goal": "Bygg löpvana", "limitations": ""},
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+
+    prompt = captured["prompt"]
+    assert "TRAINING LOAD" in prompt
+    assert "LAST 30 DAYS" in prompt
+    assert "PROGRESSION LIMITS" in prompt
+
+
+def test_chat_context_block_exposes_the_program(auth_headers):
+    """Freja must know the booked program in ordinary chat, without a tool call."""
+    client = TestClient(app)
+    response = client.get("/api/trainer/context", headers=auth_headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "success"
+    if data["has_context"]:
+        assert "Dagens datum" in data["context"]
+
+
+def test_onboarding_profile_coercion_rejects_junk():
+    """Onboarding writes straight into the profile, so the model's output is filtered."""
+    coerced = trainer_module._coerce_onboarding_profile({
+        "goals": "  Springa 10 km  ",
+        "fitness_level": "superhuman",        # not one of the three allowed levels
+        "event_date": "nästa vår",            # unparseable - would break the date input
+        "baseline_resting_hr": 0,             # the schema's "unknown", not a real baseline
+        "baseline_hrv": 46.27,
+        "location": "Stockholm",
+    })
+    assert coerced["goals"] == "Springa 10 km"
+    assert "fitness_level" not in coerced
+    assert "event_date" not in coerced
+    assert "baseline_resting_hr" not in coerced
+    assert coerced["baseline_hrv"] == 46.3
+    assert coerced["location"] == "Stockholm"

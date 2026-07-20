@@ -82,3 +82,22 @@ def test_permission_gateway_does_not_gate_on_a_local_tool_whitelist():
     source = (CLIENT_JS_DIR / "js" / "ui-tools.js").read_text(encoding="utf-8")
     assert "/api/tools/metadata" in source, "ui-tools.js no longer fetches the registry tool list"
     assert "not recognized" not in source, "ui-tools.js rejects tools client-side again"
+
+
+def test_weekly_workout_list_has_no_fabricated_fallback():
+    """The HUD must never invent a training session.
+
+    loadWeeklyWorkoutsUI used to fall back to three hard-coded workouts ("Distanspass",
+    "Helkroppsstyrka", "Intervallpass") whenever a plan failed to parse, so the user was
+    shown a schedule they had never been given - and then asked Freja about sessions that
+    did not exist anywhere in the database.
+    """
+    source = (CLIENT_JS_DIR / "js" / "ui-dashboards.js").read_text(encoding="utf-8")
+    for invented in ("Distanspass", "Helkroppsstyrka", "Intervallpass"):
+        assert invented not in source, f"ui-dashboards.js fabricates a '{invented}' workout again"
+
+
+def test_chat_injects_the_live_training_program():
+    """gemini.js must load the PT context so Freja knows the plan without a tool call."""
+    source = (CLIENT_JS_DIR / "gemini.js").read_text(encoding="utf-8")
+    assert "/api/trainer/context" in source, "the chat no longer injects the active training program"
