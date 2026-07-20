@@ -913,6 +913,122 @@ async def delete_trainer_plan(plan_id: int = Query(..., description="ID of the p
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.get("/api/trainer/workouts")
+async def get_trainer_workouts(days: int = Query(14, description="Lookback/lookahead window in days")):
+    """Returns scheduled PT workouts directly from local SQLite database (trainer_bookings or latest trainer_plan).
+    Works independently of Google Calendar."""
+    try:
+        today = today_local().date()
+        current_dow = today.weekday() # 0 = Monday
+        monday = today - datetime.timedelta(days=current_dow)
+
+        results = []
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT b.id, b.plan_id, b.event_id, b.workout_date, b.week, p.advice_text
+                FROM trainer_bookings b
+                JOIN trainer_plans p ON b.plan_id = p.id
+                ORDER BY b.workout_date ASC
+            ''')
+            rows = cursor.fetchall()
+
+        day_offsets = plan_export.SWEDISH_DAY_OFFSETS
+
+        for row in rows:
+            booking_id, plan_id, event_id, w_date_str, week_num, advice_text = row
+            try:
+                plan_data = json.loads(advice_text) if advice_text else {}
+                workouts = plan_data.get("workouts", [])
+                w_date = datetime.datetime.strptime(w_date_str, "%Y-%m-%d").date()
+
+                matching_w = None
+                for w in workouts:
+                    day_name = str(w.get("day", "")).lower()
+                    offset = day_offsets.get(day_name)
+                    if offset is not None:
+                        w_day_num = w_date.weekday()
+                        if offset == w_day_num:
+                            matching_w = w
+                            break
+                if not matching_w and workouts:
+                    matching_w = workouts[0]
+
+                if matching_w:
+                    duration = int(matching_w.get("duration_minutes", 0) or 0)
+                    summary = f"💪 {matching_w.get('activity_type', 'Träning')}: {matching_w.get('title', 'Pass')}"
+                    exercises_block = _format_exercises_for_calendar(matching_w.get("exercises"))
+                    description = (
+                        f"Träningspass genererat av COACH AI.\n\nBeskrivning:\n{matching_w.get('description', '')}"
+                        f"{exercises_block}\n\nTid: {duration} minuter."
+                    )
+                    results.append({
+                        "id": booking_id,
+                        "plan_id": plan_id,
+                        "summary": summary,
+                        "description": description,
+                        "start_time": f"{w_date_str}T08:00:00",
+                        "end_time": f"{w_date_str}T09:00:00",
+                        "location": WORKOUT_LOCATION_MARKER,
+                        "duration_minutes": duration,
+                        "activity_type": matching_w.get("activity_type", "Träning"),
+                        "title": matching_w.get("title", "Pass"),
+                        "exercises": matching_w.get("exercises", [])
+                    })
+            except Exception as parse_err:
+                print(f"[TRAINER WORKOUTS] Error parsing booking {booking_id}: {parse_err}")
+
+        # Fallback to the most recent plan in trainer_plans if trainer_bookings is empty
+        if not results:
+            with get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT id, advice_text, date FROM trainer_plans
+                    ORDER BY id DESC LIMIT 1
+                ''')
+                row = cursor.fetchone()
+
+            if row:
+                plan_id, advice_text, p_date_str = row
+                try:
+                    plan_data = json.loads(advice_text) if advice_text else {}
+                    workouts = plan_data.get("workouts", [])
+                    for w in workouts:
+                        day_name = str(w.get("day", "")).lower()
+                        offset = day_offsets.get(day_name)
+                        if offset is None:
+                            continue
+                        duration = int(w.get("duration_minutes", 0) or 0)
+                        if duration <= 0:
+                            continue
+                        w_date = monday + datetime.timedelta(days=offset)
+                        w_date_str = w_date.isoformat()
+                        summary = f"💪 {w.get('activity_type', 'Träning')}: {w.get('title', 'Pass')}"
+                        exercises_block = _format_exercises_for_calendar(w.get("exercises"))
+                        description = (
+                            f"Träningspass genererat av COACH AI.\n\nBeskrivning:\n{w.get('description', '')}"
+                            f"{exercises_block}\n\nTid: {duration} minuter."
+                        )
+                        results.append({
+                            "id": f"plan_{plan_id}_{offset}",
+                            "plan_id": plan_id,
+                            "summary": summary,
+                            "description": description,
+                            "start_time": f"{w_date_str}T08:00:00",
+                            "end_time": f"{w_date_str}T09:00:00",
+                            "location": WORKOUT_LOCATION_MARKER,
+                            "duration_minutes": duration,
+                            "activity_type": w.get("activity_type", "Träning"),
+                            "title": w.get("title", "Pass"),
+                            "exercises": w.get("exercises", [])
+                        })
+                except Exception as fb_err:
+                    print(f"[TRAINER WORKOUTS] Fallback parse error: {fb_err}")
+
+        return results
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 def _next_monday(from_date: datetime.date = None) -> datetime.date:
     """The next upcoming Monday - the default start date for an exported plan."""
     d = from_date or today_local()

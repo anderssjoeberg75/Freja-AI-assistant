@@ -260,23 +260,37 @@ FrejaUIController.prototype.loadWeeklyWorkoutsUI = async function () {
     weeklyWorkoutsList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Loading weekly workouts...</div>';
 
     try {
-        console.log("[FREJA CLIENT] Fetching weekly workouts from Google Calendar");
-        const res = await fetch('/api/google_calendar/data?days=14');
-        if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+        let workouts = [];
 
-        const events = await res.json();
-        
-        const WORKOUT_LOCATION_MARKER = "F.R.E.J.A. PT";
-        const WORKOUT_SUMMARY_MARKERS = ["💪", "🏃", "🚶", "🚴", "🧘", "🏊"];
-        
-        const isWorkoutEvent = (evt) => {
-            const location = evt.location || "";
-            const summary = evt.summary || "";
-            return location.includes(WORKOUT_LOCATION_MARKER) || 
-                   WORKOUT_SUMMARY_MARKERS.some(marker => summary.includes(marker));
-        };
+        // 1. Fetch directly from local Trainer Workouts API (SQLite database)
+        try {
+            const res = await fetch('/api/trainer/workouts');
+            if (res.ok) {
+                workouts = await res.json();
+            }
+        } catch (err) {
+            console.warn("[TRAINER UI] Fetch /api/trainer/workouts error:", err);
+        }
 
-        const workouts = events.filter(isWorkoutEvent);
+        // 2. Fallback to Google Calendar API data if local trainer workouts empty
+        if (!workouts || workouts.length === 0) {
+            try {
+                const res = await fetch('/api/google_calendar/data?days=14');
+                if (res.ok) {
+                    const events = await res.json();
+                    const WORKOUT_LOCATION_MARKER = "F.R.E.J.A. PT";
+                    const WORKOUT_SUMMARY_MARKERS = ["💪", "🏃", "🚶", "🚴", "🧘", "🏊"];
+                    workouts = events.filter(evt => {
+                        const location = evt.location || "";
+                        const summary = evt.summary || "";
+                        return location.includes(WORKOUT_LOCATION_MARKER) || 
+                               WORKOUT_SUMMARY_MARKERS.some(marker => summary.includes(marker));
+                    });
+                }
+            } catch (calErr) {
+                console.warn("[TRAINER UI] Google Calendar fallback error:", calErr);
+            }
+        }
 
         // Calculate Monday and Sunday of current week
         const today = new Date();
@@ -292,11 +306,16 @@ FrejaUIController.prototype.loadWeeklyWorkoutsUI = async function () {
         sunday.setHours(23, 59, 59, 999);
 
         // Filter for current week
-        const thisWeeksWorkouts = workouts.filter(evt => {
+        let thisWeeksWorkouts = (workouts || []).filter(evt => {
             if (!evt.start_time) return false;
             const eventDate = new Date(evt.start_time);
             return eventDate >= monday && eventDate <= sunday;
         });
+
+        // Show all returned workouts if current week filter yields 0
+        if (thisWeeksWorkouts.length === 0 && workouts && workouts.length > 0) {
+            thisWeeksWorkouts = workouts;
+        }
 
         if (thisWeeksWorkouts.length === 0) {
             weeklyWorkoutsList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">No workouts scheduled for this week.</div>';
