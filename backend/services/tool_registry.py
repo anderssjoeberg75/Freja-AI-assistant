@@ -1295,6 +1295,173 @@ async def exec_reply_to_instagram_comment(args):
     return await post_comment_reply(comment_id, text)
 
 
+async def _build_trainer_context_summary(days: int = 14) -> dict:
+    """Builds a comprehensive summary of active training plan, scheduled workouts,
+    recent running history (Garmin/Strava), health recovery data, and active injuries."""
+    result = {
+        "status": "success",
+        "active_plan": None,
+        "scheduled_workouts": [],
+        "recent_runs": [],
+        "health_summary": [],
+        "injuries": []
+    }
+
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+
+            # 1. Fetch active training plan
+            cursor.execute('''
+                SELECT id, date, goal, advice_text, limitations
+                FROM trainer_plans
+                ORDER BY id DESC LIMIT 1
+            ''')
+            plan_row = cursor.fetchone()
+            if plan_row:
+                plan_id, p_date, p_goal, p_advice, p_limitations = plan_row
+                plan_json = {}
+                if p_advice:
+                    try:
+                        cleaned = p_advice.replace("```json", "").replace("```", "").strip()
+                        plan_json = json.loads(cleaned)
+                    except Exception:
+                        plan_json = {"summary": p_advice[:300]}
+
+                result["active_plan"] = {
+                    "plan_id": plan_id,
+                    "date": p_date,
+                    "goal": p_goal,
+                    "limitations": p_limitations,
+                    "summary": plan_json.get("summary", ""),
+                    "weekly_focus": plan_json.get("weekly_focus", ""),
+                    "workouts_defined": plan_json.get("workouts", [])
+                }
+
+            # 2. Fetch scheduled workouts for current week
+            try:
+                today = datetime.date.today()
+                monday = today - datetime.timedelta(days=today.weekday())
+                sunday = monday + datetime.timedelta(days=6)
+
+                cursor.execute('''
+                    SELECT b.id, b.plan_id, b.workout_date, b.week, p.advice_text
+                    FROM trainer_bookings b
+                    JOIN trainer_plans p ON b.plan_id = p.id
+                    WHERE b.workout_date >= ? AND b.workout_date <= ?
+                    ORDER BY b.workout_date ASC
+                ''', (monday.isoformat(), sunday.isoformat()))
+                rows = cursor.fetchall()
+                for b_row in rows:
+                    b_id, p_id, w_date_str, w_week, advice_text = b_row
+                    w_title = "Scheduled Workout"
+                    try:
+                        p_obj = json.loads(advice_text.replace("```json", "").replace("```", "").strip())
+                        w_list = p_obj.get("workouts", [])
+                        w_date = datetime.datetime.strptime(w_date_str, "%Y-%m-%d").date()
+                        w_dow = w_date.weekday()
+                        day_offsets = {"måndag": 0, "tisdag": 1, "onsdag": 2, "torsdag": 3, "fredag": 4, "lördag": 5, "söndag": 6}
+                        for w in w_list:
+                            d_name = str(w.get("day", "")).lower()
+                            if day_offsets.get(d_name) == w_dow:
+                                w_title = f"{w.get('activity_type', 'Träning')}: {w.get('title', 'Pass')} ({w.get('duration_minutes', 0)} min)"
+                                break
+                    except Exception:
+                        pass
+                    result["scheduled_workouts"].append({
+                        "booking_id": b_id,
+                        "plan_id": p_id,
+                        "workout_date": w_date_str,
+                        "workout_summary": w_title
+                    })
+            except Exception as b_err:
+                print(f"[TRAINER CONTEXT] Booking fetch error: {b_err}")
+
+            # 3. Fetch active injuries
+            try:
+                cursor.execute('''
+                    SELECT area, description, severity, date_logged
+                    FROM trainer_injury_logs
+                    ORDER BY date_logged DESC
+                    LIMIT 5
+                ''')
+                for inj in cursor.fetchall():
+                    result["injuries"].append({
+                        "area": inj[0],
+                        "description": inj[1],
+                        "severity": inj[2],
+                        "date_logged": inj[3]
+                    })
+            except Exception:
+                pass
+
+            # 4. Fetch recent run history from Strava & Garmin
+            try:
+                cursor.execute('''
+                    SELECT name, type, date, distance, moving_time, average_heartrate, max_heartrate
+                    FROM strava_activities
+                    ORDER BY date DESC
+                    LIMIT 10
+                ''')
+                for s in cursor.fetchall():
+                    dist_km = round(s[3] / 1000.0, 2) if s[3] else 0
+                    dur_min = round(s[4] / 60.0, 1) if s[4] else 0
+                    result["recent_runs"].append({
+                        "source": "Strava",
+                        "name": s[0],
+                        "type": s[1],
+                        "date": s[2],
+                        "distance_km": dist_km,
+                        "duration_min": dur_min,
+                        "avg_hr": s[5],
+                        "max_hr": s[6]
+                    })
+            except Exception:
+                pass
+
+            try:
+                cursor.execute('''
+                    SELECT date, workout_type, workout_duration, resting_hr, body_battery, hrv, sleep_score
+                    FROM garmin_health
+                    ORDER BY date DESC
+                    LIMIT ?
+                ''', (days,))
+                for g in cursor.fetchall():
+                    result["health_summary"].append({
+                        "date": g[0],
+                        "workout": g[1],
+                        "duration_min": g[2],
+                        "resting_hr": g[3],
+                        "body_battery": g[4],
+                        "hrv": g[5],
+                        "sleep_score": g[6]
+                    })
+            except Exception:
+                pass
+    except Exception as e:
+        print(f"[TRAINER CONTEXT ERROR]: {e}")
+
+    return result
+
+
+@registry.register(
+    name="get_trainer_workouts",
+    description="Retrieves scheduled PT training sessions, active training plan goal, limitations/injuries, and recent Garmin/Strava running history so Freja can discuss workout rationale and progression with the user.",
+    parameters={
+        "type": "OBJECT",
+        "properties": {
+            "days": {
+                "type": "INTEGER",
+                "description": "Number of days of history/workouts to inspect (default 14)."
+            }
+        }
+    },
+)
+async def exec_get_trainer_workouts(args):
+    days = int((args or {}).get("days", 14) or 14)
+    return await _build_trainer_context_summary(days)
+
+
 # ---------------------------------------------------------------------------
 # 3. IMPORTED / ALIASED EXECUTORS
 #
