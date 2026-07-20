@@ -126,28 +126,40 @@ async function generateCodeChallenge(v) {
  */
 class FrejaUIController {
     constructor() {
-        // Instantiate the core cognitive sub-modules
-        this.gemini = new GeminiClient();
-        this.memory = new FrejaMemoryEngine(this.gemini);
-        this.speech = new FrejaSpeechEngine();
+        try {
+            // Instantiate the core cognitive sub-modules
+            this.gemini = new GeminiClient();
+            this.memory = new FrejaMemoryEngine(this.gemini);
+            this.speech = new FrejaSpeechEngine();
+        } catch (e) {
+            console.error("[FREJA] Error instantiating core sub-modules:", e);
+        }
         
-        // Asynchronously load keys from SQLite and then initialize UI
-        this.initAsync();
+        // Defer initAsync slightly to ensure all prototype extensions in external scripts are loaded
+        setTimeout(() => {
+            this.initAsync().catch(err => {
+                console.error("[FREJA] Error during initAsync:", err);
+            });
+        }, 0);
         
         // Keep systems kronometer clocks in sync
         setInterval(() => this.updateTimeAndDate(), 1000);
     }
 
     async initAsync() {
-        // Initialize UI and bind event listeners immediately so the interface (including the start button)
-        // is functional right away without waiting for any network/API responses.
-        this.initializeUI();
-        this.bindEvents();
+        // Initialize UI and bind event listeners safely
+        if (typeof this.initializeUI === 'function') {
+            this.initializeUI();
+        }
+        if (typeof this.bindEvents === 'function') {
+            this.bindEvents();
+        }
 
         try {
             await this.loadKeysFromServer();
-            // Re-run UI initialization to populate the configuration fields with the retrieved keys.
-            this.initializeUI();
+            if (typeof this.initializeUI === 'function') {
+                this.initializeUI();
+            }
         } catch (e) {
             console.error("[FREJA] Failed to load initial keys:", e);
         }
@@ -628,7 +640,16 @@ class FrejaUIController {
     }
 }
 
-// Instantiates the UI controller once the DOM elements have loaded successfully
-window.addEventListener('DOMContentLoaded', () => {
-    window.uiController = new FrejaUIController();
-});
+// Instantiates the UI controller once all DOM elements and scripts have loaded
+const startFrejaUI = () => {
+    if (!window.uiController) {
+        window.uiController = new FrejaUIController();
+    }
+};
+
+if (document.readyState === 'complete' || document.readyState === 'interactive') {
+    setTimeout(startFrejaUI, 0);
+} else {
+    window.addEventListener('DOMContentLoaded', startFrejaUI);
+    window.addEventListener('load', startFrejaUI);
+}

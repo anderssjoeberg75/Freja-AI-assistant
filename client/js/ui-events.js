@@ -94,35 +94,41 @@ FrejaUIController.prototype.bindEvents = function () {
 
     // Voice Microphone Activation Toggle Button
     const btnMic = document.getElementById('btn-mic');
-    btnMic.addEventListener('click', () => {
-        soundSynth.playClick();
-        if (self.speech.isListening) {
-            self.speech.stopListening();
-            btnMic.classList.remove('listening');
-            document.getElementById('vocal-status').textContent = "STANDBY";
-            document.getElementById('vocal-status').classList.remove('active');
-            if (window.visualizer) window.visualizer.state = 'SLEEPING';
-            document.getElementById('voice-hint').textContent = "Voice control off";
-            document.getElementById('voice-bars').classList.remove('active');
-            self.writeLog("VOICE COGNITION DEACTIVATED", "warn");
-        } else {
-            soundSynth.getMicrophoneStream().then(() => {
-                self.speech.startListening();
-                btnMic.classList.add('listening');
-                document.getElementById('vocal-status').textContent = "LISTENING";
-                document.getElementById('vocal-status').classList.add('active');
-                if (window.visualizer) window.visualizer.state = 'LISTENING';
+    if (btnMic) {
+        btnMic.addEventListener('click', () => {
+            soundSynth.playClick();
+            if (self.speech.isListening) {
+                self.speech.stopListening();
+                btnMic.classList.remove('listening');
+                const vocalStatus = document.getElementById('vocal-status');
+                if (vocalStatus) { vocalStatus.textContent = "STANDBY"; vocalStatus.classList.remove('active'); }
+                if (window.visualizer) window.visualizer.state = 'SLEEPING';
+                const voiceHint = document.getElementById('voice-hint');
+                if (voiceHint) voiceHint.textContent = "Voice control off";
+                const voiceBars = document.getElementById('voice-bars');
+                if (voiceBars) voiceBars.classList.remove('active');
+                self.writeLog("VOICE COGNITION DEACTIVATED", "warn");
+            } else {
+                soundSynth.getMicrophoneStream().then(() => {
+                    self.speech.startListening();
+                    btnMic.classList.add('listening');
+                    const vocalStatus = document.getElementById('vocal-status');
+                    if (vocalStatus) { vocalStatus.textContent = "LISTENING"; vocalStatus.classList.add('active'); }
+                    if (window.visualizer) window.visualizer.state = 'LISTENING';
 
-                const sv = self.speech.lang === 'sv-SE';
-                document.getElementById('voice-hint').textContent = sv ? "Jag lyssnar... Prata nu" : "Listening... Speak now";
-                document.getElementById('voice-bars').classList.add('active');
-                self.writeLog("VOICE INTERFACE COGNITION SECURED", "sys");
-            }).catch(() => {
-                self.writeLog("CANNOT INITIALIZE VOICE ENGINE: NO MICROPHONE ACCESS", "err");
-                soundSynth.playError();
-            });
-        }
-    });
+                    const sv = self.speech.lang === 'sv-SE';
+                    const voiceHint = document.getElementById('voice-hint');
+                    if (voiceHint) voiceHint.textContent = sv ? "Jag lyssnar... Prata nu" : "Listening... Speak now";
+                    const voiceBars = document.getElementById('voice-bars');
+                    if (voiceBars) voiceBars.classList.add('active');
+                    self.writeLog("VOICE INTERFACE COGNITION SECURED", "sys");
+                }).catch(() => {
+                    self.writeLog("CANNOT INITIALIZE VOICE ENGINE: NO MICROPHONE ACCESS", "err");
+                    soundSynth.playError();
+                });
+            }
+        });
+    }
 
     // Speech transcript callback trigger
     this.speech.transcriptCallback = (text) => {
