@@ -28,6 +28,10 @@ window.fetch = async function(url, options = {}) {
     
     // Get backend base URL from localStorage (strip trailing slash if present)
     let backendUrl = (localStorage.getItem('freja_backend_url') || '').replace(/\/$/, '').trim();
+    if (backendUrl.includes('localhost:8000') || backendUrl.includes('127.0.0.1:8000')) {
+        localStorage.removeItem('freja_backend_url');
+        backendUrl = '';
+    }
     if (backendUrl && !backendUrl.startsWith('http://') && !backendUrl.startsWith('https://') && !backendUrl.startsWith('//')) {
         backendUrl = window.location.protocol + '//' + backendUrl;
     }
