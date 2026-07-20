@@ -1474,7 +1474,11 @@ FrejaUIController.prototype.bindEvents = function () {
             console.log("[FREJA CLIENT] Opening Personal Trainer Dashboard (fullscreen mode)");
             soundSynth.playClick();
             modalTrainer.classList.add('active');
-            self.loadTrainerDashboardUI();
+            if (typeof self.loadTrainerDashboardUI === 'function') {
+                self.loadTrainerDashboardUI();
+            } else if (window.uiController && typeof window.uiController.loadTrainerDashboardUI === 'function') {
+                window.uiController.loadTrainerDashboardUI();
+            }
         });
 
         const closeTrainerHandler = () => {

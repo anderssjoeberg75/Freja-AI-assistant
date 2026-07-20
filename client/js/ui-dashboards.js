@@ -728,7 +728,7 @@ FrejaUIController.prototype.loadInjuryLogUI = async function () {
             const sevBadge = sev
                 ? `<span style="color: ${sevColor};">[${sev}/10]</span>`
                 : '';
-            const note = inj.note ? ` – ${inj.note}` : '';
+            const note = inj.note ? ` - ${inj.note}` : '';
             const resolved = isActive ? '' : ` (resolved ${inj.resolved_date || ''})`;
 
             row.innerHTML = `
@@ -828,50 +828,6 @@ FrejaUIController.prototype.buildTrendSparkline = function (points, options) {
 };
 
 // Renders one metric card: current value, change vs baseline window, and the sparkline.
-FrejaUIController.prototype.buildTrendCard = function (config) {
-    const points = config.points;
-    if (!points || points.length < 2) {
-        return `
-            <div style="background: rgba(0,0,0,0.3); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px;">
-                <div style="font-size: 9px; color: var(--color-text-muted); font-family: var(--font-display); letter-spacing: 0.5px;">${config.label}</div>
-                <div style="font-size: 11px; color: var(--color-text-muted); font-family: var(--font-mono); padding: 12px 0;">[NOT ENOUGH DATA]</div>
-            </div>
-        `;
-    }
-
-    const latest = points[points.length - 1].value;
-    const pct = config.changePct;
-    let changeHTML = '<span style="color: var(--color-text-muted);">–</span>';
-    if (pct !== null && pct !== undefined && !isNaN(pct)) {
-        // "Good" points in opposite directions per metric: a falling RHR is good, a
-        // falling HRV is not, so each card says which way is favourable.
-        const rising = pct >= 0;
-        const good = config.goodDirection === 'up' ? rising : !rising;
-        const arrow = rising ? '▲' : '▼';
-        const color = Math.abs(pct) < 1 ? 'var(--color-text-muted)' : (good ? '#30d158' : '#ff9f0a');
-        changeHTML = `<span style="color: ${color};">${arrow} ${Math.abs(pct).toFixed(1)}%</span>`;
-    }
-
-    const baselineNote = (config.baseline !== null && config.baseline !== undefined && !isNaN(config.baseline))
-        ? `<span style="color: var(--color-text-muted);">baseline ${Number(config.baseline).toFixed(1)}${config.unit}</span>`
-        : '';
-
-    return `
-        <div style="background: rgba(0,0,0,0.3); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px; display: flex; flex-direction: column; gap: 6px;">
-            <div style="display: flex; justify-content: space-between; align-items: baseline;">
-                <span style="font-size: 9px; color: var(--color-text-muted); font-family: var(--font-display); letter-spacing: 0.5px;">${config.label}</span>
-                <span style="font-size: 10px; font-family: var(--font-mono);">${changeHTML}</span>
-            </div>
-            <div style="display: flex; justify-content: space-between; align-items: baseline; font-family: var(--font-mono);">
-                <span style="font-size: 16px; color: ${config.color}; font-weight: bold;">${Number(latest).toFixed(0)}<span style="font-size: 10px;">${config.unit}</span></span>
-                <span style="font-size: 9px;">${baselineNote}</span>
-            </div>
-            ${this.buildTrendSparkline(points, { color: config.color, baseline: config.baseline })}
-            <div style="display: flex; justify-content: space-between; font-size: 9px; color: var(--color-text-muted); font-family: var(--font-mono);">
-                <span>${points[0].date}</span>
-                <span>${points[points.length - 1].date}</span>
-            </div>
-        </div>
 FrejaUIController.prototype.buildTrendCard = function (cfg) {
     const label = cfg.label || 'METRIC';
     const points = cfg.points || [];
@@ -881,7 +837,7 @@ FrejaUIController.prototype.buildTrendCard = function (cfg) {
     const changePct = cfg.changePct;
     const goodDir = cfg.goodDirection || 'up';
 
-    let latestVal = '–';
+    let latestVal = '-';
     if (points.length > 0) {
         latestVal = `${points[points.length - 1].value}${unit}`;
     }
@@ -989,7 +945,7 @@ FrejaUIController.prototype.loadTrainerTrendsUI = async function () {
             : `<div style="background: rgba(0,0,0,0.3); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px; display: flex; flex-direction: column; gap: 8px;">
                    <div style="display: flex; justify-content: space-between; align-items: baseline;">
                        <span style="font-size: 9px; color: var(--color-text-muted); font-family: var(--font-display); letter-spacing: 0.5px;">ADHERENCE (PLANNED VS COMPLETED)</span>
-                       <span style="font-size: 10px; font-family: var(--font-mono); color: ${barColor};">${pct !== null && pct !== undefined ? pct + '%' : '–'}</span>
+                       <span style="font-size: 10px; font-family: var(--font-mono); color: ${barColor};">${pct !== null && pct !== undefined ? pct + '%' : '-'}</span>
                    </div>
                    <div style="font-family: var(--font-mono); font-size: 16px; color: var(--color-text-bright);">
                        ${completed}<span style="font-size: 11px; color: var(--color-text-muted);"> / ${planned} sessions</span>
@@ -1050,7 +1006,7 @@ FrejaUIController.prototype.runTrainerOptimize = async function () {
         let changeList = '';
         if (changes.length) {
             changeList = '<ul style="margin: 10px 0 0; padding-left: 18px; font-size: 12px; color: var(--color-text-muted);">' +
-                changes.map(c => `<li><strong>${c.date}</strong>: ${c.from_minutes}→${c.to_minutes} min – ${c.reason || c.title}</li>`).join('') +
+                changes.map(c => `<li><strong>${c.date}</strong>: ${c.from_minutes}→${c.to_minutes} min - ${c.reason || c.title}</li>`).join('') +
                 '</ul>';
         }
 

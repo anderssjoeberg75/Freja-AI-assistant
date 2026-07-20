@@ -300,7 +300,6 @@ FrejaUIController.prototype.initializeUI = function() {
         chkStravaStats.checked = stravaStatsAllowed;
     }
 
-    const stravaClientId = localStorage.getItem("freja_strava_client_id") || "";
     const capStrava = document.getElementById('cap-strava');
     if (capStrava) {
         if (stravaAllowed || stravaAnalysisAllowed || stravaStatsAllowed || stravaClientId) {
