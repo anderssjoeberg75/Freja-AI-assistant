@@ -507,15 +507,16 @@ FrejaUIController.prototype.loadWeeklyWorkoutsUI = async function () {
 FrejaUIController.prototype.runTrainerCheckin = async function () {
     const btn = document.getElementById('btn-trainer-checkin');
     const out = document.getElementById('trainer-checkin-output');
-    if (!out) return;
+    if (out) {
+        out.style.display = 'none';
+        out.innerHTML = '';
+    }
 
     if (btn) {
         btn.disabled = true;
-        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> CHECKING IN...';
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> ADAPTING WORKOUTS...';
     }
-    out.style.display = 'block';
-    out.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 16px;">Reading last night&#39;s health data (Garmin / Withings)...</div>';
-    this.writeLog("RUNNING DAILY TRAINER CHECK-IN...", "sys");
+    this.writeLog("RUNNING DAILY CHECK-IN & ADAPTING WORKOUTS...", "sys");
 
     try {
         const res = await fetch('/api/trainer/checkin', {
@@ -529,37 +530,17 @@ FrejaUIController.prototype.runTrainerCheckin = async function () {
             throw new Error(err.detail || `HTTP ${res.status}`);
         }
 
-        const data = await res.json();
-        const checkin = data.checkin || {};
-        // Freja's own briefing text, so the fallback is Swedish too.
-        const briefing = checkin.briefing || 'No briefing generated.';
-        const adh = data.adherence || {};
-
-        const badgeStyle = "font-size: 10px; font-family: var(--font-mono); background: rgba(0,242,254,0.1); border: 1px solid rgba(0,242,254,0.2); color: var(--color-primary); border-radius: 3px; padding: 3px 8px;";
-        let badges = '';
-        if (data.calendar_updated) {
-            badges += `<span style="${badgeStyle}">✅ Calendar updated</span>`;
-        }
-        if (adh.adherence_pct !== null && adh.adherence_pct !== undefined) {
-            badges += `<span style="${badgeStyle}">📊 Adherence ${adh.adherence_pct}% (${adh.completed}/${adh.planned})</span>`;
-        }
-
-        out.innerHTML = `
-            <div class="trainer-briefing">${window.FrejaMarkdown.parseMarkdown(briefing)}</div>
-            ${badges ? `<div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px;">${badges}</div>` : ''}
-        `;
-
         soundSynth.playNotify();
-        this.writeLog("DAILY CHECK-IN COMPLETE", "sys");
+        this.writeLog("DAILY CHECK-IN COMPLETE: WORKOUTS ADAPTED", "sys");
 
-        // If the coach re-timed today's workout, refresh the history/plan view.
-        if (data.calendar_updated) {
-            this.loadTrainerDashboardUI();
-        }
+        // Refresh workouts & trainer dashboard with adapted data
+        await this.loadTrainerDashboardUI();
+        await this.loadWeeklyWorkoutsUI();
+
     } catch (e) {
-        out.innerHTML = `<div style="color: #ff3b30; font-family: var(--font-mono); font-size: 11px; padding: 12px;">[CHECK-IN FAILED] ${e.message}</div>`;
-        soundSynth.playError();
+        console.error("[TRAINER] Check-in error:", e);
         this.writeLog(`CHECK-IN ERROR: ${e.message}`, "err");
+        soundSynth.playError();
     } finally {
         if (btn) {
             btn.disabled = false;
