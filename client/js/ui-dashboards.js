@@ -262,7 +262,7 @@ FrejaUIController.prototype.loadWeeklyWorkoutsUI = async function () {
     try {
         let workouts = [];
 
-        // 1. Fetch directly from local Trainer Workouts API (SQLite database)
+        // 1. Fetch directly from /api/trainer/workouts endpoint (if available)
         try {
             const res = await fetch('/api/trainer/workouts');
             if (res.ok) {
@@ -272,7 +272,78 @@ FrejaUIController.prototype.loadWeeklyWorkoutsUI = async function () {
             console.warn("[TRAINER UI] Fetch /api/trainer/workouts error:", err);
         }
 
-        // 2. Fallback to Google Calendar API data if local trainer workouts empty
+        // 2. Fetch directly from /api/trainer/plans (always available on backend)
+        if (!workouts || workouts.length === 0) {
+            try {
+                const res = await fetch('/api/trainer/plans?limit=5');
+                if (res.ok) {
+                    const plans = await res.json();
+                    if (plans && plans.length > 0) {
+                        const latestPlan = plans[0];
+                        let adviceText = latestPlan.advice_text || "";
+                        adviceText = adviceText.replace(/```json/gi, '').replace(/```/g, '').trim();
+
+                        try {
+                            const planObj = JSON.parse(adviceText);
+                            const rawWorkouts = planObj.workouts || [];
+
+                            const dayOffsets = {
+                                "måndag": 0, "mandag": 0, "mon": 0, "monday": 0,
+                                "tisdag": 1, "tue": 1, "tuesday": 1,
+                                "onsdag": 2, "wed": 2, "wednesday": 2,
+                                "torsdag": 3, "thu": 3, "thursday": 3,
+                                "fredag": 4, "fri": 4, "friday": 4,
+                                "lördag": 5, "lordag": 5, "sat": 5, "saturday": 5,
+                                "söndag": 6, "sondag": 6, "sun": 6, "sunday": 6
+                            };
+
+                            const today = new Date();
+                            const currentDay = today.getDay();
+                            const distanceToMonday = currentDay === 0 ? -6 : 1 - currentDay;
+                            const monday = new Date(today);
+                            monday.setDate(today.getDate() + distanceToMonday);
+
+                            rawWorkouts.forEach(w => {
+                                const dName = String(w.day || "").toLowerCase().trim();
+                                let offset = null;
+                                for (const [k, v] of Object.entries(dayOffsets)) {
+                                    if (dName.includes(k)) { offset = v; break; }
+                                }
+                                if (offset !== null) {
+                                    const wDate = new Date(monday);
+                                    wDate.setDate(monday.getDate() + offset);
+                                    const dateStr = wDate.toISOString().split('T')[0];
+                                    const dur = parseInt(w.duration_minutes || 0) || 0;
+                                    if (dur > 0) {
+                                        const exercisesText = Array.isArray(w.exercises) && w.exercises.length > 0
+                                            ? "\n\nÖvningar:\n" + w.exercises.map(ex => `• ${ex.name || 'Övning'}: ${ex.sets || 0}x${ex.reps || 0} @ ${ex.weight_kg ? ex.weight_kg + ' kg' : 'kroppsvikt'}`).join("\n")
+                                            : "";
+                                        workouts.push({
+                                            id: `plan_${latestPlan.id}_${offset}`,
+                                            summary: `💪 ${w.activity_type || 'Träning'}: ${w.title || 'Pass'}`,
+                                            description: (w.description || "") + exercisesText,
+                                            duration_minutes: dur,
+                                            start_time: `${dateStr}T08:00:00`,
+                                            end_time: `${dateStr}T09:00:00`,
+                                            location: "COACH AI",
+                                            activity_type: w.activity_type || 'Träning',
+                                            title: w.title || 'Pass',
+                                            exercises: w.exercises || []
+                                        });
+                                    }
+                                }
+                            });
+                        } catch (pErr) {
+                            console.warn("[TRAINER UI] Error parsing plan JSON:", pErr);
+                        }
+                    }
+                }
+            } catch (planErr) {
+                console.warn("[TRAINER UI] Fetch /api/trainer/plans error:", planErr);
+            }
+        }
+
+        // 3. Fallback to Google Calendar API data if still empty
         if (!workouts || workouts.length === 0) {
             try {
                 const res = await fetch('/api/google_calendar/data?days=14');
