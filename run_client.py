@@ -4,6 +4,7 @@ Launches a dedicated local web server serving the frontend Client HUD
 independently of the backend server and proxying /api/ requests to the backend.
 """
 
+import json
 import os
 import sys
 import http.server
@@ -17,6 +18,30 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 CLIENT_DIR = PROJECT_ROOT / "client"
 PORT = int(os.environ.get("CLIENT_PORT", "5000"))
 BACKEND_TARGET = os.environ.get("BACKEND_URL", "http://localhost:8000")
+
+# Most API calls are database reads that answer in milliseconds, so a short timeout is the
+# right way to notice a dead backend. Model-backed endpoints are a different animal: they
+# analyse months of health data and wait on Gemini, which routinely takes well over a
+# minute. A flat 30s cut those off mid-flight and surfaced as "Bad Gateway", which reads as
+# a broken backend rather than "your coach is still thinking" - onboarding could not
+# complete a single run.
+DEFAULT_PROXY_TIMEOUT = 30
+LLM_PROXY_TIMEOUT = 300
+LLM_PATH_PREFIXES = (
+    "/api/trainer/onboarding",
+    "/api/trainer/generate",
+    "/api/trainer/checkin",
+    "/api/trainer/optimize",
+    "/api/gemini/",
+    "/api/chat",
+    "/api/learning/",
+    "/api/tools/execute",
+)
+
+
+def proxy_timeout_for(path: str) -> int:
+    """Seconds the proxy waits for the backend, based on what the path actually does."""
+    return LLM_PROXY_TIMEOUT if str(path or "").startswith(LLM_PATH_PREFIXES) else DEFAULT_PROXY_TIMEOUT
 
 class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
@@ -48,7 +73,7 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             req = urllib.request.Request(target_url, data=body, headers=headers, method=method)
 
             try:
-                with urllib.request.urlopen(req, timeout=30) as resp:
+                with urllib.request.urlopen(req, timeout=proxy_timeout_for(self.path)) as resp:
                     self.send_response(resp.status)
                     for k, v in resp.headers.items():
                         if k.lower() not in ("transfer-encoding", "content-length"):
@@ -67,7 +92,20 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(resp_body)
             except Exception as err:
-                self.send_error(502, f"Bad Gateway (Could not connect to backend): {err}")
+                # Every caller here is a JSON API client, and the HUD reads `detail` off the
+                # body to explain the failure. send_error() emits an HTML page instead, so
+                # the panel could only ever show a bare "HTTP 502" with no reason.
+                timed_out = isinstance(err, TimeoutError) or isinstance(
+                    getattr(err, "reason", None), TimeoutError
+                )
+                if timed_out:
+                    waited = proxy_timeout_for(self.path)
+                    hint = ("The coach was still generating - check the backend log and that its "
+                            "Gemini key is valid." if waited == LLM_PROXY_TIMEOUT else
+                            f"Check that the backend at {BACKEND_TARGET} is running and reachable.")
+                    self.send_json_error(504, f"The backend did not answer within {waited}s. {hint}")
+                else:
+                    self.send_json_error(502, f"Could not reach the backend at {BACKEND_TARGET}: {err}")
         else:
             if method == "GET":
                 super().do_GET()
@@ -75,6 +113,15 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
                 super().do_HEAD()
             else:
                 self.send_error(405, f"Method {method} Not Allowed")
+
+    def send_json_error(self, code: int, detail: str):
+        """Answers with a FastAPI-shaped {"detail": ...} body so the HUD can show the reason."""
+        payload = json.dumps({"detail": detail}).encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
 
     def do_GET(self):
         if self.path == "/local-hostname":

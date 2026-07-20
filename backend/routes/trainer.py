@@ -35,6 +35,10 @@ DEFAULT_WORKOUT_HOUR = 8   # Preferred workout start hour (local time)
 DAY_END_HOUR = 21          # Latest a workout may be auto-scheduled to end
 MAX_WORKOUT_MINUTES = 180  # Sanity cap for a single booked session
 MAX_INPUT_LEN = 2000       # Cap on free-text goal/limitations sent to the LLM
+# Coaching prompts carry a month of training data and ask for a whole structured plan, so
+# they routinely run past a minute. The old 30s cut the model off mid-generation and the
+# user saw a gateway error rather than a plan.
+GEMINI_TIMEOUT_SECONDS = 180.0
 
 # Health-baseline auto-update (Issue #35): recompute the profile's resting-HR / sleep /
 # HRV baselines from a rolling window, but no more often than once a week so the trend
@@ -1734,7 +1738,7 @@ Instructions for the answer:
         }
 
         async with shared_client() as client:
-            response = await client.post(google_url, json=payload, timeout=30.0)
+            response = await client.post(google_url, json=payload, timeout=GEMINI_TIMEOUT_SECONDS)
             response.raise_for_status()
             res_json = response.json()
 
@@ -1901,7 +1905,7 @@ async def _call_gemini_json(prompt: str, schema: dict, max_tokens: int = 3000) -
         },
     }
     async with shared_client() as client:
-        response = await client.post(build_generate_url(get_gemini_model(), api_key), json=payload, timeout=45.0)
+        response = await client.post(build_generate_url(get_gemini_model(), api_key), json=payload, timeout=GEMINI_TIMEOUT_SECONDS)
         response.raise_for_status()
         res_json = response.json()
 
@@ -2431,7 +2435,7 @@ Rules for the briefing:
         }
 
         async with shared_client() as client:
-            response = await client.post(google_url, json=payload, timeout=30.0)
+            response = await client.post(google_url, json=payload, timeout=GEMINI_TIMEOUT_SECONDS)
             response.raise_for_status()
             res_json = response.json()
 
@@ -2654,7 +2658,7 @@ Rules:
     }
 
     async with shared_client() as client:
-        response = await client.post(google_url, json=payload, timeout=30.0)
+        response = await client.post(google_url, json=payload, timeout=GEMINI_TIMEOUT_SECONDS)
         response.raise_for_status()
         res_json = response.json()
 
