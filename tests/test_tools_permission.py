@@ -63,3 +63,21 @@ def test_execute_allowed_tool_starts_task(db_token):
         assert resp.json()["status"] == "processing"
     finally:
         set_api_key(key, backup or "")
+
+
+def test_metadata_endpoint_covers_every_registered_tool(db_token):
+    """The gateway's tool list must come from the registry, not a hand-kept copy.
+
+    The frontend used to hold its own whitelist of tool -> permission key, and any tool
+    added to the registry without a matching entry there was refused client-side with
+    "Tool '<name>' not recognized" - which is what made get_trainer_workouts (and the
+    Instagram tools) unusable from the web UI while the backend could run them fine.
+    """
+    from backend.services.tool_registry import TOOL_PERMISSION_KEYS
+
+    client = TestClient(app)
+    resp = client.get("/api/tools/metadata", headers={"X-Freja-Token": db_token})
+    assert resp.status_code == 200
+
+    served = {entry["name"]: entry["permission_key"] for entry in resp.json()}
+    assert served == TOOL_PERMISSION_KEYS

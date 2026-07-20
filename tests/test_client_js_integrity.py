@@ -67,3 +67,18 @@ def test_dashboard_methods_the_hud_calls_are_defined():
         if not re.search(rf"FrejaUIController\.prototype\.{name}\s*=", source)
     ]
     assert not missing, f"ui-dashboards.js is missing: {missing}"
+
+
+def test_permission_gateway_does_not_gate_on_a_local_tool_whitelist():
+    """ui-tools.js must take the callable tool set from the backend registry.
+
+    It used to carry a hand-written `toolsMetadata` map and reject anything absent from
+    it ("Tool '<name>' not recognized"), so every tool added to the registry without a
+    matching client entry was silently unreachable from the web UI - that is exactly how
+    get_trainer_workouts failed when the user asked about today's training session. The
+    labels in TOOL_DISPLAY_NAMES are cosmetic; the gate is /api/tools/metadata plus the
+    server-side check in backend/routes/tools.py.
+    """
+    source = (CLIENT_JS_DIR / "js" / "ui-tools.js").read_text(encoding="utf-8")
+    assert "/api/tools/metadata" in source, "ui-tools.js no longer fetches the registry tool list"
+    assert "not recognized" not in source, "ui-tools.js rejects tools client-side again"

@@ -130,6 +130,22 @@ async def get_tools_declarations():
     """Returns the list of Gemini-compatible tool function declarations."""
     return TOOL_DECLARATIONS
 
+@router.get("/api/tools/metadata")
+async def get_tools_metadata():
+    """Returns name -> permission key for every registered tool.
+
+    The frontend's permission gateway used to carry its own hand-written copy of this
+    map, so a tool present in the registry but forgotten there was rejected client-side
+    with "Tool '<name>' not recognized" even though the backend could run it perfectly
+    well. That is how get_trainer_workouts (and the four Instagram tools) became
+    unreachable from the web UI. Serving the map from the registry keeps the two in sync
+    by construction.
+    """
+    return [
+        {"name": name, "permission_key": key}
+        for name, key in TOOL_PERMISSION_KEYS.items()
+    ]
+
 @router.post("/api/tools/execute")
 async def post_execute_tool(request: Request, background_tasks: BackgroundTasks):
     """Starts a tool in the background and returns a task_id immediately."""

@@ -2,123 +2,102 @@
  * F.R.E.J.A. UI Controller - Tools & Background Task Monitors Module
  */
 
+/**
+ * Human-readable labels for the permission gateway. Purely cosmetic: a tool missing from
+ * here just gets a humanized version of its registry name. This map must NOT decide which
+ * tools may run - it used to, as a hand-maintained whitelist, and every tool added to the
+ * backend registry without a matching entry here was refused client-side as an unknown
+ * tool (get_trainer_workouts and the Instagram tools all died that way).
+ * The set of callable tools now comes from /api/tools/metadata, i.e. the registry itself.
+ */
+const TOOL_DISPLAY_NAMES = {
+    "get_weather": "Weather forecast",
+    "google_search": "Google search",
+    "get_garmin_health": "Garmin health data",
+    "get_withings_health": "Withings health data",
+    "get_strava_data": "Strava activities",
+    "get_strava_activity_analysis": "Strava activity analysis",
+    "get_strava_athlete_stats": "Strava athlete statistics",
+    "get_personal_trainer_advice": "Personal trainer advice",
+    "get_trainer_workouts": "Scheduled training sessions",
+    "update_trainer_workout": "Adjust a training session",
+    "manage_google_calendar": "Google Calendar",
+    "execute_codex_code": "Code execution",
+    "run_code": "Code execution",
+    "codex_git_ops": "Git operations",
+    "codex_audit_codebase": "Code audit",
+    "tool_analyze_code": "Code audit",
+    "codex_run_and_fix": "Automatic code repair",
+    "download_facebook_photos": "Facebook photo download",
+    "publish_instagram_post": "Publish Instagram post",
+    "get_instagram_feed": "Instagram feed",
+    "get_instagram_post_comments": "Instagram comments",
+    "reply_to_instagram_comment": "Reply to Instagram comment",
+    "learn_topic": "Freja learning",
+    "get_learned_knowledge": "Search the knowledge base",
+    "system_update": "System update from GitHub",
+    "read_project_file": "Read project file",
+    "run_windows_command": "Windows automation"
+};
+
+/** "get_trainer_workouts" -> "Get trainer workouts" - fallback label for unlabelled tools. */
+function humanizeToolName(name) {
+    const words = String(name).replace(/_/g, " ").trim();
+    return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/** Builds the gateway's view of a tool from its registry name and permission key. */
+function buildToolMetadata(name, permissionKey) {
+    return {
+        name: name,
+        displayName: TOOL_DISPLAY_NAMES[name] || humanizeToolName(name),
+        // Every registered tool declares a permission_key server-side; the derived
+        // fallback only matters if metadata could not be fetched at all.
+        permissionKey: permissionKey || `freja_tool_${name}_allowed`
+    };
+}
+
+/**
+ * Fetches (and caches for the session) the registry's tool list. Failures are not cached,
+ * so a transient network error doesn't permanently degrade the gateway to fallback labels.
+ */
+FrejaUIController.prototype.loadToolsMetadata = function() {
+    if (this._toolsMetadataPromise) return this._toolsMetadataPromise;
+
+    const promise = (async () => {
+        const res = await fetch("/api/tools/metadata");
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const list = await res.json();
+        const map = {};
+        (list || []).forEach((entry) => {
+            if (entry && entry.name) {
+                map[entry.name] = buildToolMetadata(entry.name, entry.permission_key);
+            }
+        });
+        return map;
+    })();
+
+    promise.catch(() => { this._toolsMetadataPromise = null; });
+    this._toolsMetadataPromise = promise;
+    return promise;
+};
+
 FrejaUIController.prototype.handleToolCall = async function(call) {
     this.writeLog(`TOOL CALL REQUESTED: ${call.name}`, "sys");
-    
-    const toolsMetadata = {
-        "get_weather": {
-            name: "get_weather",
-            displayName: "Weather forecast",
-            permissionKey: "freja_tool_get_weather_allowed"
-        },
-        "google_search": {
-            name: "google_search",
-            displayName: "Google search",
-            permissionKey: "freja_tool_google_search_allowed"
-        },
-        "get_garmin_health": {
-            name: "get_garmin_health",
-            displayName: "Garmin health data",
-            permissionKey: "freja_tool_get_garmin_health_allowed"
-        },
-        "get_withings_health": {
-            name: "get_withings_health",
-            displayName: "Withings health data",
-            permissionKey: "freja_tool_get_withings_health_allowed"
-        },
-        "get_strava_data": {
-            name: "get_strava_data",
-            displayName: "Strava activities",
-            permissionKey: "freja_tool_get_strava_data_allowed"
-        },
-        "get_strava_activity_analysis": {
-            name: "get_strava_activity_analysis",
-            displayName: "Strava activity analysis",
-            permissionKey: "freja_tool_get_strava_activity_analysis_allowed"
-        },
-        "get_strava_athlete_stats": {
-            name: "get_strava_athlete_stats",
-            displayName: "Strava athlete statistics",
-            permissionKey: "freja_tool_get_strava_athlete_stats_allowed"
-        },
-        "get_personal_trainer_advice": {
-            name: "get_personal_trainer_advice",
-            displayName: "Personal trainer advice",
-            permissionKey: "freja_tool_get_personal_trainer_advice_allowed"
-        },
-        "manage_google_calendar": {
-            name: "manage_google_calendar",
-            displayName: "Google Calendar",
-            permissionKey: "freja_tool_manage_google_calendar_allowed"
-        },
-        "execute_codex_code": {
-            name: "execute_codex_code",
-            displayName: "Code execution",
-            permissionKey: "freja_tool_execute_codex_code_allowed"
-        },
-        "run_code": {
-            name: "run_code",
-            displayName: "Code execution",
-            permissionKey: "freja_tool_run_code_allowed"
-        },
-        "codex_git_ops": {
-            name: "codex_git_ops",
-            displayName: "Git operations",
-            permissionKey: "freja_tool_codex_git_ops_allowed"
-        },
-        "codex_audit_codebase": {
-            name: "codex_audit_codebase",
-            displayName: "Code audit",
-            permissionKey: "freja_tool_codex_audit_codebase_allowed"
-        },
-        "tool_analyze_code": {
-            name: "tool_analyze_code",
-            displayName: "Code audit",
-            permissionKey: "freja_tool_tool_analyze_code_allowed"
-        },
-        "codex_run_and_fix": {
-            name: "codex_run_and_fix",
-            displayName: "Automatic code repair",
-            permissionKey: "freja_tool_codex_run_and_fix_allowed"
-        },
-        "download_facebook_photos": {
-            name: "download_facebook_photos",
-            displayName: "Facebook photo download",
-            permissionKey: "freja_tool_download_facebook_photos_allowed"
-        },
-        "learn_topic": {
-            name: "learn_topic",
-            displayName: "Freja learning",
-            permissionKey: "freja_tool_learn_topic_allowed"
-        },
-        "get_learned_knowledge": {
-            name: "get_learned_knowledge",
-            displayName: "Search the knowledge base",
-            permissionKey: "freja_tool_get_learned_knowledge_allowed"
-        },
-        "system_update": {
-            name: "system_update",
-            displayName: "System update from GitHub",
-            permissionKey: "freja_tool_system_update_allowed"
-        },
-        "read_project_file": {
-            name: "read_project_file",
-            displayName: "Read project file",
-            permissionKey: "freja_tool_read_project_file_allowed"
-        },
-        "run_windows_command": {
-            name: "run_windows_command",
-            displayName: "Windows automation",
-            permissionKey: "freja_tool_run_windows_command_allowed"
-        }
-    };
-    
-    const tool = toolsMetadata[call.name];
-    if (!tool) {
-        this.writeLog(`ERROR: Tool '${call.name}' not recognized in systems`, "err");
-        return { error: `Tool '${call.name}' not recognized.` };
+
+    let toolsMetadata = {};
+    try {
+        toolsMetadata = await this.loadToolsMetadata();
+    } catch (err) {
+        this.writeLog(`TOOL METADATA UNAVAILABLE: ${err.message}. Using derived permissions.`, "warn");
     }
-    
+
+    // Unknown names are no longer refused here. The backend is the authority on which
+    // tools exist and which are authorized (is_tool_execution_authorized), and it answers
+    // an unregistered name with a clear error - refusing client-side only hid tools the
+    // backend was perfectly able to run.
+    const tool = toolsMetadata[call.name] || buildToolMetadata(call.name, null);
+
     // Helper to execute tool via backend API
     const executeBackendTool = async (name, args) => {
         const res = await fetch("/api/tools/execute", {
