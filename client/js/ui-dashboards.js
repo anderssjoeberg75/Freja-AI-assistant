@@ -149,6 +149,9 @@ FrejaUIController.prototype.loadTrainerDashboardUI = async function () {
     // Populate the onboarding profile form and the strength-log history.
     this.loadTrainerProfileUI();
     this.loadStrengthLogsUI();
+    // Injury/pain log and the trend & adherence charts.
+    this.loadInjuryLogUI();
+    this.loadTrainerTrendsUI();
     // Populate weekly workouts list
     this.loadWeeklyWorkoutsUI();
 
@@ -567,6 +570,281 @@ FrejaUIController.prototype.loadStrengthLogsUI = async function () {
     }
 };
 
+// --- Injury / pain log (Issue #38) ------------------------------------------
+
+// Render the injury/pain log. Active entries are listed first and highlighted, since
+// those are the ones COACH AI actually feeds into plan generation and optimization.
+FrejaUIController.prototype.loadInjuryLogUI = async function () {
+    const list = document.getElementById('trainer-injury-list');
+    if (!list) return;
+    try {
+        const res = await fetch('/api/trainer/injuries?limit=50');
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        const injuries = (data && data.injuries) || [];
+        if (injuries.length === 0) {
+            list.innerHTML = '<div style="color: var(--color-text-muted); font-family: var(--font-mono); font-size: 11px; padding: 6px;">[NO INJURIES LOGGED]</div>';
+            return;
+        }
+
+        // Active first, then most recent.
+        injuries.sort((a, b) => {
+            const activeDiff = (b.status === 'active') - (a.status === 'active');
+            return activeDiff !== 0 ? activeDiff : String(b.date).localeCompare(String(a.date));
+        });
+
+        list.innerHTML = '';
+        injuries.forEach(inj => {
+            const isActive = inj.status === 'active';
+            const row = document.createElement('div');
+            row.style.display = 'flex';
+            row.style.justifyContent = 'space-between';
+            row.style.alignItems = 'center';
+            row.style.gap = '8px';
+            row.style.fontFamily = 'var(--font-mono)';
+            row.style.fontSize = '11px';
+            row.style.padding = '4px 6px';
+            row.style.borderBottom = '1px solid rgba(0, 242, 254, 0.08)';
+            row.style.opacity = isActive ? '1' : '0.55';
+
+            // Severity drives the colour so a bad niggle is obvious at a glance.
+            const sev = Number(inj.severity) || 0;
+            const sevColor = sev >= 7 ? '#ff3b30' : (sev >= 4 ? '#ffb020' : 'var(--color-primary)');
+            const sevBadge = sev
+                ? `<span style="color: ${sevColor};">[${sev}/10]</span>`
+                : '';
+            const note = inj.note ? ` – ${inj.note}` : '';
+            const resolved = isActive ? '' : ` (resolved ${inj.resolved_date || ''})`;
+
+            row.innerHTML = `
+                <span style="flex: 1; color: var(--color-text-bright); ${isActive ? '' : 'text-decoration: line-through;'}">
+                    <span style="color: var(--color-primary);">${inj.date}</span>
+                    ${sevBadge} ${inj.area}${note}${resolved}
+                </span>
+                <span style="display: flex; gap: 4px;">
+                    <button class="injury-toggle-btn" title="${isActive ? 'Mark as resolved' : 'Reopen'}" style="background: transparent; border: none; color: ${isActive ? 'var(--color-primary)' : 'var(--color-text-muted)'}; cursor: pointer; padding: 2px 4px;">
+                        <i class="fa-solid ${isActive ? 'fa-check' : 'fa-rotate-left'}"></i>
+                    </button>
+                    <button class="injury-delete-btn" title="Delete" style="background: transparent; border: none; color: #ff3b30; cursor: pointer; padding: 2px 4px;">
+                        <i class="fa-solid fa-trash-can"></i>
+                    </button>
+                </span>
+            `;
+
+            row.querySelector('.injury-toggle-btn').addEventListener('click', async () => {
+                soundSynth.playClick();
+                try {
+                    const putRes = await fetch('/api/trainer/injuries', {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ id: inj.id, status: isActive ? 'resolved' : 'active' })
+                    });
+                    if (putRes.ok) {
+                        this.writeLog(`INJURY ${inj.area.toUpperCase()} ${isActive ? 'RESOLVED' : 'REOPENED'}`, "sys");
+                        this.loadInjuryLogUI();
+                    }
+                } catch (err) {
+                    console.error('[TRAINER] Failed to update injury:', err);
+                }
+            });
+
+            row.querySelector('.injury-delete-btn').addEventListener('click', async () => {
+                if (!confirm(`Really delete the injury entry for ${inj.area}?`)) return;
+                soundSynth.playClick();
+                try {
+                    const delRes = await fetch(`/api/trainer/injuries?injury_id=${inj.id}`, { method: 'DELETE' });
+                    if (delRes.ok) this.loadInjuryLogUI();
+                } catch (err) {
+                    console.error('[TRAINER] Failed to delete injury:', err);
+                }
+            });
+
+            list.appendChild(row);
+        });
+    } catch (e) {
+        console.error('[TRAINER] Injury log load error:', e);
+        list.innerHTML = '<div style="color: #ff3b30; font-family: var(--font-mono); font-size: 11px; padding: 6px;">[ERROR LOADING INJURY LOG]</div>';
+    }
+};
+
+// --- Trend & adherence charts (Issue #36) ------------------------------------
+
+// Builds a self-contained SVG sparkline for one metric. No chart library is loaded in
+// the HUD, so the geometry is computed here: the viewBox is stretched to the card width
+// (preserveAspectRatio="none") and strokes opt out of that scaling via vector-effect,
+// which keeps line weights even at any panel size.
+FrejaUIController.prototype.buildTrendSparkline = function (points, options) {
+    const opts = options || {};
+    const W = 300, H = 60, PAD = 4;
+    const values = points.map(p => p.value);
+    let min = Math.min.apply(null, values);
+    let max = Math.max.apply(null, values);
+    if (opts.baseline !== null && opts.baseline !== undefined && !isNaN(opts.baseline)) {
+        min = Math.min(min, opts.baseline);
+        max = Math.max(max, opts.baseline);
+    }
+    // A flat series would divide by zero; give it a little headroom instead.
+    if (max === min) { max += 1; min -= 1; }
+
+    const x = i => PAD + (i * (W - 2 * PAD)) / Math.max(1, points.length - 1);
+    const y = v => H - PAD - ((v - min) / (max - min)) * (H - 2 * PAD);
+
+    const line = points.map((p, i) => `${x(i).toFixed(1)},${y(p.value).toFixed(1)}`).join(' ');
+    const area = `${PAD},${H - PAD} ${line} ${x(points.length - 1).toFixed(1)},${H - PAD}`;
+    const color = opts.color || 'var(--color-primary)';
+
+    let baselineLine = '';
+    if (opts.baseline !== null && opts.baseline !== undefined && !isNaN(opts.baseline)) {
+        const by = y(opts.baseline).toFixed(1);
+        baselineLine = `<line x1="${PAD}" y1="${by}" x2="${W - PAD}" y2="${by}" stroke="var(--color-text-muted)" stroke-width="1" stroke-dasharray="3 3" vector-effect="non-scaling-stroke" opacity="0.7"></line>`;
+    }
+
+    const lastX = x(points.length - 1).toFixed(1);
+    const lastY = y(points[points.length - 1].value).toFixed(1);
+
+    return `
+        <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width: 100%; height: ${H}px; display: block; overflow: visible;">
+            <polygon points="${area}" fill="${color}" opacity="0.12"></polygon>
+            ${baselineLine}
+            <polyline points="${line}" fill="none" stroke="${color}" stroke-width="1.5" vector-effect="non-scaling-stroke" stroke-linejoin="round"></polyline>
+            <circle cx="${lastX}" cy="${lastY}" r="2.5" fill="${color}" vector-effect="non-scaling-stroke"></circle>
+        </svg>
+    `;
+};
+
+// Renders one metric card: current value, change vs baseline window, and the sparkline.
+FrejaUIController.prototype.buildTrendCard = function (config) {
+    const points = config.points;
+    if (!points || points.length < 2) {
+        return `
+            <div style="background: rgba(0,0,0,0.3); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px;">
+                <div style="font-size: 9px; color: var(--color-text-muted); font-family: var(--font-display); letter-spacing: 0.5px;">${config.label}</div>
+                <div style="font-size: 11px; color: var(--color-text-muted); font-family: var(--font-mono); padding: 12px 0;">[NOT ENOUGH DATA]</div>
+            </div>
+        `;
+    }
+
+    const latest = points[points.length - 1].value;
+    const pct = config.changePct;
+    let changeHTML = '<span style="color: var(--color-text-muted);">–</span>';
+    if (pct !== null && pct !== undefined && !isNaN(pct)) {
+        // "Good" points in opposite directions per metric: a falling RHR is good, a
+        // falling HRV is not, so each card says which way is favourable.
+        const rising = pct >= 0;
+        const good = config.goodDirection === 'up' ? rising : !rising;
+        const arrow = rising ? '▲' : '▼';
+        const color = Math.abs(pct) < 1 ? 'var(--color-text-muted)' : (good ? '#30d158' : '#ff9f0a');
+        changeHTML = `<span style="color: ${color};">${arrow} ${Math.abs(pct).toFixed(1)}%</span>`;
+    }
+
+    const baselineNote = (config.baseline !== null && config.baseline !== undefined && !isNaN(config.baseline))
+        ? `<span style="color: var(--color-text-muted);">baseline ${Number(config.baseline).toFixed(1)}${config.unit}</span>`
+        : '';
+
+    return `
+        <div style="background: rgba(0,0,0,0.3); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px; display: flex; flex-direction: column; gap: 6px;">
+            <div style="display: flex; justify-content: space-between; align-items: baseline;">
+                <span style="font-size: 9px; color: var(--color-text-muted); font-family: var(--font-display); letter-spacing: 0.5px;">${config.label}</span>
+                <span style="font-size: 10px; font-family: var(--font-mono);">${changeHTML}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: baseline; font-family: var(--font-mono);">
+                <span style="font-size: 16px; color: ${config.color}; font-weight: bold;">${Number(latest).toFixed(0)}<span style="font-size: 10px;">${config.unit}</span></span>
+                <span style="font-size: 9px;">${baselineNote}</span>
+            </div>
+            ${this.buildTrendSparkline(points, { color: config.color, baseline: config.baseline })}
+            <div style="display: flex; justify-content: space-between; font-size: 9px; color: var(--color-text-muted); font-family: var(--font-mono);">
+                <span>${points[0].date}</span>
+                <span>${points[points.length - 1].date}</span>
+            </div>
+        </div>
+    `;
+};
+
+// Fetch and draw the RHR/HRV trends plus planned-vs-completed adherence.
+FrejaUIController.prototype.loadTrainerTrendsUI = async function () {
+    const container = document.getElementById('trainer-trends-charts');
+    if (!container) return;
+
+    const rangeSel = document.getElementById('trainer-trend-range');
+    const days = (rangeSel && rangeSel.value) || 28;
+
+    container.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 16px;">Loading trends...</div>';
+
+    try {
+        const res = await fetch(`/api/trainer/trends?days=${days}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+
+        const series = data.series || [];
+        const trends = data.trends || {};
+        const baselines = data.baselines || {};
+        const adherence = data.adherence || {};
+
+        // A metric is only plotted on days it actually has a reading, so gaps in the
+        // data stay gaps instead of collapsing to zero.
+        const pointsFor = key => series
+            .filter(p => p[key] !== null && p[key] !== undefined)
+            .map(p => ({ date: p.date, value: Number(p[key]) }));
+
+        const rhrCard = this.buildTrendCard({
+            label: 'RESTING HR (RHR)',
+            points: pointsFor('rhr'),
+            unit: ' bpm',
+            color: '#00f2fe',
+            baseline: baselines.resting_hr,
+            changePct: trends.rhr_change_pct,
+            goodDirection: 'down'
+        });
+        const hrvCard = this.buildTrendCard({
+            label: 'HRV',
+            points: pointsFor('hrv'),
+            unit: ' ms',
+            color: '#bf5af2',
+            baseline: baselines.hrv,
+            changePct: trends.hrv_change_pct,
+            goodDirection: 'up'
+        });
+
+        // Adherence: planned sessions vs the ones actually completed on Strava.
+        const planned = adherence.planned || 0;
+        const completed = adherence.completed || 0;
+        const pct = adherence.adherence_pct;
+        const barPct = planned ? Math.min(100, Math.round((completed / planned) * 100)) : 0;
+        const barColor = barPct >= 80 ? '#30d158' : (barPct >= 50 ? '#ffb020' : '#ff3b30');
+        const missed = (adherence.missed_dates || []).slice(-6);
+
+        const adherenceCard = planned === 0
+            ? `<div style="background: rgba(0,0,0,0.3); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px;">
+                   <div style="font-size: 9px; color: var(--color-text-muted); font-family: var(--font-display); letter-spacing: 0.5px;">ADHERENCE (PLANNED VS COMPLETED)</div>
+                   <div style="font-size: 11px; color: var(--color-text-muted); font-family: var(--font-mono); padding: 8px 0;">[NO BOOKED SESSIONS IN THIS WINDOW]</div>
+               </div>`
+            : `<div style="background: rgba(0,0,0,0.3); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px; display: flex; flex-direction: column; gap: 8px;">
+                   <div style="display: flex; justify-content: space-between; align-items: baseline;">
+                       <span style="font-size: 9px; color: var(--color-text-muted); font-family: var(--font-display); letter-spacing: 0.5px;">ADHERENCE (PLANNED VS COMPLETED)</span>
+                       <span style="font-size: 10px; font-family: var(--font-mono); color: ${barColor};">${pct !== null && pct !== undefined ? pct + '%' : '–'}</span>
+                   </div>
+                   <div style="font-family: var(--font-mono); font-size: 16px; color: var(--color-text-bright);">
+                       ${completed}<span style="font-size: 11px; color: var(--color-text-muted);"> / ${planned} sessions</span>
+                   </div>
+                   <div style="height: 10px; background: rgba(255,255,255,0.06); border-radius: 5px; overflow: hidden;">
+                       <div style="height: 100%; width: ${barPct}%; background: ${barColor}; border-radius: 5px; transition: width 0.4s ease;"></div>
+                   </div>
+                   ${missed.length ? `<div style="font-size: 9px; color: var(--color-text-muted); font-family: var(--font-mono);">Missed: ${missed.join(', ')}</div>` : ''}
+               </div>`;
+
+        container.innerHTML = `
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                ${rhrCard}
+                ${hrvCard}
+            </div>
+            ${adherenceCard}
+        `;
+    } catch (e) {
+        console.error('[TRAINER] Trend chart load error:', e);
+        container.innerHTML = '<div style="color: #ff3b30; text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 16px;">[ERROR LOADING TRENDS]</div>';
+    }
+};
+
 FrejaUIController.prototype.runTrainerOptimize = async function () {
     const btn = document.getElementById('btn-trainer-optimize');
     const out = document.getElementById('trainer-optimize-output');
@@ -788,6 +1066,16 @@ FrejaUIController.prototype.renderTrainerPlanDetails = function (planId, adviceT
                         <i class="fa-solid fa-calendar-plus"></i> BOOK SESSIONS
                     </button>
                 </div>
+                <!-- Take the plan out of Freja: same start date drives both exports. -->
+                <div style="display: flex; gap: 8px; align-items: center; border-top: 1px dashed rgba(0, 242, 254, 0.15); padding-top: 8px;">
+                    <span style="font-size: 9px; color: var(--color-text-muted); font-family: var(--font-display); letter-spacing: 0.5px; flex: 1;">EXPORTERA PLANEN</span>
+                    <button id="btn-trainer-export-ics" class="hud-btn btn-secondary" style="height: 30px; font-family: var(--font-display); font-size: 10px; padding: 0 12px; display: flex; align-items: center; gap: 5px;">
+                        <i class="fa-solid fa-calendar-days"></i> .ICS
+                    </button>
+                    <button id="btn-trainer-export-pdf" class="hud-btn btn-secondary" style="height: 30px; font-family: var(--font-display); font-size: 10px; padding: 0 12px; display: flex; align-items: center; gap: 5px;">
+                        <i class="fa-solid fa-file-pdf"></i> PDF
+                    </button>
+                </div>
             </div>
 
         </div>
@@ -863,6 +1151,66 @@ FrejaUIController.prototype.renderTrainerPlanDetails = function (planId, adviceT
             }
         });
     }
+
+    // Plan export (Issue #39). The API is token-protected, so the file has to come down
+    // through fetch (which the global wrapper adds the header to) rather than a plain
+    // link - a bare href would be rejected with a 401.
+    const wireExport = (buttonId, format, label) => {
+        const btn = document.getElementById(buttonId);
+        if (!btn) return;
+        btn.addEventListener('click', async () => {
+            soundSynth.playClick();
+            const startDateVal = (document.getElementById('trainer-book-start-date') || {}).value || '';
+            const originalHtml = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+
+            let objectUrl = null;
+            try {
+                const params = new URLSearchParams({ plan_id: planId, format });
+                if (startDateVal) params.set('start_date', startDateVal);
+                const res = await fetch(`/api/trainer/plans/export?${params.toString()}`);
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({}));
+                    throw new Error(err.detail || `HTTP ${res.status}`);
+                }
+
+                // Prefer the filename the server chose (Content-Disposition).
+                const disposition = res.headers.get('Content-Disposition') || '';
+                const match = disposition.match(/filename="?([^"]+)"?/);
+                const filename = match ? match[1] : `freja-plan-${planId}.${format}`;
+
+                const blob = await res.blob();
+                objectUrl = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = objectUrl;
+                link.download = filename;
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+
+                // Revoking synchronously here can cancel the download before the browser
+                // has read the blob, so let the current task finish first.
+                const urlToRevoke = objectUrl;
+                objectUrl = null;
+                setTimeout(() => URL.revokeObjectURL(urlToRevoke), 10000);
+
+                this.writeLog(`PLAN EXPORTED AS ${label} (${filename})`, "sys");
+                soundSynth.playNotify();
+            } catch (e) {
+                this.writeLog(`PLAN EXPORT ERROR: ${e.message}`, "err");
+                soundSynth.playError();
+                alert(`Kunde inte exportera planen: ${e.message}`);
+            } finally {
+                // Only reached with a live URL when the download itself threw.
+                if (objectUrl) URL.revokeObjectURL(objectUrl);
+                btn.disabled = false;
+                btn.innerHTML = originalHtml;
+            }
+        });
+    };
+    wireExport('btn-trainer-export-ics', 'ics', 'ICS');
+    wireExport('btn-trainer-export-pdf', 'pdf', 'PDF');
 };
 
 FrejaUIController.prototype.loadGarminDashboardUI = async function () {

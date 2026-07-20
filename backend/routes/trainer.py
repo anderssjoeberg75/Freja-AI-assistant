@@ -19,8 +19,10 @@ from backend.services.http_client import shared_client
 import json
 import urllib.parse
 from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import Response
 from backend.database import get_db_connection, get_api_key
 from backend.services.weather_codes import describe_weather_code
+from backend.services import plan_export
 
 router = APIRouter()
 
@@ -61,6 +63,23 @@ def today_local() -> datetime.date:
 def _dict_row(cursor, row):
     """sqlite row factory returning a plain dict."""
     return {col[0]: row[idx] for idx, col in enumerate(cursor.description)}
+
+
+def _reading(value):
+    """Normalises a stored health metric to a real reading, or None.
+
+    Garmin and Withings write 0 (and occasionally a negative sentinel) on days the device
+    recorded nothing. A resting heart rate or HRV of 0 is physiologically impossible, so
+    treating those rows as data drags every average and every plotted line towards zero -
+    which is what made the trend percentages read as a huge improvement after a gap in
+    wear. Anything not strictly positive is therefore "no reading"."""
+    if value is None:
+        return None
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        return None
+    return value if num > 0 else None
 
 
 def get_trainer_profile() -> dict:
@@ -177,10 +196,11 @@ def calculate_trends():
         return sum(vals) / len(vals) if vals else None
 
     # Resting HR: pick one source that has BOTH a recent and a baseline window.
-    g_recent_rhr = [r[0] for r in garmin_rows[:7] if r[0] is not None]
-    g_base_rhr = [r[0] for r in garmin_rows[7:] if r[0] is not None]
-    w_recent_rhr = [r[0] for r in withings_rows[:7] if r[0] is not None]
-    w_base_rhr = [r[0] for r in withings_rows[7:] if r[0] is not None]
+    # `_reading` drops the 0s the devices write on days they recorded nothing.
+    g_recent_rhr = [v for r in garmin_rows[:7] if (v := _reading(r[0])) is not None]
+    g_base_rhr = [v for r in garmin_rows[7:] if (v := _reading(r[0])) is not None]
+    w_recent_rhr = [v for r in withings_rows[:7] if (v := _reading(r[0])) is not None]
+    w_base_rhr = [v for r in withings_rows[7:] if (v := _reading(r[0])) is not None]
 
     if g_recent_rhr and g_base_rhr:
         recent_rhrs, baseline_rhrs = g_recent_rhr, g_base_rhr
@@ -192,8 +212,8 @@ def calculate_trends():
         baseline_rhrs = g_base_rhr or w_base_rhr
 
     # HRV: Garmin only (Withings does not provide it).
-    recent_hrvs = [r[1] for r in garmin_rows[:7] if r[1] is not None]
-    baseline_hrvs = [r[1] for r in garmin_rows[7:] if r[1] is not None]
+    recent_hrvs = [v for r in garmin_rows[:7] if (v := _reading(r[1])) is not None]
+    baseline_hrvs = [v for r in garmin_rows[7:] if (v := _reading(r[1])) is not None]
 
     rhr_recent_avg = _avg(recent_rhrs)
     rhr_baseline_avg = _avg(baseline_rhrs)
@@ -271,12 +291,14 @@ def recompute_health_baselines(force: bool = False) -> dict:
                 'SELECT resting_hr, sleep_hours, hrv FROM garmin_health WHERE date >= ?',
                 (cutoff,)
             )
+            # `_reading` skips the 0s written on days the device recorded nothing, so a
+            # spell of not wearing the watch cannot drag a baseline down towards zero.
             for r in cursor.fetchall():
-                if r[0] is not None:
+                if _reading(r[0]) is not None:
                     garmin_rhr.append(r[0])
-                if r[1] is not None:
+                if _reading(r[1]) is not None:
                     garmin_sleep.append(r[1])
-                if r[2] is not None:
+                if _reading(r[2]) is not None:
                     garmin_hrv.append(r[2])
         except Exception as e:
             print(f"[TRAINER BASELINES] Error reading Garmin health: {e}")
@@ -286,7 +308,7 @@ def recompute_health_baselines(force: bool = False) -> dict:
                 (cutoff,)
             )
             for r in cursor.fetchall():
-                if r[0] is not None:
+                if _reading(r[0]) is not None:
                     withings_rhr.append(r[0])
                 if r[1]:  # sleep_duration is stored in seconds
                     withings_sleep.append(r[1] / 3600.0)
@@ -397,6 +419,59 @@ def format_recent_strength_logs(limit: int = 40) -> str:
     return "\n".join(lines)
 
 
+# --- Injury / pain log (Issue #38) ------------------------------------------
+MAX_INJURY_LOGS = 200      # Hard cap on rows a single list request may return
+MAX_INJURY_PROMPT_ROWS = 8  # Active entries pasted into a coach prompt
+
+
+def get_injury_logs(status: str = None, limit: int = 50) -> list:
+    """Returns injury/pain entries, newest first. `status` filters to 'active'/'resolved'."""
+    limit = max(1, min(int(limit or 50), MAX_INJURY_LOGS))
+    sql = ('SELECT id, date, area, severity, note, status, resolved_date, created_at '
+           'FROM trainer_injury_logs')
+    params = []
+    if status in ("active", "resolved"):
+        sql += ' WHERE status = ?'
+        params.append(status)
+    sql += ' ORDER BY date DESC, id DESC LIMIT ?'
+    params.append(limit)
+
+    with get_db_connection() as conn:
+        conn.row_factory = _dict_row
+        cursor = conn.cursor()
+        try:
+            cursor.execute(sql, params)
+            return [dict(r) for r in cursor.fetchall()]
+        except Exception as e:
+            print(f"[TRAINER INJURY] Error reading injury logs: {e}")
+            return []
+
+
+def format_active_injuries() -> str:
+    """Renders the open injury/pain entries as the text block pasted into coach prompts.
+
+    Unlike the profile's single free-text `limitations` field, this is a dated log, so the
+    coach can see how long something has been bothering the user and how bad it is now."""
+    logs = get_injury_logs(status="active", limit=MAX_INJURY_PROMPT_ROWS)
+    if not logs:
+        return "No active injuries or pain have been logged."
+
+    today = today_local()
+    lines = []
+    for log in logs:
+        area = (log.get("area") or "Ospecificerat område").strip()
+        severity = log.get("severity")
+        sev_str = f"severity {severity}/10" if severity else "severity not given"
+        note = (log.get("note") or "").strip()
+        try:
+            started = datetime.datetime.strptime(str(log.get("date"))[:10], "%Y-%m-%d").date()
+            age = f", ongoing for {(today - started).days} days"
+        except (ValueError, TypeError):
+            age = ""
+        lines.append(f"- {log.get('date')}: {area} ({sev_str}{age})" + (f" - {note}" if note else ""))
+    return "\n".join(lines)
+
+
 def compute_adherence(days: int = 14) -> dict:
     """Compares booked workout dates against completed Strava activity dates."""
     today = today_local()
@@ -436,6 +511,81 @@ def compute_adherence(days: int = 14) -> dict:
         "planned_dates": sorted(planned_dates),
         "missed_dates": missed
     }
+
+
+# --- Trend series for the PT charts (Issue #36) ------------------------------
+MAX_TREND_DAYS = 180  # Longest window the trend chart may request
+
+
+def get_health_series(days: int = 28) -> list:
+    """Returns a day-by-day RHR/HRV series for the trend charts, oldest first.
+
+    `calculate_trends()` only yields aggregates, which cannot be plotted. This reads the
+    same sources: Garmin per day, with Withings' pulse filling in resting HR on days
+    Garmin has none. Days with no reading at all are omitted rather than zero-filled, so
+    a gap in the data renders as a gap instead of a phantom dip to zero."""
+    days = max(1, min(int(days or 28), MAX_TREND_DAYS))
+    cutoff = (today_local() - datetime.timedelta(days=days)).strftime('%Y-%m-%d')
+
+    by_date: dict = {}
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                'SELECT date, resting_hr, hrv FROM garmin_health WHERE date >= ? ORDER BY date ASC',
+                (cutoff,)
+            )
+            for date_str, rhr, hrv in cursor.fetchall():
+                if not date_str:
+                    continue
+                by_date[date_str[:10]] = {
+                    "date": date_str[:10], "rhr": _reading(rhr), "hrv": _reading(hrv)
+                }
+        except Exception as e:
+            print(f"[TRAINER TRENDS] Error reading Garmin health series: {e}")
+        try:
+            cursor.execute(
+                'SELECT date, heart_pulse FROM withings_measurements WHERE date >= ? ORDER BY date ASC',
+                (cutoff,)
+            )
+            for date_str, pulse in cursor.fetchall():
+                if not date_str:
+                    continue
+                key = date_str[:10]
+                entry = by_date.setdefault(key, {"date": key, "rhr": None, "hrv": None})
+                if entry.get("rhr") is None:
+                    entry["rhr"] = _reading(pulse)
+        except Exception as e:
+            print(f"[TRAINER TRENDS] Error reading Withings series: {e}")
+
+    return [by_date[k] for k in sorted(by_date) if by_date[k].get("rhr") is not None or by_date[k].get("hrv") is not None]
+
+
+@router.get("/api/trainer/trends")
+async def get_trainer_trends(days: int = Query(28, description="Length of the trend window in days")):
+    """Everything the PT panel's trend & adherence charts need, in one request (Issue #36).
+
+    Bundles the plotted series, the recent-vs-baseline aggregates already used in the
+    coach prompts, the profile's stored baselines (drawn as reference lines) and the
+    adherence figures, so the panel renders from a single round trip."""
+    try:
+        days = max(1, min(int(days or 28), MAX_TREND_DAYS))
+        profile = get_trainer_profile()
+        return {
+            "window_days": days,
+            "series": get_health_series(days),
+            "trends": calculate_trends(),
+            "baselines": {
+                "resting_hr": profile.get("baseline_resting_hr"),
+                "hrv": profile.get("baseline_hrv"),
+                "sleep_hours": profile.get("baseline_sleep_hours"),
+                "updated_at": profile.get("baselines_updated_at"),
+            },
+            "adherence": compute_adherence(days),
+            "alert_thresholds": {"rhr_pct": RHR_ALERT_PCT, "hrv_pct": HRV_ALERT_PCT},
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/api/trainer/profile")
@@ -608,6 +758,124 @@ async def delete_strength_log(log_id: int = Query(..., description="ID of the st
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.get("/api/trainer/injuries")
+async def get_injuries(
+    status: str = Query(None, description="Filter by 'active' or 'resolved' (omit for all)"),
+    limit: int = Query(50, description="Number of entries to return"),
+):
+    """Returns logged injury/pain entries (Issue #38), newest first."""
+    try:
+        return {"injuries": get_injury_logs(status=status, limit=limit)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api/trainer/injuries")
+async def add_injury(request: Request):
+    """Logs an injury or pain entry (area, severity, note).
+
+    Active entries are fed into plan generation and the recovery optimizer, so the coach
+    eases or swaps sessions that would load the affected area."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    area = str(body.get("area") or "").strip()[:120]
+    if not area:
+        raise HTTPException(status_code=400, detail="A body area is required.")
+
+    try:
+        severity = int(body.get("severity") or 0)
+    except (TypeError, ValueError):
+        severity = 0
+    severity = max(0, min(10, severity)) or None  # 1-10 scale; 0/absent stores NULL
+
+    note = str(body.get("note") or "").strip()[:MAX_INPUT_LEN]
+    date_str = str(body.get("date") or "").strip()[:10] or today_local().strftime('%Y-%m-%d')
+    now_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                '''INSERT INTO trainer_injury_logs
+                   (date, area, severity, note, status, resolved_date, created_at)
+                   VALUES (?, ?, ?, ?, 'active', NULL, ?)''',
+                (date_str, area, severity, note, now_str)
+            )
+            conn.commit()
+            injury_id = cursor.lastrowid
+        return {"status": "success", "id": injury_id, "message": "Injury logged."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/api/trainer/injuries")
+async def update_injury(request: Request):
+    """Updates an injury entry - typically to mark it resolved once it stops hurting.
+
+    Resolving stamps `resolved_date` and drops the entry out of the coach prompts, while
+    keeping it in the log so a recurring niggle stays visible as history."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    try:
+        injury_id = int(body.get("id"))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="An injury ID is required.")
+
+    values = {}
+    if body.get("status") in ("active", "resolved"):
+        values["status"] = body["status"]
+        # Resolving stamps the date; reopening clears it again.
+        values["resolved_date"] = today_local().strftime('%Y-%m-%d') if body["status"] == "resolved" else None
+    if "severity" in body:
+        try:
+            values["severity"] = max(0, min(10, int(body.get("severity") or 0))) or None
+        except (TypeError, ValueError):
+            pass
+    if "note" in body:
+        values["note"] = str(body.get("note") or "").strip()[:MAX_INPUT_LEN]
+    if "area" in body and str(body.get("area") or "").strip():
+        values["area"] = str(body["area"]).strip()[:120]
+
+    if not values:
+        raise HTTPException(status_code=400, detail="No fields to update were supplied.")
+
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            set_clause = ", ".join(f"{k} = ?" for k in values)
+            cursor.execute(
+                f"UPDATE trainer_injury_logs SET {set_clause} WHERE id = ?",
+                list(values.values()) + [injury_id]
+            )
+            conn.commit()
+            if cursor.rowcount == 0:
+                raise HTTPException(status_code=404, detail="The injury entry was not found.")
+        return {"status": "success", "message": f"Injury {injury_id} updated."}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/api/trainer/injuries")
+async def delete_injury(injury_id: int = Query(..., description="ID of the injury entry to delete")):
+    """Deletes a single injury/pain entry."""
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM trainer_injury_logs WHERE id = ?', (injury_id,))
+            conn.commit()
+        return {"status": "success", "message": f"Injury {injury_id} deleted."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/api/trainer/plans")
 async def get_trainer_plans(limit: int = Query(20, description="Number of plans to retrieve")):
     try:
@@ -644,6 +912,92 @@ async def delete_trainer_plan(plan_id: int = Query(..., description="ID of the p
         return {'status': 'success', 'message': f"The training plan with ID {plan_id} has been deleted."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+def _next_monday(from_date: datetime.date = None) -> datetime.date:
+    """The next upcoming Monday - the default start date for an exported plan."""
+    d = from_date or today_local()
+    return d + datetime.timedelta(days=(7 - d.weekday()) or 7)
+
+
+# Swedish (and common accented) letters folded to ASCII so a filename built from a goal
+# like "Träna inför Göteborgsvarvet" stays readable instead of becoming a row of dashes.
+_FILENAME_TRANSLITERATIONS = str.maketrans({
+    "å": "a", "ä": "a", "ö": "o", "é": "e", "è": "e", "ü": "u", "ø": "o", "æ": "ae",
+})
+
+
+def _safe_filename(text: str, fallback: str = "traningsplan") -> str:
+    """ASCII-safe slug for a Content-Disposition filename.
+
+    Must be strictly ASCII: header values are latin-1 encoded on the way out, so a goal
+    containing Cyrillic or CJK would raise mid-response, and even latin-1-representable
+    Swedish letters come back mojibake. `str.isalnum()` is Unicode-aware and would happily
+    keep all of those, so the ASCII check below is what actually does the filtering."""
+    folded = str(text or "").lower().translate(_FILENAME_TRANSLITERATIONS)
+    slug = "".join(c if (c.isascii() and c.isalnum()) else "-" for c in folded)
+    slug = "-".join(part for part in slug.split("-") if part)[:60]
+    return slug or fallback
+
+
+@router.get("/api/trainer/plans/export")
+async def export_trainer_plan(
+    plan_id: int = Query(..., description="ID of the plan to export"),
+    format: str = Query("ics", description="Export format: 'ics' or 'pdf'"),
+    start_date: str = Query(None, description="Date the plan's week starts (YYYY-MM-DD, default: next Monday)"),
+):
+    """Exports a saved plan as a calendar file or a printable PDF (Issue #39).
+
+    The plan itself only names weekdays, so `start_date` is what turns it into dated
+    sessions - it defaults to the next Monday, matching the booking widget's default."""
+    fmt = (format or "ics").strip().lower()
+    if fmt not in ("ics", "pdf"):
+        raise HTTPException(status_code=400, detail="Unsupported format (use 'ics' or 'pdf').")
+
+    if start_date:
+        try:
+            start = datetime.datetime.strptime(start_date.strip(), "%Y-%m-%d").date()
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid start date format (use YYYY-MM-DD).")
+    else:
+        start = _next_monday()
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, date, goal, advice_text, limitations FROM trainer_plans WHERE id = ?", (plan_id,))
+        row = cursor.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="The training plan was not found.")
+
+    plan = {"id": row[0], "date": row[1], "goal": row[2], "advice_text": row[3], "limitations": row[4]}
+    plan_data = plan_export.parse_plan_text(plan["advice_text"])
+    base_name = f"freja-{_safe_filename(plan['goal'])}-{plan['date'] or start.isoformat()}"
+
+    try:
+        if fmt == "ics":
+            if not plan_data:
+                raise HTTPException(
+                    status_code=400,
+                    detail="This training plan has no structured data and cannot be exported to a calendar."
+                )
+            body = plan_export.build_ics(plan, plan_data, start).encode("utf-8")
+            media_type = "text/calendar; charset=utf-8"
+            filename = f"{base_name}.ics"
+        else:
+            # A plan without structured JSON still exports as a PDF of its raw advice text.
+            body = plan_export.build_pdf(plan, plan_data, start)
+            media_type = "application/pdf"
+            filename = f"{base_name}.pdf"
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Could not build the export: {e}")
+
+    return Response(
+        content=body,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
 
 @router.post("/api/trainer/generate")
 async def generate_trainer_plan(request: Request):
@@ -716,6 +1070,9 @@ async def generate_trainer_plan(request: Request):
         # 5.4 Recent strength loads so the coach can apply progressive overload (Issue #34)
         strength_logs_str = format_recent_strength_logs()
 
+        # 5.45 Open injuries so affected sessions get eased or swapped (Issue #38)
+        injuries_str = format_active_injuries()
+
         # 5.5 Fetch 7-day weather forecast (for the profile's location)
         weather_forecast = await fetch_7day_weather_forecast(location)
 
@@ -755,6 +1112,9 @@ GOAL: "{goal}"{limitations_prompt}
 [RECENTLY LOGGED STRENGTH LOADS (most recent per exercise)]:
 {strength_logs_str}
 
+[ACTIVE INJURY / PAIN LOG (dated entries the user is still bothered by)]:
+{injuries_str}
+
 Instructions for the answer:
 - Answer in Swedish.
 - Write in an encouraging, professional and coaching tone (F.R.E.J.A. style: polite but extremely knowledgeable).
@@ -772,6 +1132,10 @@ Instructions for the answer:
     dry air, and recommend indoor training or lower intensity to reduce the risk of asthma problems.
 - Analyse the health trends. If the resting heart rate has risen sharply (>{RHR_ALERT_PCT}%) or HRV has dropped
   sharply (<{HRV_ALERT_PCT}%), add a clear recommendation for active rest or reduced intensity.
+- Adapt the plan to the ACTIVE INJURY / PAIN LOG above: avoid or substitute exercises that load an
+  affected area, lower the intensity of sessions that would aggravate it, and scale that caution to the
+  logged severity (7-10 means avoid loading the area entirely). Mention the adaptation briefly in the
+  session description so the user can see why it differs.
 - Create a simple weekly plan the user can follow right away.
 """
 
@@ -1114,6 +1478,9 @@ TODAY'S DATE: {today_str}
 [TRAINING ADHERENCE]:
 {adherence_str}
 
+[ACTIVE INJURY / PAIN LOG]:
+{format_active_injuries()}
+
 [WORKOUT COMPLETED YESTERDAY (Strava)]:
 {completed_summary}
 
@@ -1128,6 +1495,8 @@ TODAY'S DATE: {today_str}
 
 Rules for the briefing:
 - Prefer Garmin for sleep/resting HR/HRV/body battery; use Withings as a complement/fallback.
+- If the injury/pain log has active entries, take them into account for today's session: suggest
+  easing or swapping the session when it would load an affected area, and ask briefly how it feels.
 - Assess recovery: if the resting heart rate has risen sharply (>{RHR_ALERT_PCT:.0f}%) or HRV has dropped
   sharply (<{HRV_ALERT_PCT:.0f}%), or if sleep was short/poor or Body Battery is low, recommend lower
   intensity or active rest and briefly explain why.
@@ -1334,11 +1703,17 @@ GOAL: "{goal_str}"{limitations_prompt}
 [CALCULATED HEALTH TRENDS (RHR & HRV)]:
 {trends_data_str}
 
+[ACTIVE INJURY / PAIN LOG (dated entries the user is still bothered by)]:
+{format_active_injuries()}
+
 [BOOKED UPCOMING WORKOUTS (today through {horizon_str})]:
 {workouts_str}
 
 Rules:
 - Assess recovery from sleep, resting heart rate (RHR), HRV, Body Battery, recovery time and training status.
+- Treat the ACTIVE INJURY / PAIN LOG as a hard constraint: a session that would load an affected area must
+  be reduced, or turned into active rest / an alternative modality when the logged severity is high (7-10).
+  Say so in "reason" so the calendar records why.
 - If recovery is POOR (e.g. RHR up sharply >{RHR_ALERT_PCT:.0f}%, HRV down sharply <{HRV_ALERT_PCT:.0f}%,
   short/poor sleep, low Body Battery, long recovery time, or a training status of "Övertränad",
   "Oproduktiv" or "Ansträngd" - the Garmin sync stores these in Swedish): reduce the length and/or
@@ -1572,11 +1947,9 @@ async def book_trainer_plan(request: Request):
             return {"status": "success", "message": "No workouts to book."}
 
         # The plan's `day` field is a Swedish weekday name (enforced by the generate schema).
-        # Offsets are relative to the plan's start_date, which the caller supplies.
-        day_offsets = {
-            "måndag": 0, "tisdag": 1, "onsdag": 2, "torsdag": 3,
-            "fredag": 4, "lördag": 5, "söndag": 6
-        }
+        # Offsets are relative to the plan's start_date, which the caller supplies. The
+        # mapping is shared with the plan export so both schedule a plan identically.
+        day_offsets = plan_export.SWEDISH_DAY_OFFSETS
 
         from backend.routes.google_calendar import (
             core_save_calendar_event, core_delete_calendar_event, core_get_calendar_data

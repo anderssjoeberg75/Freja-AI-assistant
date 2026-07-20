@@ -142,6 +142,24 @@ class TrainerBooking(Base):
     workout_date = Column(String)
     week = Column(Integer, default=0)
 
+class TrainerInjuryLog(Base):
+    """One injury / pain entry, tracked over time so recurring niggles are visible.
+
+    The profile's free-text `limitations` field only says what is true today; this table
+    keeps a dated history (see Issue #38). Rows with status='active' are fed into plan
+    generation and the recovery optimizer so affected sessions get eased or swapped.
+    """
+    __tablename__ = 'trainer_injury_logs'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    date = Column(String)          # YYYY-MM-DD the problem was noted
+    area = Column(String)          # body area, e.g. "Höger knä"
+    severity = Column(Integer)     # 1-10, how limiting it is right now
+    note = Column(String)
+    status = Column(String, default='active')   # 'active' or 'resolved'
+    resolved_date = Column(String)              # YYYY-MM-DD, set when status='resolved'
+    created_at = Column(String)
+
+
 class TrainerStrengthLog(Base):
     """One logged strength set/exercise result, used to drive progressive overload.
 

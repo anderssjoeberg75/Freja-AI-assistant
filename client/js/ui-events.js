@@ -1722,6 +1722,62 @@ FrejaUIController.prototype.bindEvents = function () {
         });
     }
 
+    // Log an injury / pain entry (feeds plan generation and optimization)
+    const btnLogInjury = document.getElementById('btn-log-injury');
+    if (btnLogInjury) {
+        btnLogInjury.addEventListener('click', async () => {
+            const area = (document.getElementById('trainer-injury-area') || {}).value?.trim() || '';
+            if (!area) {
+                self.writeLog("INJURY LOG: BODY AREA MISSING", "err");
+                soundSynth.playError();
+                alert("Enter the body area that hurts.");
+                return;
+            }
+            const severityEl = document.getElementById('trainer-injury-severity');
+            const noteEl = document.getElementById('trainer-injury-note');
+            soundSynth.playClick();
+            btnLogInjury.disabled = true;
+            try {
+                const res = await fetch('/api/trainer/injuries', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        area: area,
+                        severity: severityEl && severityEl.value.trim() !== '' ? parseInt(severityEl.value, 10) : null,
+                        note: noteEl ? noteEl.value.trim() : ''
+                    })
+                });
+                if (res.ok) {
+                    self.writeLog(`INJURY LOGGED: ${area.toUpperCase()}`, "sys");
+                    soundSynth.playNotify();
+                    ['trainer-injury-area', 'trainer-injury-severity', 'trainer-injury-note'].forEach(id => {
+                        const el = document.getElementById(id);
+                        if (el) el.value = '';
+                    });
+                    self.loadInjuryLogUI();
+                } else {
+                    const err = await res.json().catch(() => ({}));
+                    throw new Error(err.detail || `HTTP ${res.status}`);
+                }
+            } catch (e) {
+                self.writeLog(`INJURY LOG ERROR: ${e.message}`, "err");
+                soundSynth.playError();
+                alert(`Could not log the injury: ${e.message}`);
+            } finally {
+                btnLogInjury.disabled = false;
+            }
+        });
+    }
+
+    // Redraw the trend charts when the window length changes
+    const trainerTrendRange = document.getElementById('trainer-trend-range');
+    if (trainerTrendRange) {
+        trainerTrendRange.addEventListener('change', () => {
+            soundSynth.playClick();
+            self.loadTrainerTrendsUI();
+        });
+    }
+
     // Generate Trainer Plan
     const btnGenerateTrainerPlan = document.getElementById('btn-generate-trainer-plan');
     if (btnGenerateTrainerPlan) {
