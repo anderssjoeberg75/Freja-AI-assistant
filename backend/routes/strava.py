@@ -110,11 +110,11 @@ async def run_strava_sync_task(client_id, client_secret, refresh_token, days: in
         if isinstance(overwrite, FastAPIQuery):
             overwrite = False
 
-        # Clear existing activities if requested (overwrite mode)
-        if overwrite:
-            with get_db_connection() as conn:
-                conn.cursor().execute("DELETE FROM strava_activities")
-                conn.commit()
+        # NOTE: overwrite mode deliberately does NOT delete here. The replacement rows do
+        # not exist yet at this point, so clearing the table up front means an expired
+        # refresh token, a rate limit or a network blip destroys the user's entire history
+        # with nothing to put back. The delete happens in the same transaction as the
+        # insert below, once the activities are actually in hand.
 
         if client_id == '123456' or refresh_token in ('refreshtokentoken', 'MOCK_REFRESH_TOKEN'):
             # Demo mode: seed the dashboard with plausible activities so the HUD is not empty
@@ -122,6 +122,8 @@ async def run_strava_sync_task(client_id, client_secret, refresh_token, days: in
             # they are displayed to the user exactly as a real synced activity would be.
             with get_db_connection() as conn:
                 cursor = conn.cursor()
+                if overwrite:
+                    cursor.execute("DELETE FROM strava_activities")
                 today = datetime.date.today()
                 mock_activities = [
                     (-1, 'Morgonlöpning i parken', 'Löpning', (today - datetime.timedelta(days=1)).strftime('%Y-%m-%d'), 8500.0, 2800, 2950, 45.0, 3.03, 4.2, 148.0, 172.0, 620.0),
@@ -192,6 +194,10 @@ async def run_strava_sync_task(client_id, client_secret, refresh_token, days: in
             
         with get_db_connection() as conn:
             cursor = conn.cursor()
+            # Overwrite replaces the history atomically: the delete only lands if the
+            # inserts below commit with it, so a failure part-way leaves the old rows intact.
+            if overwrite:
+                cursor.execute("DELETE FROM strava_activities")
             for act in activities:
                 act_id = act.get('id')
                 name = act.get('name')
@@ -241,41 +247,14 @@ async def run_strava_sync_task(client_id, client_secret, refresh_token, days: in
             conn.commit()
         set_sync_state("strava", "success")
     except Exception as e:
-        print(f"Strava sync failed, falling back to mock: {e}")
-        try:
-            with get_db_connection() as conn:
-                cursor = conn.cursor()
-                today = datetime.date.today()
-                mock_activities = [
-                    (-1, 'Morgonlöpning i parken', 'Löpning', (today - datetime.timedelta(days=1)).strftime('%Y-%m-%d'), 8500.0, 2800, 2950, 45.0, 3.03, 4.2, 148.0, 172.0, 620.0),
-                    (-2, 'Kvällscykling', 'Cykling', (today - datetime.timedelta(days=3)).strftime('%Y-%m-%d'), 25000.0, 3600, 3800, 120.0, 6.94, 11.2, 135.0, 155.0, 780.0),
-                    (-3, 'Styrkepass - Ben & Bål', 'Styrketräning', (today - datetime.timedelta(days=5)).strftime('%Y-%m-%d'), 0.0, 2700, 3200, 0.0, 0.0, 0.0, 118.0, 145.0, 350.0),
-                    (-4, 'Snabbdistans Löpning', 'Löpning', (today - datetime.timedelta(days=8)).strftime('%Y-%m-%d'), 5200.0, 1750, 1800, 25.0, 2.97, 4.0, 142.0, 168.0, 380.0),
-                    (-5, 'Aktiv återhämtning Promenad', 'Promenad', (today - datetime.timedelta(days=11)).strftime('%Y-%m-%d'), 4000.0, 3000, 3100, 15.0, 1.33, 1.8, 98.0, 115.0, 220.0)
-                ]
-                for act in mock_activities:
-                    cursor.execute('''
-                        INSERT INTO strava_activities (id, name, type, date, distance, moving_time, elapsed_time, total_elevation_gain, average_speed, max_speed, average_heartrate, max_heartrate, calories)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        ON CONFLICT(id) DO UPDATE SET
-                            name = excluded.name,
-                            type = excluded.type,
-                            date = excluded.date,
-                            distance = excluded.distance,
-                            moving_time = excluded.moving_time,
-                            elapsed_time = excluded.elapsed_time,
-                            total_elevation_gain = excluded.total_elevation_gain,
-                            average_speed = excluded.average_speed,
-                            max_speed = excluded.max_speed,
-                            average_heartrate = excluded.average_heartrate,
-                            max_heartrate = excluded.max_heartrate,
-                            calories = excluded.calories
-                    ''', act)
-                conn.commit()
-            set_sync_state("strava", "success")
-        except Exception as mock_err:
-            print(f"[STRAVA SYNC TASK ERROR]: {mock_err}")
-            set_sync_state("strava", "error", str(mock_err))
+        # A failed sync must surface as a failure. This used to seed the five demo
+        # activities as a "fallback" and then report success, which meant an expired
+        # refresh token silently replaced the user's real training history with
+        # fabricated workouts - and those fabrications then fed the PT coach's adherence
+        # figures and training advice. Demo seeding now belongs solely to the explicit
+        # demo-credential path above, where no real data is at stake.
+        print(f"[STRAVA SYNC TASK ERROR]: {e}")
+        set_sync_state("strava", "error", str(e))
 
 @router.get("/api/strava/sync")
 async def get_strava_sync(

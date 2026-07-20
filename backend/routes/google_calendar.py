@@ -95,6 +95,19 @@ async def run_google_calendar_sync_task():
         await asyncio.sleep(1.5)  # Simulate network latency
         access_token = await get_google_access_token()
 
+        # `get_google_access_token` returns None both when nothing is configured and when a
+        # configured refresh token fails (revoked, expired, network). Only the first case is
+        # demo mode; treating the second as demo reported "success" for a sync that never
+        # happened, so the user saw a green tick while their calendar silently went stale.
+        if not access_token and (
+            get_api_key('freja_google_calendar_client_id') and
+            get_api_key('freja_google_calendar_refresh_token')
+        ):
+            raise Exception(
+                "Could not refresh the Google Calendar access token. "
+                "The authorization may have been revoked - reconnect the account in Settings."
+            )
+
         if not access_token or access_token == "MOCK_ACCESS_TOKEN":
             # Mock Sync: Just ensure seed data exists and matches current date context
             with get_db_connection() as conn:
@@ -140,9 +153,27 @@ async def run_google_calendar_sync_task():
         with get_db_connection() as conn:
             cursor = conn.cursor()
             
-            # Pull down current list of google_event_ids to merge/upsert
-            cursor.execute("SELECT google_event_id, id FROM google_calendar_events WHERE google_event_id IS NOT NULL")
+            # Pull down current list of google_event_ids to merge/upsert.
+            # Scoped to the same window the fetch above covered: the cleanup below deletes
+            # every mapped event missing from the response, so including rows outside the
+            # window would delete events that are still perfectly alive in Google - which
+            # silently removed PT sessions booked more than 30 days out (plans can run
+            # several weeks ahead) while leaving their trainer_bookings rows dangling.
+            window_min = time_min[:10]
+            window_max = time_max[:10]
+            cursor.execute(
+                """SELECT google_event_id, id FROM google_calendar_events
+                   WHERE google_event_id IS NOT NULL
+                     AND SUBSTR(start_time, 1, 10) >= ?
+                     AND SUBSTR(start_time, 1, 10) <= ?""",
+                (window_min, window_max)
+            )
             existing_mapping = {row[0]: row[1] for row in cursor.fetchall()}
+
+            # Upserts must still match on any existing row, in or out of the window, so a
+            # returned event never gets inserted a second time.
+            cursor.execute("SELECT google_event_id FROM google_calendar_events WHERE google_event_id IS NOT NULL")
+            all_known_ids = {row[0] for row in cursor.fetchall()}
             
             synced_ids = set()
             for item in events_data:
@@ -165,7 +196,7 @@ async def run_google_calendar_sync_task():
                     
                 synced_ids.add(g_id)
                 
-                if g_id in existing_mapping:
+                if g_id in all_known_ids:
                     # Update
                     cursor.execute('''
                         UPDATE google_calendar_events 

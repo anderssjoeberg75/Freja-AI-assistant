@@ -52,6 +52,75 @@ def test_post_and_delete_google_calendar_event(auth_headers):
     assert del_response.status_code == 200
     assert del_response.json().get("status") == "success"
 
+@pytest.mark.asyncio
+async def test_sync_keeps_events_outside_the_fetched_window(monkeypatch):
+    """A sync must not delete events that lie outside the ±30-day window it fetched.
+
+    The cleanup pass removes mapped events missing from the API response. It used to load
+    every mapped row regardless of date, so a session booked more than 30 days ahead - PT
+    plans run several weeks out - was deleted locally on the next sync while still living
+    in Google Calendar, leaving its trainer_bookings row dangling.
+    """
+    import datetime
+    import backend.routes.google_calendar as gcal
+
+    far_future = (datetime.date.today() + datetime.timedelta(days=75)).strftime('%Y-%m-%d')
+    in_window = (datetime.date.today() + datetime.timedelta(days=3)).strftime('%Y-%m-%d')
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        for gid in ("evt-far-future", "evt-in-window"):
+            cursor.execute("DELETE FROM google_calendar_events WHERE google_event_id = ?", (gid,))
+        cursor.execute(
+            """INSERT INTO google_calendar_events
+               (google_event_id, summary, description, start_time, end_time, location)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            ("evt-far-future", "💪 Löpning: långt fram", "", f"{far_future}T08:00:00",
+             f"{far_future}T09:00:00", "F.R.E.J.A. PT")
+        )
+        cursor.execute(
+            """INSERT INTO google_calendar_events
+               (google_event_id, summary, description, start_time, end_time, location)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            ("evt-in-window", "Möte", "", f"{in_window}T10:00:00", f"{in_window}T11:00:00", "")
+        )
+        conn.commit()
+
+    async def fake_token():
+        return "REAL_LOOKING_TOKEN"
+    monkeypatch.setattr(gcal, "get_google_access_token", fake_token)
+
+    class EmptyCalendarClient:
+        """Google answers 200 with no events in the window."""
+        def __init__(self, *a, **k):
+            pass
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *a):
+            return False
+        async def get(self, *a, **k):
+            class R:
+                status_code = 200
+                text = ""
+                def json(self):
+                    return {"items": []}
+            return R()
+
+    monkeypatch.setattr(gcal, "shared_client", EmptyCalendarClient)
+    await gcal.run_google_calendar_sync_task()
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM google_calendar_events WHERE google_event_id = 'evt-far-future'")
+        far_survived = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM google_calendar_events WHERE google_event_id = 'evt-in-window'")
+        in_window_removed = cursor.fetchone()[0]
+
+    assert far_survived == 1, "a sync deleted an event booked beyond the fetched window"
+    # An event inside the window that Google no longer returns is genuinely gone.
+    assert in_window_removed == 0
+
+
 def test_google_calendar_sync_trigger(auth_headers):
     client = TestClient(app)
     response = client.get("/api/google_calendar/sync", headers=auth_headers)
