@@ -840,7 +840,7 @@ FrejaUIController.prototype.buildTrendCard = function (cfg) {
     // A sparkline needs at least two points to draw a line between.
     if (points.length < 2) {
         return `
-            <div style="background: rgba(0,0,0,0.3); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px;">
+            <div class="trend-metric-card" style="padding: 10px;">
                 <div style="font-size: 9px; color: var(--color-text-muted); font-family: var(--font-display); letter-spacing: 0.5px;">${label}</div>
                 <div style="font-size: 11px; color: var(--color-text-muted); font-family: var(--font-mono); padding: 12px 0;">[NOT ENOUGH DATA]</div>
             </div>
@@ -865,7 +865,7 @@ FrejaUIController.prototype.buildTrendCard = function (cfg) {
     }
 
     return `
-        <div style="background: rgba(0,0,0,0.3); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px; display: flex; flex-direction: column; gap: 6px;">
+        <div class="trend-metric-card" style="padding: 10px; display: flex; flex-direction: column; gap: 6px;">
             <div style="display: flex; justify-content: space-between; align-items: center;">
                 <span style="font-size: 9px; color: var(--color-text-muted); font-family: var(--font-display); letter-spacing: 0.5px;">${label}</span>
                 ${changeHtml}
@@ -947,11 +947,11 @@ FrejaUIController.prototype.loadTrainerTrendsUI = async function () {
         const missed = (adherence.missed_dates || []).slice(-6);
 
         const adherenceCard = planned === 0
-            ? `<div style="background: rgba(0,0,0,0.3); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px;">
+            ? `<div class="trend-metric-card" style="padding: 10px;">
                    <div style="font-size: 9px; color: var(--color-text-muted); font-family: var(--font-display); letter-spacing: 0.5px;">ADHERENCE (PLANNED VS COMPLETED)</div>
                    <div style="font-size: 11px; color: var(--color-text-muted); font-family: var(--font-mono); padding: 8px 0;">[NO BOOKED SESSIONS IN THIS WINDOW]</div>
                </div>`
-            : `<div style="background: rgba(0,0,0,0.3); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px; display: flex; flex-direction: column; gap: 8px;">
+            : `<div class="trend-metric-card" style="padding: 10px; display: flex; flex-direction: column; gap: 8px;">
                    <div style="display: flex; justify-content: space-between; align-items: baseline;">
                        <span style="font-size: 9px; color: var(--color-text-muted); font-family: var(--font-display); letter-spacing: 0.5px;">ADHERENCE (PLANNED VS COMPLETED)</span>
                        <span style="font-size: 10px; font-family: var(--font-mono); color: ${barColor};">${pct !== null && pct !== undefined ? pct + '%' : '-'}</span>

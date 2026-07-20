@@ -935,10 +935,10 @@
                 </div>
 
                 <!-- Trend & adherence charts -->
-                <div class="trainer-trends" style="display: flex; flex-direction: column; gap: 10px; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--color-border); border-radius: 4px; padding: 12px;">
+                <div class="trainer-trends trainer-card-box">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <span style="font-size: 11px; color: var(--color-primary); font-family: var(--font-display); letter-spacing: 0.5px;"><i class="fa-solid fa-chart-line"></i> TRENDS &amp; ADHERENCE</span>
-                        <select id="trainer-trend-range" class="hud-input" style="height: 26px; font-size: 11px; background: #0c1020; color: var(--color-text-bright); border: 1px solid var(--color-border); padding: 0 4px; width: auto;">
+                        <select id="trainer-trend-range" class="hud-input" style="height: 26px; font-size: 11px; padding: 0 4px; width: auto;">
                             <option value="14">14 days</option>
                             <option value="28" selected>28 days</option>
                             <option value="90">90 days</option>
@@ -950,7 +950,7 @@
                 </div>
 
                 <!-- Configuration Form / Onboarding Profile -->
-                <div class="trainer-profile-form" style="display: flex; flex-direction: column; gap: 10px; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--color-border); border-radius: 4px; padding: 12px;">
+                <div class="trainer-profile-form trainer-card-box">
                     <span style="font-size: 11px; color: var(--color-primary); font-family: var(--font-display); letter-spacing: 0.5px;"><i class="fa-solid fa-user-gear"></i> TRAINING PROFILE & ONBOARDING</span>
                     
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
@@ -1017,7 +1017,7 @@
                 </div>
 
                 <!-- Strength Log (progressive overload) -->
-                <div class="trainer-strength-form" style="display: flex; flex-direction: column; gap: 10px; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--color-border); border-radius: 4px; padding: 12px;">
+                <div class="trainer-strength-form trainer-card-box">
                     <span style="font-size: 11px; color: var(--color-primary); font-family: var(--font-display); letter-spacing: 0.5px;"><i class="fa-solid fa-dumbbell"></i> STRENGTH LOG (SETS / REPS / WEIGHT)</span>
                     <div style="display: grid; grid-template-columns: 4fr 0.5fr 0.5fr 0.5fr 0.5fr; gap: 8px; align-items: end;">
                         <div style="display: flex; flex-direction: column; gap: 4px;">
@@ -1046,7 +1046,7 @@
                 </div>
 
                 <!-- Injury / pain log (feeds plan generation and optimization) -->
-                <div class="trainer-injury-form" style="display: flex; flex-direction: column; gap: 10px; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--color-border); border-radius: 4px; padding: 12px;">
+                <div class="trainer-injury-form trainer-card-box">
                     <span style="font-size: 11px; color: var(--color-primary); font-family: var(--font-display); letter-spacing: 0.5px;"><i class="fa-solid fa-kit-medical"></i> INJURY / PAIN LOG</span>
                     <p style="font-size: 10px; color: var(--color-text-muted); margin: 0; line-height: 1.4;">Active entries are read by COACH AI when generating and optimizing plans - affected sessions are automatically eased or swapped.</p>
                     <div style="display: grid; grid-template-columns: 2fr 0.8fr 3fr; gap: 8px; align-items: end;">
@@ -1068,7 +1068,7 @@
                 </div>
 
                 <!-- PT Settings -->
-                <div class="trainer-settings" style="display: flex; flex-direction: column; gap: 10px; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--color-border); border-radius: 4px; padding: 12px;">
+                <div class="trainer-settings trainer-card-box">
                     <span style="font-size: 11px; color: var(--color-primary); font-family: var(--font-display); letter-spacing: 0.5px;"><i class="fa-solid fa-sliders"></i> PT SETTINGS</span>
                     <label style="display: flex; align-items: flex-start; gap: 8px; font-size: 12px; color: var(--color-text); cursor: pointer;">
                         <input type="checkbox" id="chk-trainer-auto-adjust" checked style="margin-top: 2px;">
