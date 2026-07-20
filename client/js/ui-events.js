@@ -89,6 +89,9 @@ FrejaUIController.prototype.bindEvents = function () {
         });
     }
 
+    // Auto-start client interface directly on page load
+    removeShield();
+
     // Voice Microphone Activation Toggle Button
     const btnMic = document.getElementById('btn-mic');
     btnMic.addEventListener('click', () => {
