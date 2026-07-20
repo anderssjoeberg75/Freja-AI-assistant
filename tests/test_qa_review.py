@@ -207,10 +207,17 @@ class TestToolAuthorization:
         assert tools._grant_key("codex_git_ops", {"action": "push"}) == "codex_git_ops:push"
         assert tools._grant_key("codex_git_ops", {"action": "status"}) == "codex_git_ops"
 
-    def test_unknown_tool_has_no_gate(self):
+    def test_ungated_tool_is_denied_not_allowed(self):
+        """A tool without a permission key must fail CLOSED.
+
+        This previously asserted the opposite - that a missing key meant "not gated,
+        allow it". That contract turned an authoring slip into a security hole: two
+        trainer tools were merged without a permission_key, and one of them
+        (update_trainer_workout) edits the user's calendar, so it became callable with
+        no permission check at all. Denying instead degrades to a confirmation prompt.
+        """
         from backend.routes import tools
-        # A tool with no permission key is not gated (returns True).
-        assert tools.is_tool_permanently_allowed("some_unregistered_tool") is True
+        assert tools.is_tool_permanently_allowed("some_unregistered_tool") is False
 
     def test_expired_grant_not_consumed(self):
         from backend.routes import tools

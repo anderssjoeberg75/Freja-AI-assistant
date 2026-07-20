@@ -1510,6 +1510,7 @@ async def _build_trainer_context_summary(days: int = 14) -> dict:
 @registry.register(
     name="get_trainer_workouts",
     description="Retrieves scheduled PT training sessions, active training plan goal, limitations/injuries, and recent Garmin/Strava running history so Freja can discuss workout rationale and progression with the user.",
+    permission_key="freja_tool_get_trainer_workouts_allowed",
     parameters={
         "type": "OBJECT",
         "properties": {
@@ -1528,6 +1529,7 @@ async def exec_get_trainer_workouts(args):
 @registry.register(
     name="update_trainer_workout",
     description="Updates or adjusts a specific scheduled workout in the user's PT training plan (e.g. changing duration, title, description, or activity type based on coaching decisions).",
+    permission_key="freja_tool_update_trainer_workout_allowed",
     parameters={
         "type": "OBJECT",
         "properties": {

@@ -35,8 +35,14 @@ def is_tool_permanently_allowed(name: str) -> bool:
     """Checks the persisted (server-side) permission flag for a tool, set via Settings."""
     permission_key = TOOL_PERMISSION_KEYS.get(name)
     if not permission_key:
-        # Tool has no permission gate defined; nothing to enforce.
-        return True
+        # Fail closed. Every registered tool is supposed to declare a permission_key (the
+        # invariant test_derived_structures_cover_every_tool enforces), so reaching this
+        # branch means one was added without a gate. Returning True there silently granted
+        # the tool blanket access - which is how update_trainer_workout, a tool that edits
+        # the user's calendar, briefly became callable with no permission check at all.
+        # Denying instead degrades to a confirmation prompt rather than a hole.
+        print(f"[TOOLS] '{name}' has no permission_key; denying by default.")
+        return False
     try:
         value = get_api_key(permission_key)
         return bool(value and value.strip().lower() == "true")
