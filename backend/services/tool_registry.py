@@ -1462,6 +1462,119 @@ async def exec_get_trainer_workouts(args):
     return await _build_trainer_context_summary(days)
 
 
+@registry.register(
+    name="update_trainer_workout",
+    description="Updates or adjusts a specific scheduled workout in the user's PT training plan (e.g. changing duration, title, description, or activity type based on coaching decisions).",
+    parameters={
+        "type": "OBJECT",
+        "properties": {
+            "workout_date": {
+                "type": "STRING",
+                "description": "Date of the workout to update in YYYY-MM-DD format (e.g. '2026-07-20')."
+            },
+            "duration_minutes": {
+                "type": "INTEGER",
+                "description": "New duration in minutes (e.g. 35)."
+            },
+            "title": {
+                "type": "STRING",
+                "description": "Updated workout title (e.g. 'Lugnt pass med gå-pauser')."
+            },
+            "description": {
+                "type": "STRING",
+                "description": "Updated detailed description and structure of the workout."
+            },
+            "activity_type": {
+                "type": "STRING",
+                "description": "Activity type (e.g. 'Löpning', 'Styrketräning', 'Aktiv vila', 'Cykling')."
+            }
+        },
+        "required": ["workout_date"]
+    },
+)
+async def exec_update_trainer_workout(args):
+    w_date = str(args.get("workout_date", "")).strip()
+    new_dur = args.get("duration_minutes")
+    new_title = str(args.get("title", "")).strip()
+    new_desc = str(args.get("description", "")).strip()
+    new_act = str(args.get("activity_type", "")).strip()
+
+    if not w_date:
+        return {"error": "workout_date is required."}
+
+    updated_plan = False
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT id, advice_text FROM trainer_plans
+            ORDER BY id DESC LIMIT 1
+        ''')
+        plan_row = cursor.fetchone()
+        if plan_row:
+            plan_id, advice_text = plan_row
+            try:
+                cleaned = advice_text.replace("```json", "").replace("```", "").strip()
+                plan_json = json.loads(cleaned)
+                workouts = plan_json.get("workouts", [])
+
+                day_offsets = {"måndag": 0, "tisdag": 1, "onsdag": 2, "torsdag": 3, "fredag": 4, "lördag": 5, "söndag": 6}
+                target_dt = datetime.datetime.strptime(w_date, "%Y-%m-%d").date()
+                target_dow = target_dt.weekday()
+
+                for w in workouts:
+                    d_name = str(w.get("day", "")).lower()
+                    if day_offsets.get(d_name) == target_dow:
+                        if new_dur is not None: w["duration_minutes"] = int(new_dur)
+                        if new_title: w["title"] = new_title
+                        if new_desc: w["description"] = new_desc
+                        if new_act: w["activity_type"] = new_act
+                        updated_plan = True
+                        break
+
+                if updated_plan:
+                    cursor.execute('''
+                        UPDATE trainer_plans SET advice_text = ? WHERE id = ?
+                    ''', (json.dumps(plan_json, ensure_ascii=False, indent=2), plan_id))
+                    conn.commit()
+            except Exception as p_err:
+                print(f"[UPDATE WORKOUT] Plan update error: {p_err}")
+
+    events_updated = 0
+    try:
+        from backend.routes.google_calendar import core_get_calendar_data, core_save_calendar_event
+        events = core_get_calendar_data(14)
+        for ev in events:
+            if (ev.get("start_time") or "")[:10] == w_date:
+                summary = new_title or ev.get("summary")
+                if new_act and not summary.startswith("💪"):
+                    summary = f"💪 {new_act}: {summary}"
+                start_dt = ev.get("start_time")
+                end_dt = ev.get("end_time")
+                if new_dur and start_dt and len(start_dt) >= 16:
+                    s_time = datetime.datetime.strptime(start_dt[:16], "%Y-%m-%dT%H:%M")
+                    e_time = s_time + datetime.timedelta(minutes=int(new_dur))
+                    end_dt = e_time.strftime("%Y-%m-%dT%H:%M")
+
+                await core_save_calendar_event(
+                    summary=summary,
+                    start_time=start_dt[:16],
+                    end_time=end_dt[:16] if end_dt else start_dt[:16],
+                    description=new_desc or ev.get("description", ""),
+                    location=ev.get("location", ""),
+                    db_id=ev.get("id")
+                )
+                events_updated += 1
+    except Exception as c_err:
+        print(f"[UPDATE WORKOUT] Calendar update error: {c_err}")
+
+    return {
+        "status": "success",
+        "message": f"Workout on {w_date} updated successfully.",
+        "plan_updated": updated_plan,
+        "events_updated": events_updated
+    }
+
+
 # ---------------------------------------------------------------------------
 # 3. IMPORTED / ALIASED EXECUTORS
 #
