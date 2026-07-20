@@ -837,22 +837,31 @@ FrejaUIController.prototype.buildTrendCard = function (cfg) {
     const changePct = cfg.changePct;
     const goodDir = cfg.goodDirection || 'up';
 
-    let latestVal = '-';
-    if (points.length > 0) {
-        latestVal = `${points[points.length - 1].value}${unit}`;
+    // A sparkline needs at least two points to draw a line between.
+    if (points.length < 2) {
+        return `
+            <div style="background: rgba(0,0,0,0.3); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px;">
+                <div style="font-size: 9px; color: var(--color-text-muted); font-family: var(--font-display); letter-spacing: 0.5px;">${label}</div>
+                <div style="font-size: 11px; color: var(--color-text-muted); font-family: var(--font-mono); padding: 12px 0;">[NOT ENOUGH DATA]</div>
+            </div>
+        `;
     }
 
+    const latestVal = `${points[points.length - 1].value}${unit}`;
+
     let changeHtml = '';
-    if (changePct !== null && changePct !== undefined) {
+    if (changePct !== null && changePct !== undefined && !isNaN(changePct)) {
+        // "Good" points in opposite directions per metric: a falling RHR is good, a
+        // falling HRV is not, so each card says which way is favourable.
         const isGood = (goodDir === 'up' && changePct >= 0) || (goodDir === 'down' && changePct <= 0);
         const arrow = changePct >= 0 ? '▲' : '▼';
-        const cColor = isGood ? '#30d158' : '#ff3b30';
-        changeHtml = `<span style="color: ${cColor}; font-size: 10px; font-family: var(--font-mono);">${arrow} ${Math.abs(changePct)}%</span>`;
+        const cColor = Math.abs(changePct) < 1 ? 'var(--color-text-muted)' : (isGood ? '#30d158' : '#ff9f0a');
+        changeHtml = `<span style="color: ${cColor}; font-size: 10px; font-family: var(--font-mono);">${arrow} ${Math.abs(changePct).toFixed(1)}%</span>`;
     }
 
     let baselineHtml = '';
-    if (baseline !== null && baseline !== undefined) {
-        baselineHtml = `<span style="color: var(--color-text-muted); font-size: 9px; font-family: var(--font-mono);">Base: ${baseline}${unit}</span>`;
+    if (baseline !== null && baseline !== undefined && !isNaN(baseline)) {
+        baselineHtml = `<span style="color: var(--color-text-muted); font-size: 9px; font-family: var(--font-mono);">Base: ${Number(baseline).toFixed(1)}${unit}</span>`;
     }
 
     return `
@@ -864,6 +873,11 @@ FrejaUIController.prototype.buildTrendCard = function (cfg) {
             <div style="display: flex; justify-content: space-between; align-items: baseline;">
                 <span style="font-size: 16px; font-weight: bold; color: ${color}; font-family: var(--font-mono);">${latestVal}</span>
                 ${baselineHtml}
+            </div>
+            ${this.buildTrendSparkline(points, { color: color, baseline: baseline })}
+            <div style="display: flex; justify-content: space-between; font-size: 9px; color: var(--color-text-muted); font-family: var(--font-mono);">
+                <span>${points[0].date}</span>
+                <span>${points[points.length - 1].date}</span>
             </div>
         </div>
     `;
@@ -884,19 +898,14 @@ FrejaUIController.prototype.loadTrainerTrendsUI = async function () {
         const res = await fetch(`/api/trainer/trends?days=${days}`);
         if (res.ok) {
             data = await res.json();
+        } else if (res.status === 401) {
+            // Say so plainly. This used to fall back to the stored profile baselines and,
+            // failing those, to literal placeholders (62 bpm / 23 ms) - so an unauthenticated
+            // HUD drew a confident-looking chart out of numbers that were never measured.
+            container.innerHTML = '<div style="color: #ffb020; text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 16px; line-height: 1.5;">[NOT AUTHENTICATED]<br>Enter your access token in Settings to load trends.</div>';
+            return;
         } else {
-            console.warn(`[TRAINER] Trends endpoint returned ${res.status}. Falling back to stored profile baselines.`);
-            const pRes = await fetch('/api/trainer/profile');
-            const pData = pRes.ok ? await pRes.json() : {};
-            data = {
-                series: [],
-                trends: {},
-                baselines: {
-                    resting_hr: pData.baseline_resting_hr || 62,
-                    hrv: pData.baseline_hrv || 23
-                },
-                adherence: { planned: 0, completed: 0 }
-            };
+            throw new Error(`HTTP ${res.status}`);
         }
 
         const series = data.series || [];

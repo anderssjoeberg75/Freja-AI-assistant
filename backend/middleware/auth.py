@@ -116,10 +116,18 @@ class FrejaAuthMiddleware(BaseHTTPMiddleware):
                 headers={"Retry-After": str(LOCKOUT_SECONDS)}
             )
 
-        # 3. Allow local loopback requests (127.0.0.1 / ::1 / localhost / LAN) unless explicitly disabled.
+        # 3. Allow local loopback requests (127.0.0.1 / ::1 / localhost) only if the bypass is
+        #    explicitly enabled. Both conditions are required, and the default is OFF.
+        #
+        #    This was briefly `ip in (...) or bypass_env in (...)` with the env var defaulting
+        #    to "true". Because the operands are OR-ed, the second one was satisfied for every
+        #    request, so the IP test never mattered and the middleware authenticated *all*
+        #    callers from *any* address - combined with `GET /api/keys?unmask=true` and the
+        #    wildcard CORS policy, that exposed every stored secret to anyone who could reach
+        #    the port. Keep this an AND, and keep the default off.
         import os
-        bypass_env = os.environ.get("FREJA_ALLOW_LOCALHOST_BYPASS", "true").lower()
-        if ip in ("127.0.0.1", "::1", "localhost", "192.168.107.15") or bypass_env in ("true", "1", "yes"):
+        bypass_enabled = os.environ.get("FREJA_ALLOW_LOCALHOST_BYPASS", "").lower() in ("true", "1", "yes")
+        if bypass_enabled and ip in ("127.0.0.1", "::1", "localhost"):
             _record_success(ip)
             return await call_next(request)
 
