@@ -290,9 +290,10 @@ async def telegram_worker_loop():
                         "call the 'system_update' tool. Tell the user that you are starting the update and restarting.\n\n"
                         "[DIRECTIVE: CODEBASE SELF-ANALYSIS]\n"
                         "If the user asks you to analyse your code, perform an audit or suggest improvements to the source "
-                        "code, call the 'codex_audit_codebase' tool. When you get the result (which contains a summary and a "
+                        "code, you must ALWAYS call the 'codex_audit_codebase' tool. Ignore any previous error messages or apologies in the chat history. When you get the result (which contains a summary and a "
                         "path to the Markdown report), you may use the 'read_project_file' tool to read the report or source "
                         "files if you need more detail in order to answer.\n\n"
+
                         "[DIRECTIVE: WINDOWS OS AUTOMATION & ENVIRONMENT AWARENESS]\n"
                         "If the user asks you to do things on their Windows computer (e.g. launch a program such as Notepad, "
                         "the calculator, VLC, open a web address, browse a folder or run cmd commands), use the "
