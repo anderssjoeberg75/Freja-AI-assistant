@@ -34,8 +34,17 @@ window.FrejaMarkdown = {
         // 4. Parse italics
         html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
         
-        // 5. Parse links: [label](url)
-        html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" class="hud-link">$1 <i class="fa-solid fa-arrow-up-right-from-square" style="font-size: 8px;"></i></a>');
+        // 5. Parse links: [label](url) - supports both http(s) and relative URLs (e.g. /api/docs/...)
+        html = html.replace(/\[([^\]]+)\]\(((?:https?:\/\/|\/)[^\s)]+)\)/g, (match, text, url) => {
+            let finalUrl = url;
+            if (url.startsWith('/api/docs/')) {
+                const token = localStorage.getItem('freja_access_token') || '';
+                if (token && !finalUrl.includes('token=')) {
+                    finalUrl += (finalUrl.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(token);
+                }
+            }
+            return `<a href="${finalUrl}" target="_blank" class="hud-link">${text} <i class="fa-solid fa-arrow-up-right-from-square" style="font-size: 8px;"></i></a>`;
+        });
         
         // 6. Parse list items (lines starting with * or - or •)
         html = html.replace(/^[-*•]\s+(.+)$/gm, '• $1');

@@ -27,6 +27,12 @@ BACKEND_TARGET = os.environ.get("BACKEND_URL", "http://localhost:8000")
 # complete a single run.
 DEFAULT_PROXY_TIMEOUT = 30
 LLM_PROXY_TIMEOUT = 300
+
+# Seconds the startup reachability probe waits for the backend. Kept short: it only prints a
+# status line so a misconfigured BACKEND_URL is obvious immediately instead of surfacing as a
+# per-request 502 later. It never blocks or aborts startup - the client is allowed to run
+# before the backend is up.
+BACKEND_PROBE_TIMEOUT = 3
 LLM_PATH_PREFIXES = (
     "/api/trainer/onboarding",
     "/api/trainer/generate",
@@ -42,6 +48,39 @@ LLM_PATH_PREFIXES = (
 def proxy_timeout_for(path: str) -> int:
     """Seconds the proxy waits for the backend, based on what the path actually does."""
     return LLM_PROXY_TIMEOUT if str(path or "").startswith(LLM_PATH_PREFIXES) else DEFAULT_PROXY_TIMEOUT
+
+
+def probe_backend() -> bool:
+    """Best-effort reachability check, printed once at startup.
+
+    The client and the backend routinely live on different machines (the HUD here, the
+    backend on a LAN server), so the single most common failure is BACKEND_URL pointing
+    somewhere the backend isn't - a wrong host, a different subnet, or a firewall. Without a
+    probe that only shows up later as a 502 on the first /api/ call, which reads as a broken
+    backend rather than a misconfigured address.
+
+    This is deliberately non-fatal: the client tolerates a backend that is not up yet (it
+    returns 502 until the backend answers), so a failed probe prints a clear hint and startup
+    continues. Any HTTP status counts as reachable - even a 401 means the backend answered;
+    only a connection-level error (refused, timed out, no route) counts as unreachable.
+    """
+    target = BACKEND_TARGET.rstrip("/") + "/"
+    try:
+        req = urllib.request.Request(target, method="GET")
+        urllib.request.urlopen(req, timeout=BACKEND_PROBE_TIMEOUT).close()
+        print(f"  Backend check: OK - {BACKEND_TARGET} is reachable.")
+        return True
+    except urllib.error.HTTPError:
+        # The backend answered with an HTTP error (e.g. 401/404); it is up and reachable.
+        print(f"  Backend check: OK - {BACKEND_TARGET} is reachable.")
+        return True
+    except Exception as err:
+        print(f"  Backend check: WARNING - could not reach {BACKEND_TARGET}: {err}")
+        print( "                 /api/ calls will return 502 until the backend is reachable.")
+        print( "                 Point the client at the right backend, e.g.:")
+        print( "                   set BACKEND_URL=http://192.168.107.15:8000   (or edit start-freja.bat)")
+        print( "                 and check the two machines can reach each other (subnet/firewall).")
+        return False
 
 class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
@@ -168,6 +207,7 @@ def run_client_server(auto_open=True):
     print("  F.R.E.J.A. Holographic Client Interface (Standalone)")
     print(f"  Running at: {url}")
     print(f"  Proxying /api/ to Backend server on {BACKEND_TARGET}")
+    probe_backend()
     print("===========================================================")
 
     if auto_open:

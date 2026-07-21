@@ -2430,6 +2430,23 @@ async def trainer_daily_checkin(request: Request):
             for e in other_events
         ) if other_events else "No other commitments in the calendar today."
 
+        # 4b. The rest of this week's booked sessions (tomorrow .. +7 days), so the briefing
+        #     can relate today to the plan and give a short outlook instead of only commenting
+        #     on today. Local DB read via core_get_calendar_data; never fatal.
+        week_end_str = (today + datetime.timedelta(days=7)).strftime('%Y-%m-%d')
+        upcoming_workout_events = [
+            e for e in core_get_calendar_data(days=8)
+            if today_str < (e.get("start_time") or "")[:10] <= week_end_str and is_workout_event(e)
+        ]
+        if upcoming_workout_events:
+            week_plan_str = "\n".join(
+                f"- {(e.get('start_time') or '')[:10]} {e.get('summary', '')} "
+                f"({(e.get('start_time') or '')[11:16]}–{(e.get('end_time') or '')[11:16]}): {e.get('description', '')}"
+                for e in upcoming_workout_events
+            )
+        else:
+            week_plan_str = "No further sessions are booked for the rest of this week."
+
         # 5. Calculated RHR/HRV trends + adherence (reuses plan-generation logic)
         trends = calculate_trends()
         trends_data_str = format_trends_summary(trends)
@@ -2483,6 +2500,9 @@ TODAY'S DATE: {today_str}
 [OTHER COMMITMENTS IN THE CALENDAR TODAY]:
 {other_events_str}
 
+[REMAINING PLANNED SESSIONS THIS WEEK (Google Calendar, tomorrow onwards)]:
+{week_plan_str}
+
 [WEATHER FORECAST (the first line is today)]:
 {weather_forecast}
 
@@ -2494,6 +2514,11 @@ Rules for the briefing:
   sharply (<{HRV_ALERT_PCT:.0f}%), or if sleep was short/poor or Body Battery is low, recommend lower
   intensity or active rest and briefly explain why.
 - On good recovery: encourage the user and keep (or slightly extend) today's plan.
+- Relate today's session to the overall plan and goal: say briefly whether the user is on track,
+  ahead, or should ease off - i.e. how today's session fits the plan, not just what it is.
+- Close the briefing with a SHORT outlook (1-2 sentences) on the remaining sessions this week from
+  [REMAINING PLANNED SESSIONS THIS WEEK]: what is coming up and any early adjustment recovery suggests.
+  If nothing is booked for the rest of the week, say so and suggest what to add.
 - If yesterday's session was NOT completed: no guilt - suggest shifting it naturally if needed.
 - If today's session is outdoors and bad weather (heavy rain, snow, thunderstorms, storms) is expected:
   suggest indoor training or rest.
@@ -2503,6 +2528,8 @@ Rules for the briefing:
 - ALWAYS end with a clear question or action. Be polite but extremely knowledgeable (F.R.E.J.A. style).
 - The 'briefing' field must be a finished, short markdown text that can be shown directly to the user
   (feel free to use emojis 📊 📅 💬 ✅ as in the coach model).
+- Format the briefing with short **bold** labels, short paragraphs, emojis and simple bullet lists only.
+  Do NOT use markdown headings (#, ##): the HUD does not render them and they would show as literal '##'.
 """
 
         # 9. Call Gemini with a structured schema
@@ -2511,7 +2538,7 @@ Rules for the briefing:
             "contents": [{"parts": [{"text": prompt_content}]}],
             "generationConfig": {
                 "temperature": 0.3,
-                "maxOutputTokens": 1200,
+                "maxOutputTokens": 1500,
                 "responseMimeType": "application/json",
                 # All STRING fields are shown to the user as-is, so the model fills them in Swedish.
                 "responseSchema": {
@@ -2521,12 +2548,13 @@ Rules for the briefing:
                         "recovery_summary": {"type": "STRING", "description": "Assessment of resting HR, HRV and Body Battery/recovery, in Swedish."},
                         "yesterday_status": {"type": "STRING", "description": "Whether yesterday's session was completed or missed, without blame. In Swedish."},
                         "todays_plan": {"type": "STRING", "description": "Today's planned workout in plain language, in Swedish."},
-                        "recommendation": {"type": "STRING", "description": "The coach's recommendation: keep, lower or raise the intensity, with a short rationale. In Swedish."},
+                        "recommendation": {"type": "STRING", "description": "The coach's recommendation: keep, lower or raise the intensity, with a short rationale, tied to how today's session fits the plan. In Swedish."},
                         "adjust_workout": {"type": "BOOLEAN", "description": "true if today's session should be adjusted compared with what is booked in the calendar."},
                         "adjusted_duration_minutes": {"type": "INTEGER", "description": "New length in minutes for today's session if adjust_workout=true (0 = rest). Omitted/0 if no adjustment."},
                         "weather_note": {"type": "STRING", "description": "Short weather comment relevant to today's session (empty string if not relevant). In Swedish."},
+                        "week_outlook": {"type": "STRING", "description": "A short 1-2 sentence outlook on the remaining planned sessions this week and any early adjustment recovery suggests. In Swedish."},
                         "closing_question": {"type": "STRING", "description": "A clear closing question or action for the user, in Swedish."},
-                        "briefing": {"type": "STRING", "description": "Finished short briefing in markdown, ready to display directly to the user. In Swedish."}
+                        "briefing": {"type": "STRING", "description": "Finished short briefing in markdown, ready to display directly to the user. Must cover how today's session fits the plan, how recovery looks, and the outlook for the rest of the week. In Swedish."}
                     },
                     "required": ["sleep_summary", "recovery_summary", "yesterday_status", "todays_plan", "recommendation", "adjust_workout", "closing_question", "briefing"]
                 }

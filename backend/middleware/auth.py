@@ -142,8 +142,8 @@ class FrejaAuthMiddleware(BaseHTTPMiddleware):
             _record_success(ip)
             return await call_next(request)
 
-        # 4. Check X-Freja-Token header against the token stored in SQLite for remote clients.
-        token = request.headers.get("X-Freja-Token")
+        # 4. Check X-Freja-Token header or 'token' query param against the token stored in SQLite.
+        token = request.headers.get("X-Freja-Token") or request.query_params.get("token")
 
         try:
             expected_token = get_api_key('freja_access_token')

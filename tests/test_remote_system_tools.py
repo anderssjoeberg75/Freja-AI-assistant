@@ -55,6 +55,12 @@ def test_serve_doc_report_valid(db_token):
         assert response.status_code == 200
         assert response.headers["content-type"].startswith("text/markdown")
         assert "# Pytest Report" in response.text
+
+        # Access the endpoint with a valid query parameter token
+        response_query = client.get(f"/api/docs/code_audit_pytest_temp.md?token={db_token}")
+        assert response_query.status_code == 200
+        assert response_query.headers["content-type"].startswith("text/markdown")
+        assert "# Pytest Report" in response_query.text
     finally:
         if os.path.exists(temp_report):
             os.remove(temp_report)

@@ -511,6 +511,9 @@ FrejaUIController.prototype.runTrainerCheckin = async function () {
         btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> SYNCING & ADAPTING...';
     }
     this.writeLog("DAILY CHECK-IN: SYNCING GARMIN/STRAVA/WITHINGS, THEN ADAPTING...", "sys");
+    // Show progress in the Briefing / Feedback panel itself, so a check-in that is still
+    // running (or later fails) is never a silently empty field.
+    this.renderTrainerCheckinLoading();
 
     try {
         const res = await fetch('/api/trainer/checkin', {
@@ -540,6 +543,14 @@ FrejaUIController.prototype.runTrainerCheckin = async function () {
         console.error("[TRAINER] Check-in error:", e);
         this.writeLog(`CHECK-IN ERROR: ${e.message}`, "err");
         soundSynth.playError();
+        // Even on failure, refresh the panels so adherence/trends/weekly reflect whatever the
+        // server already synced - the health sync runs at the very start of the check-in,
+        // before the point most check-ins fail at (e.g. a missing Gemini key). Without this a
+        // failed check-in leaves the whole panel frozen on stale data, which is exactly why
+        // the adherence field looked like it "never updates".
+        try { await this.loadTrainerDashboardUI(); } catch (_) {}
+        // Surface the reason in the panel, not just the terminal log, so the user can act on it.
+        this.renderTrainerCheckinError(e.message || 'Okänt fel');
     } finally {
         if (btn) {
             btn.disabled = false;
@@ -548,12 +559,54 @@ FrejaUIController.prototype.runTrainerCheckin = async function () {
     }
 };
 
+// Prepend a single check-in card to the top of the Briefing / Feedback panel, keeping
+// exactly one there (loading -> result, or loading -> error) so cards never stack.
+FrejaUIController.prototype._prependCheckinCard = function (innerHtml) {
+    const list = document.getElementById('trainer-list');
+    if (!list) return null;
+    list.querySelectorAll(':scope > .trainer-checkin-card').forEach(el => el.remove());
+    // Drop any placeholder ("[NO PREVIOUS PLANS FOUND]" / "Loading history...") too.
+    const placeholder = list.querySelector(':scope > div[style*="text-align: center"]');
+    if (placeholder) placeholder.remove();
+    const card = document.createElement('div');
+    card.className = 'trainer-checkin-card';
+    card.style.cssText = "background: rgba(0, 242, 254, 0.04); border: 1px solid rgba(0, 242, 254, 0.25); border-radius: 4px; padding: 12px; margin-bottom: 10px; font-family: var(--font-sans); font-size: 13px; line-height: 1.5; color: var(--color-text);";
+    card.innerHTML = innerHtml;
+    list.prepend(card);
+    list.scrollTop = 0;
+    return card;
+};
+
+// A "generating..." placeholder shown the moment a check-in starts, so the panel reflects
+// that work is happening instead of looking unchanged.
+FrejaUIController.prototype.renderTrainerCheckinLoading = function () {
+    this._prependCheckinCard(`
+        <div style="display: flex; align-items: center; gap: 6px; font-family: var(--font-display); font-size: 10px; letter-spacing: 1px; color: var(--color-primary);">
+            <i class="fa-solid fa-spinner fa-spin"></i> DAGENS CHECK-IN · genererar…
+        </div>
+        <div style="margin-top: 8px; color: var(--color-text-muted); font-size: 12px;">Synkar Garmin/Strava/Withings och ber coachen om dagens briefing…</div>
+    `);
+};
+
+// A visible failure card, so a check-in error is actionable in the panel rather than only
+// in the terminal log.
+FrejaUIController.prototype.renderTrainerCheckinError = function (message) {
+    const safe = String(message || 'Okänt fel').replace(/[<>&]/g, ch => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[ch]));
+    const card = this._prependCheckinCard(`
+        <div style="display: flex; align-items: center; gap: 6px; font-family: var(--font-display); font-size: 10px; letter-spacing: 1px; color: #ff3b30;">
+            <i class="fa-solid fa-triangle-exclamation"></i> CHECK-IN MISSLYCKADES
+        </div>
+        <div style="margin-top: 8px; font-size: 12px; color: var(--color-text);">${safe}</div>
+        <div style="margin-top: 8px; font-family: var(--font-mono); font-size: 10px; color: var(--color-text-muted);">Kontrollera att backend är nåbar och att Gemini-nyckeln är satt i admin-panelen, och försök igen.</div>
+    `);
+    if (card) card.style.borderColor = 'rgba(255, 59, 48, 0.4)';
+};
+
 // Render the daily check-in briefing into the Briefing / Feedback panel. The
 // briefing card is prepended above the plan history so the latest coaching
 // feedback is what the user sees first after a check-in.
 FrejaUIController.prototype.renderTrainerCheckinBriefing = function (data) {
-    const list = document.getElementById('trainer-list');
-    if (!list || !data) return;
+    if (!data) return;
 
     const c = data.checkin || {};
     // The backend fills 'briefing' with a finished markdown text; fall back to
@@ -561,7 +614,7 @@ FrejaUIController.prototype.renderTrainerCheckinBriefing = function (data) {
     let briefingMd = (c.briefing || '').trim();
     if (!briefingMd) {
         briefingMd = [c.sleep_summary, c.recovery_summary, c.yesterday_status,
-                      c.todays_plan, c.recommendation, c.weather_note, c.closing_question]
+                      c.todays_plan, c.recommendation, c.weather_note, c.week_outlook, c.closing_question]
             .filter(s => s && String(s).trim()).join('\n\n');
     }
     if (!briefingMd) briefingMd = 'Ingen briefing genererades.';
@@ -603,23 +656,14 @@ FrejaUIController.prototype.renderTrainerCheckinBriefing = function (data) {
            </div>`
         : '';
 
-    const card = document.createElement('div');
-    card.className = 'trainer-checkin-card';
-    card.style.cssText = "background: rgba(0, 242, 254, 0.04); border: 1px solid rgba(0, 242, 254, 0.25); border-radius: 4px; padding: 12px; margin-bottom: 10px; font-family: var(--font-sans); font-size: 13px; line-height: 1.5; color: var(--color-text);";
-    card.innerHTML = `
+    this._prependCheckinCard(`
         <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 8px; font-family: var(--font-display); font-size: 10px; letter-spacing: 1px; color: var(--color-primary);">
             <i class="fa-solid fa-heart-pulse"></i> DAGENS CHECK-IN${data.date ? ` · ${data.date}` : ''}
         </div>
         <div class="trainer-briefing">${briefingHtml}</div>
         <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px;">${badges.join('')}</div>
         ${syncLine}
-    `;
-
-    // Drop any placeholder ("[NO PREVIOUS PLANS FOUND]" / "Loading...") before prepending.
-    const placeholder = list.querySelector(':scope > div[style*="text-align: center"]');
-    if (placeholder) placeholder.remove();
-    list.prepend(card);
-    list.scrollTop = 0;
+    `);
 };
 
 FrejaUIController.prototype.loadTrainerSettings = async function () {
