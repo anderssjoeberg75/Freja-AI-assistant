@@ -508,9 +508,9 @@ FrejaUIController.prototype.runTrainerCheckin = async function () {
 
     if (btn) {
         btn.disabled = true;
-        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> ADAPTING WORKOUTS...';
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> SYNCING & ADAPTING...';
     }
-    this.writeLog("RUNNING DAILY CHECK-IN & ADAPTING WORKOUTS...", "sys");
+    this.writeLog("DAILY CHECK-IN: SYNCING GARMIN/STRAVA/WITHINGS, THEN ADAPTING...", "sys");
 
     try {
         const res = await fetch('/api/trainer/checkin', {
@@ -583,6 +583,26 @@ FrejaUIController.prototype.renderTrainerCheckinBriefing = function (data) {
         badges.push(`<span style="${badgeStyle}">📊 ${adh.adherence_pct}% följsamhet</span>`);
     }
 
+    // Data-freshness line: the check-in syncs Garmin/Strava/Withings before briefing,
+    // so show what each source did. "synced" is the happy path; anything else is dimmed.
+    const sync = data.sync || {};
+    const syncIcon = { synced: '✅', timeout: '⏱️' };
+    const labelFor = (v) => {
+        if (v === 'synced') return 'synkad';
+        if (v === 'timeout') return 'timeout';
+        if (typeof v === 'string' && v.startsWith('skipped')) return 'ej kopplad';
+        if (typeof v === 'string' && v.startsWith('failed')) return 'fel';
+        return v || '—';
+    };
+    const syncParts = [['Garmin', sync.garmin], ['Strava', sync.strava], ['Withings', sync.withings]]
+        .filter(([, v]) => v !== undefined)
+        .map(([name, v]) => `${syncIcon[v] || '➖'} ${name}: ${labelFor(v)}`);
+    const syncLine = syncParts.length
+        ? `<div style="margin-top: 8px; font-family: var(--font-mono); font-size: 10px; color: var(--color-text-muted);">
+             <i class="fa-solid fa-arrows-rotate"></i> Färsk data · ${syncParts.join('  ·  ')}
+           </div>`
+        : '';
+
     const card = document.createElement('div');
     card.className = 'trainer-checkin-card';
     card.style.cssText = "background: rgba(0, 242, 254, 0.04); border: 1px solid rgba(0, 242, 254, 0.25); border-radius: 4px; padding: 12px; margin-bottom: 10px; font-family: var(--font-sans); font-size: 13px; line-height: 1.5; color: var(--color-text);";
@@ -592,6 +612,7 @@ FrejaUIController.prototype.renderTrainerCheckinBriefing = function (data) {
         </div>
         <div class="trainer-briefing">${briefingHtml}</div>
         <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px;">${badges.join('')}</div>
+        ${syncLine}
     `;
 
     // Drop any placeholder ("[NO PREVIOUS PLANS FOUND]" / "Loading...") before prepending.

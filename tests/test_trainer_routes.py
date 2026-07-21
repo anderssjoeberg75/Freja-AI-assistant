@@ -66,6 +66,12 @@ def test_trainer_checkin_success(auth_headers, monkeypatch):
     # Provide a Gemini key and mock both the weather forecast and the Gemini call.
     monkeypatch.setattr(trainer_module, "get_api_key", lambda name: "MOCK_GEMINI_KEY")
 
+    # The check-in now syncs the wearables first. get_api_key is stubbed truthy above, so
+    # without this the real Garmin/Strava/Withings clients would fire on real credentials.
+    async def fake_refresh(days=trainer_module.CHECKIN_SYNC_DAYS):
+        return {"garmin": "synced", "strava": "synced", "withings": "synced"}
+    monkeypatch.setattr(trainer_module, "refresh_health_sources_for_checkin", fake_refresh)
+
     async def fake_weather(location="Stockholm"):
         return f"Väderprognos för {location}: idag klart, 15°C till 22°C."
     monkeypatch.setattr(trainer_module, "fetch_7day_weather_forecast", fake_weather)
@@ -116,6 +122,54 @@ def test_trainer_checkin_success(auth_headers, monkeypatch):
     assert data.get("checkin", {}).get("adjust_workout") is False
     assert data.get("calendar_updated") is False
     assert "adherence" in data
+    # The freshness map from the pre-check-in wearable sync rides along in the response.
+    assert data.get("sync") == {"garmin": "synced", "strava": "synced", "withings": "synced"}
+
+
+def test_trainer_checkin_skips_sync_without_credentials(auth_headers, monkeypatch):
+    # Only the Gemini key is configured; the wearable credentials are absent. The real
+    # refresh must then skip every provider (no network) and the check-in must still brief.
+    def fake_key(name):
+        return "MOCK_GEMINI_KEY" if name == "freja_gemini_apikey" else ""
+    monkeypatch.setattr(trainer_module, "get_api_key", fake_key)
+
+    async def fake_weather(location="Stockholm"):
+        return f"Väderprognos för {location}: idag klart, 15°C."
+    monkeypatch.setattr(trainer_module, "fetch_7day_weather_forecast", fake_weather)
+
+    checkin_obj = {
+        "sleep_summary": "s", "recovery_summary": "r", "yesterday_status": "y",
+        "todays_plan": "p", "recommendation": "rec", "adjust_workout": False,
+        "closing_question": "q", "briefing": "**Morgon!**",
+    }
+    monkeypatch.setattr(trainer_module, "shared_client", _make_fake_gemini_client(checkin_obj))
+    client = TestClient(app)
+
+    response = client.post("/api/trainer/checkin", json={}, headers=auth_headers)
+    assert response.status_code == 200
+    sync = response.json().get("sync", {})
+    assert set(sync.keys()) == {"garmin", "strava", "withings"}
+    assert all(v == "skipped (no credentials)" for v in sync.values())
+
+
+def test_refresh_health_sources_reports_per_provider(monkeypatch):
+    # Each provider's sync helper is stubbed; refresh_health_sources_for_checkin must run
+    # them concurrently and return one status per provider.
+    async def ok(days):
+        return "synced"
+    async def boom(days):
+        return "failed: token expired"
+    monkeypatch.setattr(trainer_module, "_sync_garmin_for_checkin", ok)
+    monkeypatch.setattr(trainer_module, "_sync_strava_for_checkin", boom)
+    monkeypatch.setattr(trainer_module, "_sync_withings_for_checkin", ok)
+
+    import asyncio
+    result = asyncio.run(trainer_module.refresh_health_sources_for_checkin())
+    assert result == {
+        "garmin": "synced",
+        "strava": "failed: token expired",
+        "withings": "synced",
+    }
 
 
 def _make_fake_gemini_client(payload_obj):

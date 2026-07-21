@@ -13,6 +13,7 @@ the user. Weekday names in generated plans stay Swedish for the same reason - th
 the user reads, and `day_offsets` in `book_plan_to_calendar` parses them back.
 """
 
+import asyncio
 import datetime
 import httpx
 from backend.services.http_client import shared_client
@@ -2238,11 +2239,104 @@ def _event_duration_minutes(ev: dict) -> int:
         return 0
 
 
+# --- Pre-check-in wearable refresh -------------------------------------------
+# A check-in should reflect last night, not the last time a sync happened to run, so the
+# very first thing it does is pull the freshest data from Garmin, Strava and Withings.
+# The window is deliberately small (the briefing only cares about last night and
+# yesterday) and the whole refresh is capped so a stalled provider can never hold up the
+# briefing — the HUD proxy allows the check-in 300s and this stays well inside that.
+CHECKIN_SYNC_DAYS = 3
+CHECKIN_SYNC_TIMEOUT_SECONDS = 90.0
+
+
+async def _sync_garmin_for_checkin(days: int) -> str:
+    """Pull the most recent Garmin nights synchronously. Uses the lean blocking sync
+    (not run_garmin_sync_flow) on purpose: the check-in adjusts today's session itself,
+    so it must not also kick off the recovery optimizer and double-adjust the calendar."""
+    email = get_api_key('freja_garmin_email') or ""
+    password = get_api_key('freja_garmin_password') or ""
+    if not email or not password:
+        return "skipped (no credentials)"
+    from backend.routes.garmin import run_garmin_sync_task_blocking
+    from backend.services.sync_status import set_sync_state
+    set_sync_state("garmin", "syncing")
+    try:
+        await asyncio.to_thread(run_garmin_sync_task_blocking, email, password, days)
+        set_sync_state("garmin", "success")
+        return "synced"
+    except Exception as e:
+        set_sync_state("garmin", "error", str(e))
+        return f"failed: {e}"
+
+
+async def _sync_strava_for_checkin(days: int) -> str:
+    """Pull recent Strava activities. run_strava_sync_task manages its own sync_state."""
+    client_id = get_api_key('freja_strava_client_id') or ""
+    client_secret = get_api_key('freja_strava_client_secret') or ""
+    refresh_token = get_api_key('freja_strava_refresh_token') or ""
+    if not client_id or not client_secret or not refresh_token:
+        return "skipped (no credentials)"
+    from backend.routes.strava import run_strava_sync_task
+    try:
+        await run_strava_sync_task(client_id, client_secret, refresh_token, days, False)
+        return "synced"
+    except Exception as e:
+        return f"failed: {e}"
+
+
+async def _sync_withings_for_checkin(days: int) -> str:
+    """Pull recent Withings measurements. run_withings_sync_task manages its own state."""
+    client_id = get_api_key('freja_withings_client_id') or ""
+    client_secret = get_api_key('freja_withings_client_secret') or ""
+    refresh_token = get_api_key('freja_withings_refresh_token') or ""
+    if not client_id or not client_secret or not refresh_token:
+        return "skipped (no credentials)"
+    from backend.routes.withings import run_withings_sync_task
+    try:
+        await run_withings_sync_task(client_id, client_secret, refresh_token, days)
+        return "synced"
+    except Exception as e:
+        return f"failed: {e}"
+
+
+async def refresh_health_sources_for_checkin(days: int = CHECKIN_SYNC_DAYS) -> dict:
+    """Fetch the latest Garmin/Strava/Withings data before the check-in reads the DB.
+
+    All three run concurrently (WAL + a 30s busy timeout let their short write bursts
+    serialise safely) and every failure is swallowed: a missing credential, an expired
+    token or a network blip must still leave the check-in able to brief from whatever
+    data is already stored. Returns a per-provider status map for logging/response.
+    """
+    try:
+        results = await asyncio.wait_for(
+            asyncio.gather(
+                _sync_garmin_for_checkin(days),
+                _sync_strava_for_checkin(days),
+                _sync_withings_for_checkin(days),
+                return_exceptions=True,
+            ),
+            timeout=CHECKIN_SYNC_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        print("[TRAINER CHECKIN] Health-source refresh timed out; using stored data.")
+        return {"garmin": "timeout", "strava": "timeout", "withings": "timeout"}
+
+    def _norm(r):
+        return r if isinstance(r, str) else f"failed: {r}"
+
+    return {
+        "garmin": _norm(results[0]),
+        "strava": _norm(results[1]),
+        "withings": _norm(results[2]),
+    }
+
+
 @router.post("/api/trainer/checkin")
 async def trainer_daily_checkin(request: Request):
-    """Daily morning check-in (COACH AI): reads last night's Garmin/Withings data,
-    checks today's calendar workout, verifies if yesterday's session was completed on
-    Strava, weighs in the weather, and returns a short coaching briefing in Swedish."""
+    """Daily morning check-in (COACH AI): first pulls the freshest Garmin/Strava/Withings
+    data, then reads last night's Garmin/Withings snapshot, checks today's calendar
+    workout, verifies if yesterday's session was completed on Strava, weighs in the
+    weather, and returns a short coaching briefing in Swedish."""
     try:
         try:
             body = await request.json()
@@ -2255,6 +2349,11 @@ async def trainer_daily_checkin(request: Request):
         today = today_local()
         today_str = today.strftime('%Y-%m-%d')
         yesterday_str = (today - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
+
+        # 0. FIRST, pull the freshest data from the wearables so every snapshot below
+        #    reflects last night rather than the last background sync. Non-fatal by design.
+        sync_results = await refresh_health_sources_for_checkin()
+        print(f"[TRAINER CHECKIN] Pre-check-in sync: {sync_results}")
 
         # 1. Latest Garmin snapshot (most recent night)
         garmin_snapshot = "No Garmin data available."
@@ -2487,7 +2586,8 @@ Rules for the briefing:
             "has_workout_today": bool(workout_events),
             "workout_completed_yesterday": bool(strava_rows),
             "adherence": adherence,
-            "calendar_updated": calendar_updated
+            "calendar_updated": calendar_updated,
+            "sync": sync_results
         }
 
     except HTTPException:
