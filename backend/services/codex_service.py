@@ -647,6 +647,8 @@ async def call_gemini_api(prompt: str, system_instruction: str = "") -> str:
 
 
 AUDIT_MAX_CHARS = 180000
+AUDIT_REPORT_SEPARATOR = "\n---AUDIT_REPORT_FULL---\n"
+
 
 
 async def codex_audit_codebase_impl(args: dict = None) -> dict:

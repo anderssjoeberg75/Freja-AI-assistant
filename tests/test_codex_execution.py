@@ -116,3 +116,17 @@ def test_run_and_fix_rejects_empty_ai_response(monkeypatch, tmp_path):
         for path in (target, target + ".codex_backup"):
             if os.path.exists(path):
                 os.remove(path)
+
+
+def test_codex_audit_codebase_impl(monkeypatch, tmp_path):
+    async def fake_gemini(prompt, system_instruction=""):
+        return f"Summary of findings\n{codex_service.AUDIT_REPORT_SEPARATOR}\nDetailed report here."
+
+    monkeypatch.setattr(codex_service, "call_gemini_api", fake_gemini)
+    res = asyncio.run(codex_service.codex_audit_codebase_impl({}))
+
+    assert "summary" in res
+    assert res["summary"] == "Summary of findings"
+    assert "report_file" in res
+    assert os.path.exists(res["report_file"])
+
