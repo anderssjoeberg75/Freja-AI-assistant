@@ -505,11 +505,6 @@ FrejaUIController.prototype.loadWeeklyWorkoutsUI = async function () {
 
 FrejaUIController.prototype.runTrainerCheckin = async function () {
     const btn = document.getElementById('btn-trainer-checkin');
-    const out = document.getElementById('trainer-checkin-output');
-    if (out) {
-        out.style.display = 'none';
-        out.innerHTML = '';
-    }
 
     if (btn) {
         btn.disabled = true;
@@ -529,12 +524,17 @@ FrejaUIController.prototype.runTrainerCheckin = async function () {
             throw new Error(err.detail || `HTTP ${res.status}`);
         }
 
+        const data = await res.json();
+
         soundSynth.playNotify();
         this.writeLog("DAILY CHECK-IN COMPLETE: WORKOUTS ADAPTED", "sys");
 
-        // Refresh workouts & trainer dashboard with adapted data
+        // Refresh workouts & trainer dashboard with adapted data. This repopulates
+        // the Briefing / Feedback list with plan history, so render the briefing
+        // AFTER the refresh so it sits on top and survives the reload.
         await this.loadTrainerDashboardUI();
         await this.loadWeeklyWorkoutsUI();
+        this.renderTrainerCheckinBriefing(data);
 
     } catch (e) {
         console.error("[TRAINER] Check-in error:", e);
@@ -546,6 +546,59 @@ FrejaUIController.prototype.runTrainerCheckin = async function () {
             btn.innerHTML = '<i class="fa-solid fa-heart-pulse"></i> CHECK IN';
         }
     }
+};
+
+// Render the daily check-in briefing into the Briefing / Feedback panel. The
+// briefing card is prepended above the plan history so the latest coaching
+// feedback is what the user sees first after a check-in.
+FrejaUIController.prototype.renderTrainerCheckinBriefing = function (data) {
+    const list = document.getElementById('trainer-list');
+    if (!list || !data) return;
+
+    const c = data.checkin || {};
+    // The backend fills 'briefing' with a finished markdown text; fall back to
+    // stitching the structured fields together if it's missing.
+    let briefingMd = (c.briefing || '').trim();
+    if (!briefingMd) {
+        briefingMd = [c.sleep_summary, c.recovery_summary, c.yesterday_status,
+                      c.todays_plan, c.recommendation, c.weather_note, c.closing_question]
+            .filter(s => s && String(s).trim()).join('\n\n');
+    }
+    if (!briefingMd) briefingMd = 'Ingen briefing genererades.';
+
+    const briefingHtml = (window.FrejaMarkdown && window.FrejaMarkdown.parseMarkdown)
+        ? window.FrejaMarkdown.parseMarkdown(briefingMd)
+        : briefingMd.replace(/\n/g, '<br>');
+
+    // Context badges built from the top-level check-in response fields.
+    const badgeStyle = "font-size: 10px; font-family: var(--font-mono); background: rgba(0,242,254,0.1); border: 1px solid rgba(0,242,254,0.2); color: var(--color-primary); border-radius: 3px; padding: 3px 8px; white-space: nowrap;";
+    const badges = [];
+    badges.push(`<span style="${badgeStyle}">${data.has_workout_today ? '📅 Pass idag' : '➖ Inget pass idag'}</span>`);
+    badges.push(`<span style="${badgeStyle}">${data.workout_completed_yesterday ? '✅ Igår klart' : '⤵ Igår ej loggat'}</span>`);
+    if (data.calendar_updated) {
+        badges.push(`<span style="${badgeStyle}">🔧 Passet justerat</span>`);
+    }
+    const adh = data.adherence || {};
+    if (adh.adherence_pct !== null && adh.adherence_pct !== undefined) {
+        badges.push(`<span style="${badgeStyle}">📊 ${adh.adherence_pct}% följsamhet</span>`);
+    }
+
+    const card = document.createElement('div');
+    card.className = 'trainer-checkin-card';
+    card.style.cssText = "background: rgba(0, 242, 254, 0.04); border: 1px solid rgba(0, 242, 254, 0.25); border-radius: 4px; padding: 12px; margin-bottom: 10px; font-family: var(--font-sans); font-size: 13px; line-height: 1.5; color: var(--color-text);";
+    card.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 8px; font-family: var(--font-display); font-size: 10px; letter-spacing: 1px; color: var(--color-primary);">
+            <i class="fa-solid fa-heart-pulse"></i> DAGENS CHECK-IN${data.date ? ` · ${data.date}` : ''}
+        </div>
+        <div class="trainer-briefing">${briefingHtml}</div>
+        <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px;">${badges.join('')}</div>
+    `;
+
+    // Drop any placeholder ("[NO PREVIOUS PLANS FOUND]" / "Loading...") before prepending.
+    const placeholder = list.querySelector(':scope > div[style*="text-align: center"]');
+    if (placeholder) placeholder.remove();
+    list.prepend(card);
+    list.scrollTop = 0;
 };
 
 FrejaUIController.prototype.loadTrainerSettings = async function () {
