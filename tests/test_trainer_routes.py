@@ -793,6 +793,14 @@ def test_trainer_booking_is_idempotent(auth_headers):
         conn.commit()
         plan_id = cursor.lastrowid
 
+    # Other booking tests share this session's DB and also book onto 2026-07-06, and booking
+    # now replaces *every* PT session in the window (not just the same plan_id). Clear the
+    # window so this test's replaced-count assertions reflect only its own plan.
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM trainer_bookings WHERE workout_date >= '2026-07-06' AND workout_date <= '2026-07-09'")
+        conn.commit()
+
     payload = {"plan_id": plan_id, "start_date": "2026-07-06"}
 
     first = client.post("/api/trainer/plans/book", json=payload, headers=auth_headers)

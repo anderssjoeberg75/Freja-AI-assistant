@@ -2971,24 +2971,50 @@ async def core_book_plan_internal(plan_id: int, start_date: datetime.date, skip_
         core_save_calendar_event, core_delete_calendar_event, core_get_calendar_data
     )
 
-    # --- Idempotency: remove any events previously booked for THIS plan so
-    #     re-booking updates instead of creating duplicates. ---
-    rebooked = 0
+    # --- Replace, don't stack: remove any PT sessions already booked in the window this
+    #     plan will occupy, regardless of which plan created them. Booking a *different*
+    #     plan onto overlapping dates used to only clear the same plan_id, so repeated
+    #     generate-and-book runs piled dozens of duplicate sessions onto the same days.
+    #     Only future days are cleared when skip_past is set, so completed/past sessions
+    #     stay as history. Only PT bookings (this table) and their events are touched -
+    #     the user's own calendar entries are never removed. ---
+    booked_offsets = []
+    for w in workouts:
+        off = day_offsets.get(str(w.get("day", "")).lower())
+        if off is None:
+            continue
+        try:
+            wk = max(0, min(51, int(w.get("week", 0) or 0)))
+        except (TypeError, ValueError):
+            wk = 0
+        booked_offsets.append(off + wk * 7)
+
+    window_start = start_date
+    if skip_past and window_start < today_local():
+        window_start = today_local()
+    window_end = (start_date + datetime.timedelta(days=max(booked_offsets))) if booked_offsets else start_date
+
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT id, event_id FROM trainer_bookings WHERE plan_id = ?", (plan_id,))
+        cursor.execute(
+            "SELECT id, event_id FROM trainer_bookings WHERE workout_date >= ? AND workout_date <= ?",
+            (window_start.isoformat(), window_end.isoformat())
+        )
         prior = cursor.fetchall()
     for booking_id, event_id in prior:
         if event_id:
             try:
                 await core_delete_calendar_event(event_id)
-                rebooked += 1
             except Exception as del_err:
                 print(f"[TRAINER BOOK] Could not delete the previous event {event_id}: {del_err}")
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("DELETE FROM trainer_bookings WHERE plan_id = ?", (plan_id,))
+        cursor.execute(
+            "DELETE FROM trainer_bookings WHERE workout_date >= ? AND workout_date <= ?",
+            (window_start.isoformat(), window_end.isoformat())
+        )
         conn.commit()
+    rebooked = len(prior)
 
     # Existing calendar events used for conflict avoidance (mutated as we book).
     all_events = core_get_calendar_data(days=60)
