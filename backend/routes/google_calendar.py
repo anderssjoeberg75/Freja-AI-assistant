@@ -142,8 +142,9 @@ async def run_google_calendar_sync_task():
 
         # Real Google API Sync
         # Fetch events for 30 days past and 30 days future
-        time_min = (datetime.datetime.utcnow() - datetime.timedelta(days=30)).isoformat() + "Z"
-        time_max = (datetime.datetime.utcnow() + datetime.timedelta(days=30)).isoformat() + "Z"
+        now_utc = datetime.datetime.now(datetime.timezone.utc)
+        time_min = (now_utc - datetime.timedelta(days=30)).isoformat().replace("+00:00", "Z")
+        time_max = (now_utc + datetime.timedelta(days=30)).isoformat().replace("+00:00", "Z")
         
         headers = {"Authorization": f"Bearer {access_token}"}
         base_url = f"https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin={time_min}&timeMax={time_max}&singleEvents=true&orderBy=startTime"
