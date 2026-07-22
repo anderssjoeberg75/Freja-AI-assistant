@@ -28,7 +28,6 @@ const TOOL_DISPLAY_NAMES = {
     "codex_audit_codebase": "Code audit",
     "tool_analyze_code": "Code audit",
     "codex_run_and_fix": "Automatic code repair",
-    "download_facebook_photos": "Facebook photo download",
     "publish_instagram_post": "Publish Instagram post",
     "get_instagram_feed": "Instagram feed",
     "get_instagram_post_comments": "Instagram comments",
@@ -115,15 +114,6 @@ FrejaUIController.prototype.handleToolCall = async function(call) {
         if (responseData && responseData.task_id) {
             const taskId = responseData.task_id;
             this.writeLog(`BACKGROUND TASK INITIATED: ${taskId.substring(0, 8)}...`, "sys");
-            
-            if (name === "download_facebook_photos") {
-                this.pollFacebookDownloadProgress(taskId);
-                return {
-                    status: "initiated",
-                    task_id: taskId,
-                    message: "The Facebook photo download has started in the background. Progress can be followed in the terminal."
-                };
-            }
             
             if (name === "learn_topic") {
                 this.pollLearningProgress(taskId);
@@ -325,80 +315,6 @@ FrejaUIController.prototype.appendPermissionRequest = function(tool, args, resol
         self.writeLog(`TOOL PERMISSION DENIED: ${tool.name}`, "sys");
         resolvePromise(false);
     });
-};
-
-FrejaUIController.prototype.pollFacebookDownloadProgress = async function(taskId) {
-    if (this.facebookDownloadInterval) return; // already polling
-    
-    const self = this;
-    self.writeLog(`BACKGROUND FACEBOOK DOWNLOAD MONITOR ACTIVE. Task ID: ${taskId.substring(0, 8)}...`, "sys");
-    
-    this.facebookDownloadInterval = setInterval(async () => {
-        try {
-            const res = await fetch(`/api/tools/status/${taskId}`);
-            if (!res.ok) {
-                clearInterval(self.facebookDownloadInterval);
-                self.facebookDownloadInterval = null;
-                self.writeLog(`FACEBOOK DOWNLOAD ERROR: Failed to fetch task status.`, "err");
-                soundSynth.playError();
-                return;
-            }
-            const statusData = await res.json();
-            
-            if (statusData.status === "success") {
-                clearInterval(self.facebookDownloadInterval);
-                self.facebookDownloadInterval = null;
-                
-                self.writeLog(`[FACEBOOK DOWNLOAD] COMPLETED SUCCESSFULLY. Saved ${statusData.result.downloaded_count} images.`, "sys");
-                soundSynth.playNotify();
-                
-                // Freja speaks to the user, so this text stays Swedish (as do the
-                // appendChatMessage assistant lines below). Only the writeLog diagnostics
-                // and the permission-gateway UI above are English.
-                if (self.speech && self.speech.autoSpeak) {
-                    self.speech.speak(`Nedladdningen av Facebook-bilder är klar. Hämtade ${statusData.result.downloaded_count} bilder.`);
-                }
-                
-                self.appendChatMessage("assistant", `**[SYSTEMMEDDELANDE]** Nedladdningen av Facebook-bilder är klar! Totalt hämtades ${statusData.result.downloaded_count} bilder.`, false);
-                
-            } else if (statusData.status === "failed") {
-                clearInterval(self.facebookDownloadInterval);
-                self.facebookDownloadInterval = null;
-                
-                self.writeLog(`[FACEBOOK DOWNLOAD] FAILED: ${statusData.error || "Unknown error"}`, "err");
-                soundSynth.playError();
-                
-                if (self.speech && self.speech.autoSpeak) {
-                    self.speech.speak(`Nedladdningen av Facebook-bilder misslyckades.`);
-                }
-                
-                self.appendChatMessage("assistant", `**[SYSTEMMEDDELANDE - FEL]** Nedladdningen av Facebook-bilder misslyckades: ${statusData.error || "okänt fel"}`, false);
-                
-            } else if (statusData.status === "cancelled") {
-                clearInterval(self.facebookDownloadInterval);
-                self.facebookDownloadInterval = null;
-                
-                self.writeLog(`[FACEBOOK DOWNLOAD] CANCELLED BY USER.`, "warn");
-                soundSynth.playError();
-                
-                self.appendChatMessage("assistant", `**[SYSTEMMEDDELANDE]** Nedladdningen av Facebook-bilder avbröts.`, false);
-                
-            } else {
-                const progress = statusData.progress || 0;
-                const stage = statusData.stage || "initierar...";
-                const current = statusData.current || 0;
-                const total = statusData.total || 0;
-                
-                let progressMsg = `[FACEBOOK DOWNLOAD] ${stage}`;
-                if (total > 0) {
-                    progressMsg += ` (${current}/${total} - ${progress}%)`;
-                }
-                self.writeLog(progressMsg, "sys");
-            }
-        } catch (err) {
-            console.error("Error polling facebook download:", err);
-        }
-    }, 3000);
 };
 
 FrejaUIController.prototype.pollLearningProgress = function(taskId) {

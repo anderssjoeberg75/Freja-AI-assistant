@@ -263,23 +263,6 @@ async def test_run_windows_command_open_app_blocks_file_scheme():
 
 
 @pytest.mark.anyio
-async def test_download_facebook_photos_rejects_non_facebook_urls():
-    # This tool loads a real, logged-in browser session and navigates it to `profile_url`
-    # with no host check - a crafted URL turned "download my Facebook photos" into an
-    # authenticated-browser SSRF/arbitrary-fetch primitive (can reach internal LAN
-    # addresses, since the backend runs on the user's home network).
-    for bad_url in [
-        "https://evil.example.com/",
-        "http://facebook.com/x",  # right host, wrong scheme
-        "https://notfacebook.com/facebook.com",
-        "https://192.168.1.1/admin",
-    ]:
-        result = await execute_tool("download_facebook_photos", {"profile_url": bad_url})
-        assert "error" in result
-        assert "Security error" in result["error"]
-
-
-@pytest.mark.anyio
 async def test_update_trainer_workout_matches_the_correct_week():
     # A multi-week plan can list the same weekday more than once (one entry per week).
     # Matching by weekday alone always resolved to whichever entry came first in the

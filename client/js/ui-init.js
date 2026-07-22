@@ -261,12 +261,6 @@ FrejaUIController.prototype.initializeUI = function() {
         chkCodexFix.checked = codexFixAllowed;
     }
 
-    const facebookDownloadAllowed = localStorage.getItem("freja_tool_download_facebook_photos_allowed") === "true";
-    const chkFacebookDownload = document.getElementById('chk-tool-download_facebook_photos');
-    if (chkFacebookDownload) {
-        chkFacebookDownload.checked = facebookDownloadAllowed;
-    }
-
     const garminAllowed = localStorage.getItem("freja_tool_get_garmin_health_allowed") === "true";
     const chkGarmin = document.getElementById('chk-tool-get_garmin_health');
     if (chkGarmin) {

@@ -482,7 +482,6 @@ Some Swedish is deliberately kept because translating it would change behavior. 
 | Keywords matched against user speech | `includes("avbryt")`, vision keywords in [app.js](client/app.js) | The user speaks Swedish; translating breaks voice control. |
 | Values persisted in the database | `Löpning`, `Styrketräning`, `Övertränad` | Shown in the HUD and matched by pace/recovery logic. Changing them needs a data migration. |
 | Weekday names in generated plans | `Måndag` … `Söndag` | `book_plan_to_calendar` parses them back into dates. |
-| Third-party UI strings | `"Tillåt alla cookies"` in [facebook_service.py](backend/services/facebook_service.py) | Facebook's own button labels, matched by visible text. |
 
 When adding code, follow the same rule: write it in English, and if you need Freja to say something in Swedish, put that instruction in the prompt rather than in the code.
 

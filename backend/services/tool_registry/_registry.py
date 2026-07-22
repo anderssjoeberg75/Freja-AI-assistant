@@ -1,7 +1,7 @@
 """Decorator-based tool registry infrastructure, shared by every tool_registry submodule.
 
 Split out of the former monolithic backend/services/tool_registry.py. Each domain submodule
-(weather_search, health_data, calendar_facebook, trainer_tools, learning, system, instagram,
+(weather_search, health_data, calendar, trainer_tools, learning, system, instagram,
 codex_aliases) imports `registry` from here and registers its own tools onto the same shared
 instance via `@registry.register(...)` / `registry.add(...)`.
 """

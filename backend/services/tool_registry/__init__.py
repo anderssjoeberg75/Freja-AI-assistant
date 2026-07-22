@@ -6,7 +6,7 @@ Used by both the web frontend (via API) and the Telegram bot.
 Layout of this package (split out of a single 1800+ line tool_registry.py):
   _registry.py      - ToolRegistry / clean_schema / Math_round - the decorator-based registry
                        infrastructure, shared by every domain submodule below.
-  weather_search.py, health_data.py, calendar_facebook.py, trainer_tools.py, learning.py,
+  weather_search.py, health_data.py, calendar.py, trainer_tools.py, learning.py,
   system.py, instagram.py, codex_aliases.py
                     - one `exec_*` coroutine per tool, each registered once via
                       `@registry.register(...)` (or `registry.add(...)` for codex_aliases,
@@ -30,7 +30,7 @@ translate tool output into Swedish before replying.
 from ._registry import registry, ToolRegistry, clean_schema, _params_from_pydantic, ToolSpec, Math_round
 
 from . import (
-    weather_search, health_data, calendar_facebook, trainer_tools, learning, system,
+    weather_search, health_data, calendar, trainer_tools, learning, system,
     instagram, codex_aliases,
 )
 
@@ -53,7 +53,7 @@ EXECUTOR_MAP = registry.executor_map
 async def execute_tool(name: str, args: dict, progress_callback=None) -> dict:
     """Dispatches a tool call through the registry (arg hygiene + optional schema validation).
 
-    Long-running tools (Facebook download, learn_topic) accept a `progress_callback` used by
+    Long-running tools (e.g. learn_topic) accept a `progress_callback` used by
     /api/tools/status polling; the registry introspects the executor signature so short tools
     keep a plain `(args)` signature."""
     return await registry.execute(name, args, progress_callback=progress_callback)

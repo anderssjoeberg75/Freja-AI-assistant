@@ -1,11 +1,10 @@
-"""manage_google_calendar and download_facebook_photos tools."""
+"""manage_google_calendar tool."""
 
 from backend.routes.google_calendar import (
     core_get_calendar_data,
     core_save_calendar_event,
     core_delete_calendar_event,
 )
-from backend.services.facebook_service import download_facebook_photos_impl
 from ._registry import registry
 
 @registry.register(
@@ -56,7 +55,7 @@ async def exec_manage_google_calendar(args):
     action = args.get("action", "").lower()
     if not action:
         return {"error": "Calendar action is missing."}
-        
+
     try:
         if action == "list":
             days = int(args.get("days", 30) or 30)
@@ -72,10 +71,10 @@ async def exec_manage_google_calendar(args):
             description = args.get("description", "")
             location = args.get("location", "")
             db_id = args.get("event_id")
-            
+
             if not summary or not start_time or not end_time:
                 return {"error": "Title (summary), start_time and end_time are required."}
-                
+
             return await core_save_calendar_event(
                 summary=summary,
                 start_time=start_time,
@@ -93,39 +92,3 @@ async def exec_manage_google_calendar(args):
             return {"error": f"Unknown action: {action}"}
     except Exception as e:
         return {"error": f"Calendar operation failed: {str(e)}"}
-
-@registry.register(
-    name="download_facebook_photos",
-    description="Downloads photos from a user's Facebook profile or photo gallery (e.g. .../photos_by) using Playwright. Fetches the images and saves them locally.",
-    permission_key="freja_tool_download_facebook_photos_allowed",
-    parameters={
-        "type": "OBJECT",
-        "properties": {
-            "profile_url": {
-                "type": "STRING",
-                "description": "The full URL to the Facebook profile's photos, e.g. https://www.facebook.com/profile.php?id=61581510724534&sk=photos_by"
-            },
-            "limit": {
-                "type": "INTEGER",
-                "description": "Maximum number of images to download. Default is 0 (unlimited, downloads all available photos)."
-            }
-        },
-        "required": ["profile_url"]
-    },
-)
-async def exec_download_facebook_photos(args, progress_callback=None):
-    profile_url = args.get("profile_url", "")
-    limit = int(args.get("limit", 0) or 0)
-    if not profile_url:
-        return {"error": "The Facebook profile URL is missing."}
-    # This loads a real, logged-in browser session and navigates it to `profile_url` - with
-    # no host check, a crafted or prompt-injected URL turns "download my Facebook photos"
-    # into an authenticated-browser SSRF/arbitrary-fetch primitive (can reach internal LAN
-    # addresses, since the backend runs on the user's home network).
-    import urllib.parse
-    parsed = urllib.parse.urlparse(profile_url)
-    host = (parsed.hostname or "").lower()
-    if parsed.scheme != "https" or not (host == "facebook.com" or host.endswith(".facebook.com")):
-        return {"error": "Security error: profile_url must be an https://*.facebook.com address."}
-    return await download_facebook_photos_impl(profile_url, limit, progress_callback)
-

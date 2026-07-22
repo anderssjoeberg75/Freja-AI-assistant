@@ -194,75 +194,6 @@ class GeminiClient {
             parts: userParts
         });
 
-        // Clean history of negative constraints when requesting a Facebook download.
-        // These keyword lists match what the *user* types, and the user speaks Swedish to Freja,
-        // so the keywords are Swedish. They are input data, not UI copy.
-        const lowerMsg = userMessage.toLowerCase();
-        const isFacebookQuery = lowerMsg.includes("facebook") && (
-            lowerMsg.includes("bild") ||
-            lowerMsg.includes("foto") ||
-            lowerMsg.includes("ladda") ||
-            lowerMsg.includes("nedladdning") ||
-            lowerMsg.includes("hämta") ||
-            lowerMsg.includes("prova")
-        );
-
-        if (isFacebookQuery) {
-            let filteredHistory = this.history.filter((h, index) => {
-                // Keep the current user message unconditionally
-                if (index === this.history.length - 1) return true;
-
-                // Do not drop function responses or function calls to avoid breaking tool-turn pairing
-                if (h.role === 'function') return true;
-                if (h.parts && h.parts.some(p => p && p.functionCall)) return true;
-
-                const text = (h.parts && h.parts[0] && h.parts[0].text) || "";
-                if (typeof text !== "string") return true;
-                const lowerText = text.toLowerCase();
-
-                // Purge previous negative/failed constraint text items regarding facebook downloads
-                const isPurgeTarget = lowerText.includes("facebook") && (
-                    lowerText.includes("82") ||
-                    lowerText.includes("detsamma") ||
-                    lowerText.includes("oförändrat") ||
-                    lowerText.includes("inloggning") ||
-                    lowerText.includes("kan inte") ||
-                    lowerText.includes("misslyckades")
-                );
-                if (isPurgeTarget) {
-                    console.log("[GEMINI] Purged biased history item:", text);
-                    return false;
-                }
-                return true;
-            });
-
-            // Normalize history to guarantee valid alternating turns starting with 'user'
-            const normalized = [];
-            for (const item of filteredHistory) {
-                if (item.role === 'user') {
-                    const last = normalized[normalized.length - 1];
-                    if (last && last.role === 'user' && last.parts && last.parts[0] && typeof last.parts[0].text === 'string' && item.parts && item.parts[0] && typeof item.parts[0].text === 'string') {
-                        last.parts[0].text += "\n" + item.parts[0].text;
-                    } else {
-                        normalized.push(item);
-                    }
-                } else if (item.role === 'model') {
-                    const last = normalized[normalized.length - 1];
-                    if (last && last.role === 'model' && last.parts && last.parts[0] && typeof last.parts[0].text === 'string' && item.parts && item.parts[0] && typeof item.parts[0].text === 'string' && !item.parts.some(p => p && p.functionCall)) {
-                        last.parts[0].text += "\n" + item.parts[0].text;
-                    } else {
-                        normalized.push(item);
-                    }
-                } else {
-                    normalized.push(item);
-                }
-            }
-            while (normalized.length > 0 && normalized[0].role !== 'user') {
-                normalized.shift();
-            }
-            this.history = normalized;
-        }
-
         // Run mock offline generator if API key is empty
         if (!this.apiKey) {
             await this.loadApiKey();
@@ -306,9 +237,6 @@ class GeminiClient {
 
         // Inject directive to explicitly cite Google when using the web search tool
         dynamicSystemPrompt += "\n\n[DIRECTIVE: WEB SEARCH CITATION]\nWhen you use the 'google_search' tool to look up information or facts on the web, you MUST always state explicitly in your answer that the source is Google (for example by writing 'Källa: Google' or 'Enligt sökresultat på Google' at the end of your explanation).";
-
-        // Inject directive to force calling download_facebook_photos and ignore past negative history constraints
-        dynamicSystemPrompt += "\n\n[DIRECTIVE: FACEBOOK PHOTO DOWNLOAD]\nIf the user asks you to download, search for, retry or fetch photos from Facebook (e.g. with commands such as 'Prova igen' or 'ladda ner'), you must ALWAYS call the 'download_facebook_photos' tool to run the process again. Ignore any earlier messages in the chat history claiming that you cannot log in, or that there are no more than 82 photos. You now have full access to the login and can fetch all the photos by running the tool.";
 
         // Inject directive to trigger system updates remotely
         dynamicSystemPrompt += "\n\n[DIRECTIVE: SYSTEM UPDATE]\nIf the user asks you to update yourself, download updates or fetch new code from GitHub (e.g. 'uppdatera dig', 'uppdatera från GitHub'), you must ALWAYS call the 'system_update' tool. Tell the user that you are starting the update and restarting the server.";

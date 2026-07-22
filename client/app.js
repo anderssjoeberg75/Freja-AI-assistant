@@ -331,14 +331,8 @@ class FrejaUIController {
         // Swedish stop-words the user actually speaks: "avbryt" = cancel, "stoppa"/"sluta" = stop.
         // "av bryt" catches the speech recognizer splitting the word into two tokens. These match
         // user input, so they must stay Swedish.
-        const containsCancelWord =
-            cleanTextNoPunct.includes("avbryt") ||
-            cleanTextNoPunct.includes("av bryt") ||
-            cleanTextNoPunct.includes("stoppa") ||
-            cleanTextNoPunct.includes("sluta");
-
-        const isCancelCommand = 
-            /^(avbryt|av\s+bryt|stoppa|sluta)(\s+(nedladdning(en)?|ladd(a|ning)?(\s+ner)?|hämtning(en)?|bild(er|erna)?|facebook))?$/i.test(cleanTextNoPunct) ||
+        const isCancelCommand =
+            /^(avbryt|av\s+bryt|stoppa|sluta)(\s+(nedladdning(en)?|ladd(a|ning)?(\s+ner)?|hämtning(en)?|bild(er|erna)?))?$/i.test(cleanTextNoPunct) ||
             cleanTextNoPunct.includes("avbryt nedladdning") ||
             cleanTextNoPunct.includes("av bryt nedladdning") ||
             cleanTextNoPunct.includes("avbryt nedladdningen") ||
@@ -349,8 +343,7 @@ class FrejaUIController {
             cleanTextNoPunct.includes("av bryt bildnedladdningen") ||
             cleanTextNoPunct.includes("sluta ladda ner") ||
             cleanTextNoPunct.includes("stoppa nedladdning") ||
-            cleanTextNoPunct.includes("stoppa nedladdningen") ||
-            (this.facebookDownloadInterval && containsCancelWord);
+            cleanTextNoPunct.includes("stoppa nedladdningen");
 
         if (isCancelCommand) {
             this.writeLog("USER COMMAND DETECTED: CANCEL DOWNLOAD", "sys");

@@ -2,7 +2,6 @@ import time
 import uuid
 from fastapi import APIRouter, HTTPException, Request, BackgroundTasks
 from backend.services.tool_registry import TOOL_DECLARATIONS, TOOL_PERMISSION_KEYS, execute_tool
-from backend.services.facebook_service import cancel_facebook_download
 from backend.database import get_api_key
 
 router = APIRouter()
@@ -223,34 +222,11 @@ async def post_grant_once(request: Request):
 
 @router.post("/api/tools/cancel_download")
 async def post_cancel_download():
-    """Aborts/cancels any active Facebook photo downloading task or learning task."""
-    cancel_facebook_download()
+    """Aborts/cancels any active learning task."""
     try:
         from backend.services.learning_service import cancel_learning
         cancel_learning()
     except Exception as e:
         print(f"[Tools Route] Failed to call cancel_learning: {e}")
     return {"status": "cancelled"}
-
-@router.post("/api/facebook/session")
-async def post_facebook_session(request: Request):
-    """Saves or updates the facebook_state.json session file on the backend server."""
-    try:
-        data = await request.json()
-        if not isinstance(data, dict) or "cookies" not in data:
-            raise HTTPException(status_code=400, detail="Invalid session payload. 'cookies' field missing.")
-
-        import json
-        from backend.config import PROJECT_ROOT
-        state_path = PROJECT_ROOT / "facebook_state.json"
-
-        with open(state_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
-
-        print("[Facebook Session] Updated facebook_state.json from client upload.")
-        return {"status": "success", "message": "Facebook session state saved on backend server."}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to save session state: {str(e)}")
 

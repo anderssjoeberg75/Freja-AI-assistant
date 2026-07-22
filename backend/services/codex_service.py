@@ -26,9 +26,10 @@ IGNORED_DIRS = {
     'docs', 'downloads',
 }
 ALLOWED_EXTENSIONS = {'.py', '.js', '.html', '.css', '.json', '.md', '.sh', '.txt'}
-# facebook_state.json holds live Playwright session cookies/localStorage (see
-# save_session.py / facebook_service.py) and must never be shipped to the external
-# Gemini API as part of a codebase dump.
+# facebook_state.json holds live Playwright session cookies/localStorage from the (now
+# removed) Facebook photo-download feature; the file itself is a leftover secret artifact
+# still on disk and must never be shipped to the external Gemini API as part of a
+# codebase dump.
 IGNORED_FILES = {
     'keys.db', 'freja.db', '.telegram_bot.lock', 'package-lock.json',
     'facebook_state.json',
