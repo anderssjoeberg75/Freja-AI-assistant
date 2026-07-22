@@ -745,6 +745,13 @@ async def _clear_bookings(rows) -> int:
         if event_id:
             try:
                 await core_delete_calendar_event(event_id)
+            except ValueError:
+                # The local google_calendar_events row is already gone (e.g. a prior sync
+                # cleaned it up) - there's nothing left to protect, so the booking row is
+                # safe to clear too. Treating this the same as a genuine delete failure below
+                # left it stuck forever: it would fail with the same "not found" on every
+                # future rebook attempt while no longer representing anything real.
+                pass
             except Exception as del_err:
                 print(f"[TRAINER BOOK] Could not delete the previous event {event_id}: {del_err}")
                 continue

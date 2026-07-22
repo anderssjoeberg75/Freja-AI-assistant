@@ -1813,7 +1813,7 @@ FrejaUIController.prototype.loadGoogleCalendarDashboardUI = async function () {
                 soundSynth.playClick();
                 item.style.opacity = '0.5';
                 try {
-                    const delRes = await fetch(`/api/google_calendar/delete?id=${evt.id}`);
+                    const delRes = await fetch(`/api/google_calendar/delete?id=${evt.id}`, { method: 'DELETE' });
                     const delData = await delRes.json();
                     if (delRes.ok && delData.status === 'success') {
                         this.writeLog(`CALENDAR EVENT "${evt.summary}" REMOVED`, "sys");

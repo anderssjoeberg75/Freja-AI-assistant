@@ -1042,6 +1042,43 @@ def test_trainer_plan_delete_keeps_booking_when_calendar_delete_fails(auth_heade
         assert cursor.fetchone()[0] == 1  # still tracked - the event is still live
 
 
+def test_trainer_plan_delete_clears_booking_when_calendar_event_already_gone(auth_headers, monkeypatch):
+    """core_delete_calendar_event raises ValueError specifically for "event not found" (the
+    local google_calendar_events row is already gone) - that must be treated as "nothing
+    left to protect" and clear the booking row, not as a genuine failure that keeps it. The
+    two used to be handled identically, which left the booking stuck forever: it would fail
+    with the same "not found" on every future rebook while no longer representing anything
+    real."""
+    import backend.routes.google_calendar as gcal_module
+
+    client = TestClient(app)
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO trainer_plans (date, goal, advice_text, limitations) VALUES (?, ?, ?, ?)",
+            ("2026-10-05", "Event redan borta", "{}", "Inga")
+        )
+        conn.commit()
+        plan_id = cursor.lastrowid
+        cursor.execute(
+            "INSERT INTO trainer_bookings (plan_id, event_id, workout_date, week) VALUES (?, ?, ?, ?)",
+            (plan_id, 999999, "2026-10-05", 0)
+        )
+        conn.commit()
+
+    async def not_found_delete(*args, **kwargs):
+        raise ValueError("The event was not found.")
+    monkeypatch.setattr(gcal_module, "core_delete_calendar_event", not_found_delete)
+
+    delete_res = client.delete(f"/api/trainer/plans?plan_id={plan_id}", headers=auth_headers)
+    assert delete_res.status_code == 200
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM trainer_bookings WHERE plan_id = ?", (plan_id,))
+        assert cursor.fetchone()[0] == 0  # cleared - nothing left on the calendar to protect
+
+
 # --- Training-load history, booking anchor and chat context -------------------
 # The three regressions below all produced silently wrong coaching rather than an error:
 # the workouts endpoint 500'd on every call, plans were booked onto the wrong weekdays, and

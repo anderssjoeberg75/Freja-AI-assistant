@@ -26,6 +26,13 @@ def _is_allowed_redirect_origin(origin: str, request: Request) -> bool:
     """Whether the OAuth callback may redirect to `origin`."""
     return is_allowed_origin(origin, request)
 
+# In-memory access-token cache, so a plan-booking run that saves/deletes dozens of events
+# doesn't do a full network round-trip to oauth2.googleapis.com per event. Keyed by the
+# refresh token so reconnecting a different Google account can't serve a stale token.
+# `expires_at` carries a 60s safety margin under Google's real expiry.
+_token_cache = {"refresh_token": None, "access_token": None, "expires_at": 0.0}
+
+
 async def get_google_access_token():
     """Tries to get a fresh access token from Google API using the stored refresh token."""
     client_id = get_api_key('freja_google_calendar_client_id') or ""
@@ -34,9 +41,17 @@ async def get_google_access_token():
 
     if not client_id or not refresh_token:
         return None
-        
+
     if "mock" in client_id.lower() or "mock" in refresh_token.lower():
         return "MOCK_ACCESS_TOKEN"
+
+    import time
+    if (
+        _token_cache["refresh_token"] == refresh_token
+        and _token_cache["access_token"]
+        and time.time() < _token_cache["expires_at"]
+    ):
+        return _token_cache["access_token"]
 
     try:
         url = "https://oauth2.googleapis.com/token"
@@ -51,13 +66,35 @@ async def get_google_access_token():
             res = await client.post(url, data=payload, timeout=8.0)
             if res.status_code == 200:
                 data = res.json()
-                return data.get("access_token")
+                token = data.get("access_token")
+                expires_in = data.get("expires_in", 3600)
+                if token:
+                    _token_cache.update({
+                        "refresh_token": refresh_token,
+                        "access_token": token,
+                        "expires_at": time.time() + max(0, int(expires_in) - 60),
+                    })
+                return token
             else:
                 print(f"[GOOGLE CALENDAR TOKEN ERROR]: HTTP {res.status_code} - {res.text}")
                 return None
     except Exception as e:
         print(f"[GOOGLE CALENDAR TOKEN EXCEPTION]: {e}")
         return None
+
+
+def _google_configured_but_unreachable() -> bool:
+    """True when a Google account IS configured but `get_google_access_token()` just
+    returned None anyway - i.e. the refresh itself failed (revoked grant, expired token,
+    network/5xx), not "no account connected". Callers that get None here must not treat it
+    as the harmless "not connected" case, or a broken connection silently downgrades every
+    push/delete to a local-only no-op that reports success (see issue history on
+    core_save_calendar_event / core_delete_calendar_event)."""
+    return bool(
+        get_api_key('freja_google_calendar_client_id') and
+        get_api_key('freja_google_calendar_refresh_token')
+    )
+
 
 async def run_google_calendar_sync_task():
     """Background task to sync calendar events from Google API or generate mock data."""
@@ -69,10 +106,7 @@ async def run_google_calendar_sync_task():
         # configured refresh token fails (revoked, expired, network). Only the first case is
         # demo mode; treating the second as demo reported "success" for a sync that never
         # happened, so the user saw a green tick while their calendar silently went stale.
-        if not access_token and (
-            get_api_key('freja_google_calendar_client_id') and
-            get_api_key('freja_google_calendar_refresh_token')
-        ):
+        if not access_token and _google_configured_but_unreachable():
             raise Exception(
                 "Could not refresh the Google Calendar access token. "
                 "The authorization may have been revoked - reconnect the account in Settings."
@@ -84,9 +118,10 @@ async def run_google_calendar_sync_task():
                 cursor = conn.cursor()
                 cursor.execute("SELECT COUNT(*) FROM google_calendar_events")
                 if cursor.fetchone()[0] == 0:
-                    today_str = datetime.date.today().strftime('%Y-%m-%d')
-                    tomorrow_str = (datetime.date.today() + datetime.timedelta(days=1)).strftime('%Y-%m-%d')
-                    in_three_days_str = (datetime.date.today() + datetime.timedelta(days=3)).strftime('%Y-%m-%d')
+                    seed_today = today_local()
+                    today_str = seed_today.strftime('%Y-%m-%d')
+                    tomorrow_str = (seed_today + datetime.timedelta(days=1)).strftime('%Y-%m-%d')
+                    in_three_days_str = (seed_today + datetime.timedelta(days=3)).strftime('%Y-%m-%d')
                     
                     # Demo events, only inserted when the table is empty, so the calendar
                     # dashboard is not blank before a real Google account is connected.
@@ -111,14 +146,24 @@ async def run_google_calendar_sync_task():
         time_max = (datetime.datetime.utcnow() + datetime.timedelta(days=30)).isoformat() + "Z"
         
         headers = {"Authorization": f"Bearer {access_token}"}
-        url = f"https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin={time_min}&timeMax={time_max}&singleEvents=true&orderBy=startTime"
-        
+        base_url = f"https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin={time_min}&timeMax={time_max}&singleEvents=true&orderBy=startTime"
+
+        # Google paginates at 250 items by default. The cleanup below deletes every locally
+        # mapped event missing from this fetch, so a truncated single-page fetch didn't just
+        # miss new data - it actively deleted local rows for events still live on Google
+        # (singleEvents=true expands recurring events into individual instances, which makes
+        # a 60-day window exceed 250 items easily on a moderately busy calendar).
+        events_data = []
         async with shared_client() as client:
-            res = await client.get(url, headers=headers, timeout=10.0)
-            if res.status_code != 200:
-                raise Exception(f"Google API responded with HTTP {res.status_code}: {res.text}")
-                
-            events_data = res.json().get("items", [])
+            url = base_url
+            while url:
+                res = await client.get(url, headers=headers, timeout=10.0)
+                if res.status_code != 200:
+                    raise Exception(f"Google API responded with HTTP {res.status_code}: {res.text}")
+                page = res.json()
+                events_data.extend(page.get("items", []))
+                next_token = page.get("nextPageToken")
+                url = f"{base_url}&pageToken={next_token}" if next_token else None
         
         with get_db_connection() as conn:
             cursor = conn.cursor()
@@ -253,8 +298,17 @@ async def core_save_calendar_event(
         end_time = end_time[:19]
 
     access_token = await get_google_access_token()
+    if not access_token and _google_configured_but_unreachable():
+        # A configured-but-broken connection (revoked/expired grant, transient network/5xx)
+        # must not silently downgrade to a local-only save that reports success - that's
+        # exactly how a booked PT session could exist in the DB with nothing on the real
+        # calendar (see issue #59).
+        raise RuntimeError(
+            "Could not refresh the Google Calendar access token. The authorization may "
+            "have been revoked - reconnect the account in Settings."
+        )
     google_event_id = None
-    
+
     with get_db_connection() as conn:
         cursor = conn.cursor()
         
@@ -351,6 +405,14 @@ async def core_delete_calendar_event(db_id: int) -> dict:
         # deleting the row for an event that is still live on the user's calendar.
         if google_event_id:
             access_token = await get_google_access_token()
+            if not access_token and _google_configured_but_unreachable():
+                # Same rule as core_save_calendar_event: a broken (not "unconnected") Google
+                # link must not be treated as "nothing to delete on Google" - that would
+                # delete the local row while the event is still live (issue #58).
+                raise RuntimeError(
+                    "Could not refresh the Google Calendar access token. The authorization "
+                    "may have been revoked - reconnect the account in Settings."
+                )
             if access_token and access_token != "MOCK_ACCESS_TOKEN":
                 headers = {"Authorization": f"Bearer {access_token}"}
                 url = f"https://www.googleapis.com/calendar/v3/calendars/primary/events/{google_event_id}"
@@ -406,7 +468,9 @@ async def post_google_calendar_data(request: Request):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/api/google_calendar/delete")
+@router.delete("/api/google_calendar/delete")
+@router.get("/api/google_calendar/delete")  # kept for older clients; DELETE is preferred so
+# the access token can't end up in a query string (server logs, browser history, Referer)
 async def delete_google_calendar_event(id: int = Query(..., description="ID of the event to delete")):
     """Deletes a calendar event by ID, deleting from Google API if authorized."""
     try:

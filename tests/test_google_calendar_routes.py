@@ -121,6 +121,131 @@ async def test_sync_keeps_events_outside_the_fetched_window(monkeypatch):
     assert in_window_removed == 0
 
 
+def test_delete_google_calendar_event_via_delete_verb(auth_headers):
+    """The DELETE verb must work too, not just the legacy GET (kept for older clients) -
+    a GET-based destructive endpoint risks the access token ending up in a query string
+    (server logs, browser history, Referer) if ever called via ?token=... instead of the
+    header."""
+    client = TestClient(app)
+    payload = {
+        "summary": "DELETE-verb test event",
+        "description": "",
+        "start_time": "2026-07-03T14:00:00",
+        "end_time": "2026-07-03T15:00:00",
+        "location": ""
+    }
+    response = client.post("/api/google_calendar/data", json=payload, headers=auth_headers)
+    assert response.status_code == 200
+    event_id = response.json()["event"]["id"]
+
+    del_response = client.delete(f"/api/google_calendar/delete?id={event_id}", headers=auth_headers)
+    assert del_response.status_code == 200
+    assert del_response.json().get("status") == "success"
+
+
+@pytest.mark.asyncio
+async def test_save_and_delete_raise_when_google_configured_but_unreachable(monkeypatch):
+    """A configured-but-broken Google connection (revoked/expired grant, transient network
+    failure) must not be treated the same as "no account connected" - that silently
+    downgraded a save/delete to a local-only no-op that still reported success, which is
+    exactly how a booked PT session could exist in the DB with nothing on the real calendar.
+    """
+    import backend.routes.google_calendar as gcal
+
+    set_api_key('freja_google_calendar_client_id', 'real-client-id')
+    set_api_key('freja_google_calendar_refresh_token', 'real-refresh-token')
+    try:
+        async def broken_token():
+            return None
+        monkeypatch.setattr(gcal, "get_google_access_token", broken_token)
+
+        with pytest.raises(RuntimeError):
+            await gcal.core_save_calendar_event(
+                summary="x", start_time="2026-07-04T10:00", end_time="2026-07-04T11:00"
+            )
+
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO google_calendar_events (google_event_id, summary, start_time, end_time) "
+                "VALUES (?, ?, ?, ?)",
+                ("some-real-google-id", "still live", "2026-07-04T10:00:00", "2026-07-04T11:00:00")
+            )
+            db_id = cursor.lastrowid
+            conn.commit()
+
+        try:
+            with pytest.raises(RuntimeError):
+                await gcal.core_delete_calendar_event(db_id)
+        finally:
+            with get_db_connection() as conn:
+                conn.execute("DELETE FROM google_calendar_events WHERE id = ?", (db_id,))
+                conn.commit()
+    finally:
+        # set_api_key also writes the legacy unprefixed alias (google_calendar_client_id /
+        # google_calendar_refresh_token, see backend/database.py's KEY_ALIASES) - deleting
+        # only the freja_-prefixed name left the alias row in place, and get_api_key's
+        # alias fallback then kept resolving the fake credentials for every later test.
+        with get_db_connection() as conn:
+            conn.execute(
+                "DELETE FROM api_keys WHERE key_name IN ("
+                "'freja_google_calendar_client_id', 'freja_google_calendar_refresh_token', "
+                "'google_calendar_client_id', 'google_calendar_refresh_token')"
+            )
+            conn.commit()
+
+
+@pytest.mark.asyncio
+async def test_sync_follows_pagination(monkeypatch):
+    """A truncated single-page fetch didn't just miss new data - the cleanup pass deletes
+    every locally-mapped event missing from the response, so page 2+ events were actively
+    deleted locally while still live on Google."""
+    import datetime
+    import backend.routes.google_calendar as gcal
+
+    in_window = (datetime.date.today() + datetime.timedelta(days=3)).strftime('%Y-%m-%d')
+
+    async def fake_token():
+        return "REAL_LOOKING_TOKEN"
+    monkeypatch.setattr(gcal, "get_google_access_token", fake_token)
+
+    class PagedCalendarClient:
+        def __init__(self, *a, **k):
+            pass
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *a):
+            return False
+        async def get(self, url, *a, **k):
+            class R:
+                status_code = 200
+                text = ""
+                def __init__(self, body):
+                    self._body = body
+                def json(self):
+                    return self._body
+            if "pageToken" not in url:
+                return R({
+                    "items": [{"id": "evt-page1", "summary": "Page 1", "start": {"dateTime": f"{in_window}T09:00:00Z"}, "end": {"dateTime": f"{in_window}T10:00:00Z"}}],
+                    "nextPageToken": "page2",
+                })
+            return R({
+                "items": [{"id": "evt-page2", "summary": "Page 2", "start": {"dateTime": f"{in_window}T11:00:00Z"}, "end": {"dateTime": f"{in_window}T12:00:00Z"}}],
+            })
+
+    monkeypatch.setattr(gcal, "shared_client", PagedCalendarClient)
+    try:
+        await gcal.run_google_calendar_sync_task()
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM google_calendar_events WHERE google_event_id IN ('evt-page1', 'evt-page2')")
+            assert cursor.fetchone()[0] == 2
+    finally:
+        with get_db_connection() as conn:
+            conn.execute("DELETE FROM google_calendar_events WHERE google_event_id IN ('evt-page1', 'evt-page2')")
+            conn.commit()
+
+
 def test_google_calendar_sync_trigger(auth_headers):
     client = TestClient(app)
     response = client.get("/api/google_calendar/sync", headers=auth_headers)
