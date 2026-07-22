@@ -67,11 +67,22 @@ def _is_git_push(name: str, args: dict) -> bool:
 
 
 def _grant_key(name: str, args: dict) -> str:
-    """Derives the ONE_TIME_GRANTS key for a tool call. Git push gets its own namespaced
-    key so a one-time grant issued for a harmless action (e.g. `git log`) can't be reused
-    to authorize a push, and vice versa."""
+    """Derives the ONE_TIME_GRANTS key for a tool call.
+
+    Includes the risk-discriminating action, if the call has one (whichever of `action` /
+    `action_type` the tool's schema uses), alongside the tool name - so a one-time grant
+    issued for one action of a multi-action tool (e.g. `manage_google_calendar` action=list,
+    or `run_windows_command` action_type=open_url) can't be reused within the grant's TTL to
+    authorize a materially different and riskier action of the *same* tool (action=delete,
+    action_type=run_cmd) that the user never actually saw or approved. Git push additionally
+    keeps its own explicit branch for clarity, though it's now also covered by the rule below.
+    """
+    args = args or {}
     if _is_git_push(name, args):
         return f"{name}:push"
+    action = str(args.get("action") or args.get("action_type") or "").strip().lower()
+    if action:
+        return f"{name}:{action}"
     return name
 
 

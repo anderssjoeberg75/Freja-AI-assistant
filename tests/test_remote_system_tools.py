@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 from server import app
 from backend.config import PROJECT_ROOT
 from backend.services.tool_registry import execute_tool
-from backend.database import get_api_key
+from backend.database import get_api_key, get_db_connection
 
 @pytest.fixture
 def db_token():
@@ -186,6 +186,131 @@ async def test_run_windows_command_run_cmd_blocked():
         if os.name == "nt":
             assert "error" in result
             assert "Security error" in result["error"]
+
+
+@pytest.mark.anyio
+async def test_run_windows_command_run_cmd_git_config_flags_blocked():
+    # git supports config-driven command execution (-c core.pager=<cmd>) - a documented
+    # technique to spawn an arbitrary process via git itself despite the exec-no-shell call.
+    for blocked_cmd in [
+        "git -c core.pager=calc.exe -p log",
+        "git -c core.editor=calc.exe commit",
+        "git --exec-path=C:\\evil status",
+    ]:
+        result = await execute_tool("run_windows_command", {
+            "action_type": "run_cmd",
+            "target": blocked_cmd
+        })
+        if os.name == "nt":
+            assert "error" in result
+            assert "Security error" in result["error"]
+
+
+@pytest.mark.anyio
+async def test_run_windows_command_run_cmd_exe_suffixed_allowlisted_command_works():
+    # Regression: `.rstrip(".exe")` stripped trailing chars in {'.','e','x'}, not the
+    # literal suffix - "hostname.exe" lost 5 chars down to "hostnam" and was wrongly denied
+    # despite "hostname" being allowlisted.
+    result = await execute_tool("run_windows_command", {
+        "action_type": "run_cmd",
+        "target": "hostname.exe"
+    })
+    if os.name == "nt":
+        assert "error" not in result
+        assert result["status"] == "success"
+
+
+@pytest.mark.anyio
+async def test_run_windows_command_open_app_blocks_dangerous_interpreters():
+    for target in ["powershell.exe", "PowerShell.EXE", "cscript.exe", "mshta.exe"]:
+        result = await execute_tool("run_windows_command", {
+            "action_type": "open_app",
+            "target": target
+        })
+        if os.name == "nt":
+            assert "error" in result
+            assert "Security error" in result["error"]
+
+
+@pytest.mark.anyio
+async def test_run_windows_command_open_app_blocks_file_scheme():
+    # open_app uses os.startfile, which resolves URLs of any scheme (not just executables) -
+    # file:// would otherwise route around open_url's scheme restriction entirely.
+    result = await execute_tool("run_windows_command", {
+        "action_type": "open_app",
+        "target": "file:///C:/Windows/System32/cmd.exe"
+    })
+    if os.name == "nt":
+        assert "error" in result
+        assert "Security error" in result["error"]
+
+
+@pytest.mark.anyio
+async def test_download_facebook_photos_rejects_non_facebook_urls():
+    # This tool loads a real, logged-in browser session and navigates it to `profile_url`
+    # with no host check - a crafted URL turned "download my Facebook photos" into an
+    # authenticated-browser SSRF/arbitrary-fetch primitive (can reach internal LAN
+    # addresses, since the backend runs on the user's home network).
+    for bad_url in [
+        "https://evil.example.com/",
+        "http://facebook.com/x",  # right host, wrong scheme
+        "https://notfacebook.com/facebook.com",
+        "https://192.168.1.1/admin",
+    ]:
+        result = await execute_tool("download_facebook_photos", {"profile_url": bad_url})
+        assert "error" in result
+        assert "Security error" in result["error"]
+
+
+@pytest.mark.anyio
+async def test_update_trainer_workout_matches_the_correct_week():
+    # A multi-week plan can list the same weekday more than once (one entry per week).
+    # Matching by weekday alone always resolved to whichever entry came first in the
+    # array - i.e. always week 0's version - silently editing the wrong week's workout.
+    import json
+
+    plan_json = {"workouts": [
+        {"day": "Måndag", "week": 0, "activity_type": "Löpning", "title": "Week0Mon",
+         "description": "d0", "duration_minutes": 30},
+        {"day": "Måndag", "week": 1, "activity_type": "Löpning", "title": "Week1Mon",
+         "description": "d1", "duration_minutes": 40},
+    ]}
+    week1_monday = "2026-08-17"  # a Monday, one week after the week-0 anchor
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO trainer_plans (date, goal, advice_text, limitations) VALUES (?, ?, ?, ?)",
+            ("2026-08-10", "Week matching test", json.dumps(plan_json), "")
+        )
+        plan_id = cursor.lastrowid
+        cursor.execute(
+            "INSERT INTO trainer_bookings (plan_id, event_id, workout_date, week) VALUES (?, ?, ?, ?)",
+            (plan_id, None, week1_monday, 1)
+        )
+        conn.commit()
+
+    try:
+        result = await execute_tool("update_trainer_workout", {
+            "workout_date": week1_monday,
+            "title": "UpdatedWeek1",
+        })
+        assert result["plan_updated"] is True
+
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT advice_text FROM trainer_plans WHERE id = ?", (plan_id,))
+            saved = json.loads(cursor.fetchone()[0])
+
+        titles_by_week = {w["week"]: w["title"] for w in saved["workouts"]}
+        assert titles_by_week[1] == "UpdatedWeek1"
+        assert titles_by_week[0] == "Week0Mon"  # week 0's entry must be untouched
+    finally:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM trainer_bookings WHERE plan_id = ?", (plan_id,))
+            cursor.execute("DELETE FROM trainer_plans WHERE id = ?", (plan_id,))
+            conn.commit()
 
 
 def test_client_heartbeat_flow(db_token):

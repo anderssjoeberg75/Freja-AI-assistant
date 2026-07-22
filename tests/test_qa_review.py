@@ -205,7 +205,11 @@ class TestToolAuthorization:
     def test_grant_key_namespaces_push(self):
         from backend.routes import tools
         assert tools._grant_key("codex_git_ops", {"action": "push"}) == "codex_git_ops:push"
-        assert tools._grant_key("codex_git_ops", {"action": "status"}) == "codex_git_ops"
+        # Every action-bearing tool call is namespaced by its action now, not just push - a
+        # grant for one action (e.g. `status`) must not double as a grant for another
+        # (`push`, or any other action of the same tool) it was never issued for.
+        assert tools._grant_key("codex_git_ops", {"action": "status"}) == "codex_git_ops:status"
+        assert tools._grant_key("get_weather", {}) == "get_weather"
 
     def test_ungated_tool_is_denied_not_allowed(self):
         """A tool without a permission key must fail CLOSED.

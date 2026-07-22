@@ -194,8 +194,8 @@ async def test_health_averages_ignore_days_without_a_reading(monkeypatch):
              'active_calories': 500, 'workout_type': 'Ingen', 'body_battery': None, 'hrv': None},
         ]
 
-    monkeypatch.setattr(registry, "get_garmin_data", fake_get_garmin_data)
-    monkeypatch.setattr(registry, "get_api_key", lambda name: "")  # skip the sync path
+    monkeypatch.setattr(registry.health_data, "get_garmin_data", fake_get_garmin_data)
+    monkeypatch.setattr(registry.health_data, "get_api_key", lambda name: "")  # skip the sync path
 
     result = await exec_garmin_health({"days": 2})
     averages = result["averages"]

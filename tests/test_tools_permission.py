@@ -65,6 +65,57 @@ def test_execute_allowed_tool_starts_task(db_token):
         set_api_key(key, backup or "")
 
 
+def test_grant_once_is_scoped_to_the_approved_action(db_token):
+    """A one-time grant issued for one action of a multi-action tool must not authorize a
+    different, un-approved action of the same tool within the grant's TTL.
+
+    _grant_key used to key ONE_TIME_GRANTS by tool name alone (with a special-cased
+    exception only for codex_git_ops push), so approving e.g. `run_windows_command`
+    action_type=open_url also silently authorized action_type=run_cmd for the following
+    120 seconds - a materially riskier action the user never saw.
+    """
+    key = "freja_tool_run_windows_command_allowed"
+    backup = get_api_key(key)
+    set_api_key(key, "false")
+    client = TestClient(app)
+    try:
+        grant_resp = client.post(
+            "/api/tools/grant_once",
+            headers={"X-Freja-Token": db_token},
+            json={"name": "run_windows_command", "args": {"action_type": "open_url", "target": "https://example.com"}},
+        )
+        assert grant_resp.status_code == 200
+
+        # The approved action must now be authorized...
+        exec_resp = client.post(
+            "/api/tools/execute",
+            headers={"X-Freja-Token": db_token},
+            json={"name": "run_windows_command", "args": {"action_type": "open_url", "target": "https://example.com"}},
+        )
+        assert exec_resp.status_code == 200
+    finally:
+        set_api_key(key, backup or "")
+
+    set_api_key(key, "false")
+    try:
+        # ...but a DIFFERENT action of the same tool, never approved, must not be.
+        grant_resp = client.post(
+            "/api/tools/grant_once",
+            headers={"X-Freja-Token": db_token},
+            json={"name": "run_windows_command", "args": {"action_type": "open_url", "target": "https://example.com"}},
+        )
+        assert grant_resp.status_code == 200
+
+        exec_resp = client.post(
+            "/api/tools/execute",
+            headers={"X-Freja-Token": db_token},
+            json={"name": "run_windows_command", "args": {"action_type": "run_cmd", "target": "whoami"}},
+        )
+        assert exec_resp.status_code == 403
+    finally:
+        set_api_key(key, backup or "")
+
+
 def test_metadata_endpoint_covers_every_registered_tool(db_token):
     """The gateway's tool list must come from the registry, not a hand-kept copy.
 
