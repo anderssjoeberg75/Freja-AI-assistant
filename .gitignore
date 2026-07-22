@@ -37,10 +37,13 @@ downloads/
 # Generated codex artifacts (audit reports, auto-fix backups)
 docs/code_audit_*.md
 *.bak
-*.codex_backup
+*.codex_backup*
 
 # Database backups and migration bundles (contain secrets - never commit)
 keys.db.bak-*
 *.db.bak-*
 migration_to_server/
+
+# Graphify knowledge graph (generated locally; rebuilt via git hooks, no need to commit)
+graphify-out/
 

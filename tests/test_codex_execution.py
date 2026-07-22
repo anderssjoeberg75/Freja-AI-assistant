@@ -38,6 +38,23 @@ def test_python_alias_import_bypasses_blocked():
         assert "Security error" in str(excinfo.value)
 
 
+def test_python_import_from_blocked_submodule_name():
+    # `from <non-blocked-pkg> import os`-style: the ImportFrom check only screened the
+    # imported name against blocked_calls, never against blocked_modules, so a blocked
+    # module name imported *as a submodule of something else* slipped past unchecked.
+    # verify_safe_python_code only parses the AST - it never actually imports anything -
+    # so a syntactically valid but semantically bogus source module is enough to isolate
+    # the check being tested here from the earlier `node.module in blocked_modules` one.
+    unsafe_codes = [
+        "from some_package import os",
+        "from another_package import subprocess",
+    ]
+    for code in unsafe_codes:
+        with pytest.raises(ValueError) as excinfo:
+            verify_safe_python_code(code)
+        assert "Security error" in str(excinfo.value)
+
+
 @pytest.mark.skipif(os.name == "nt", reason="POSIX-only shell assumptions")
 def test_shell_commands_run_inside_sandbox_dir(monkeypatch):
     # Force local mode so the test doesn't depend on docker being installed.
@@ -100,6 +117,7 @@ def test_run_and_fix_rejects_empty_ai_response(monkeypatch, tmp_path):
 
     monkeypatch.setattr(codex_service, "call_gemini_api", fake_gemini)
 
+    result = {}
     try:
         result = asyncio.run(codex_run_and_fix_impl({
             "command": "ls /nonexistent_dir_freja_test",
@@ -113,8 +131,64 @@ def test_run_and_fix_rejects_empty_ai_response(monkeypatch, tmp_path):
             assert f.read() == original_content
         assert any("förkastades" in entry for entry in result["history"])
     finally:
-        for path in (target, target + ".codex_backup"):
-            if os.path.exists(path):
+        for path in (target, result.get("backup_file", "")):
+            if path and os.path.exists(path):
+                os.remove(path)
+
+
+def test_run_and_fix_rejects_js_and_html_targets():
+    # .js/.html are content a browser actually loads/executes, and unlike .py/.sh there is
+    # no re-validation step for them before the AI's rewrite is written to disk - so they
+    # were dropped from ALLOWED_FIX_EXTENSIONS rather than left as an unguarded write path.
+    for rel_path, content in (
+        ("backend/cache/run_and_fix_target.js", "console.log('x');\n"),
+        ("backend/cache/run_and_fix_target.html", "<p>x</p>\n"),
+    ):
+        abs_path = os.path.join(codex_service.PROJECT_ROOT, *rel_path.split("/"))
+        os.makedirs(os.path.dirname(abs_path), exist_ok=True)
+        with open(abs_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        try:
+            result = asyncio.run(codex_run_and_fix_impl({
+                "command": "pytest --this-flag-does-not-exist-xyz",
+                "file_path": rel_path,
+                "max_retries": 1,
+            }))
+            assert "error" in result
+            assert "not supported" in result["error"]
+        finally:
+            if os.path.exists(abs_path):
+                os.remove(abs_path)
+
+
+def test_run_and_fix_backup_path_is_unique_per_call(monkeypatch):
+    # Two runs against the same file must not share a backup path - a fixed
+    # `<file>.codex_backup` name meant a second concurrent/sequential run could clobber
+    # the first run's backup before it was ever restored from.
+    target = os.path.join(codex_service.PROJECT_ROOT, "backend", "cache", "run_and_fix_target.py")
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+    with open(target, "w", encoding="utf-8") as f:
+        f.write("print('original')\n")
+
+    async def fake_gemini(prompt, system_instruction=""):
+        return ""
+
+    monkeypatch.setattr(codex_service, "call_gemini_api", fake_gemini)
+
+    backups = []
+    try:
+        for _ in range(2):
+            result = asyncio.run(codex_run_and_fix_impl({
+                "command": "pytest --this-flag-does-not-exist-xyz",
+                "file_path": "backend/cache/run_and_fix_target.py",
+                "max_retries": 1,
+            }))
+            backups.append(result["backup_file"])
+        assert backups[0] != backups[1]
+        assert all(os.path.exists(b) for b in backups)
+    finally:
+        for path in [target] + backups:
+            if path and os.path.exists(path):
                 os.remove(path)
 
 

@@ -50,7 +50,11 @@ SECRET_REDACTION_PATTERN = re.compile(
 
 # Only these file types may be overwritten by codex_run_and_fix. Prevents the auto-fixer
 # from writing arbitrary model output to executables, binaries, or unexpected paths.
-ALLOWED_FIX_EXTENSIONS = {'.py', '.js', '.html', '.css', '.json', '.md', '.txt', '.sh'}
+# .js/.html are deliberately excluded: unlike .py (re-validated with verify_safe_python_code
+# below) or .sh (re-validated with verify_safe_shell_command), there is no sandbox check for
+# them here, and they are content a browser actually loads/executes - a bad or manipulated
+# rewrite would be a direct stored-XSS/backdoor path with nothing standing in the way.
+ALLOWED_FIX_EXTENSIONS = {'.py', '.css', '.json', '.md', '.txt', '.sh'}
 
 
 def redact_secrets(text: str) -> str:
@@ -97,9 +101,11 @@ def verify_safe_python_code(code: str):
                 if mod in blocked_modules:
                     raise ValueError(f"Security error: Importing from the module '{node.module}' is blocked.")
             # Block `from <module> import open as reader`-style aliasing: the imported
-            # object keeps its dangerous behavior even when bound to an innocent name.
+            # object keeps its dangerous behavior even when bound to an innocent name. Also
+            # block `from <pkg> import os`-style submodule imports that re-export a blocked
+            # module under a non-blocked parent name (issue found in codex_service review).
             for name in node.names:
-                if name.name in blocked_calls:
+                if name.name in blocked_calls or name.name in blocked_modules:
                     raise ValueError(f"Security error: Import of '{name.name}' is blocked.")
         elif isinstance(node, ast.Call):
             if isinstance(node.func, ast.Name):
@@ -159,6 +165,22 @@ BLOCKED_SHELL_COMMANDS = {
 # Matches python / python3 / python3.11 / py etc. so version-suffixed interpreter
 # names can't slip past an exact-match blocklist.
 BLOCKED_SHELL_PATTERN = re.compile(r'^(python[\d.]*|py|pip[\d.]*)$', re.IGNORECASE)
+
+# cmd.exe resolves a bare name against these extensions (its PATHEXT) and runs the
+# result identically to the extension-less form - so `powershell.exe` is exactly as
+# dangerous as `powershell`. The blocklist above only listed the bare names for
+# almost every entry (a couple, like cmd.exe/reg.exe, were added defensively but the
+# rest were missed), so every other blocked binary's .exe/.com/... form slipped
+# straight through the token check. Strip a trailing PATHEXT extension before
+# comparing so the blocklist can't be bypassed this way again.
+_PATHEXT_SUFFIXES = ('.exe', '.com', '.bat', '.cmd', '.vbs', '.vbe', '.js', '.jse', '.wsf', '.wsh', '.msc', '.scr', '.pif')
+
+
+def _strip_pathext(token: str) -> str:
+    for suffix in _PATHEXT_SUFFIXES:
+        if token.endswith(suffix):
+            return token[: -len(suffix)]
+    return token
 
 # Minimal environment passed to any sandboxed subprocess. Excludes application secrets
 # that operators may have set as process env vars (e.g. TELEGRAM_BOT_TOKEN), so a shell
@@ -377,7 +399,11 @@ def verify_safe_shell_command(cmd_str: str):
         token_clean = token.strip().lower()
         if not token_clean:
             continue
-        if token_clean in BLOCKED_SHELL_COMMANDS or BLOCKED_SHELL_PATTERN.match(token_clean):
+        token_base = _strip_pathext(token_clean)
+        if (
+            token_clean in BLOCKED_SHELL_COMMANDS or token_base in BLOCKED_SHELL_COMMANDS
+            or BLOCKED_SHELL_PATTERN.match(token_clean) or BLOCKED_SHELL_PATTERN.match(token_base)
+        ):
             raise ValueError(f"Security error: The command or operator '{token}' is blocked.")
 
 
@@ -387,7 +413,19 @@ async def _wait_with_timeout(proc, timeout: int):
         return await asyncio.wait_for(proc.communicate(), timeout=timeout)
     except asyncio.TimeoutError:
         try:
-            proc.kill()
+            if os.name == "nt" and proc.pid:
+                # proc.kill() only terminates the cmd.exe wrapper that
+                # create_subprocess_shell launches - any child it spawned (another
+                # interpreter, a nested shell, ...) is not tracked by asyncio on Windows
+                # and would otherwise outlive the "hard timeout" as an orphan. `taskkill
+                # /T` walks and kills the whole process tree rooted at this pid.
+                kill_proc = await asyncio.create_subprocess_exec(
+                    "taskkill", "/T", "/F", "/PID", str(proc.pid),
+                    stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+                )
+                await kill_proc.communicate()
+            else:
+                proc.kill()
             await proc.communicate()
         except Exception:
             pass
@@ -781,8 +819,11 @@ async def codex_run_and_fix_impl(args: dict) -> dict:
         return {"error": f"Security error: Auto-fix is not supported for the file type '{fix_ext or 'unknown'}'. Allowed: {', '.join(sorted(ALLOWED_FIX_EXTENSIONS))}."}
 
     # Safety net: keep a backup of the original file so a bad AI rewrite can always
-    # be rolled back, even if the file was never committed to git.
-    backup_path = abs_file_path + ".codex_backup"
+    # be rolled back, even if the file was never committed to git. Suffixed with a uuid
+    # (matching execute_codex_code_impl's temp files) so two concurrent run_and_fix calls
+    # against the same file can't clobber each other's backup mid-run and lose the ability
+    # to restore the true original.
+    backup_path = f"{abs_file_path}.codex_backup.{uuid.uuid4().hex[:8]}"
     try:
         shutil.copy2(abs_file_path, backup_path)
     except Exception as backup_err:
