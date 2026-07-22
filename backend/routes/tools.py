@@ -231,3 +231,26 @@ async def post_cancel_download():
     except Exception as e:
         print(f"[Tools Route] Failed to call cancel_learning: {e}")
     return {"status": "cancelled"}
+
+@router.post("/api/facebook/session")
+async def post_facebook_session(request: Request):
+    """Saves or updates the facebook_state.json session file on the backend server."""
+    try:
+        data = await request.json()
+        if not isinstance(data, dict) or "cookies" not in data:
+            raise HTTPException(status_code=400, detail="Invalid session payload. 'cookies' field missing.")
+
+        import json
+        from backend.config import PROJECT_ROOT
+        state_path = PROJECT_ROOT / "facebook_state.json"
+
+        with open(state_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+
+        print("[Facebook Session] Updated facebook_state.json from client upload.")
+        return {"status": "success", "message": "Facebook session state saved on backend server."}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save session state: {str(e)}")
+

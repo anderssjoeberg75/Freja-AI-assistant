@@ -44,6 +44,22 @@ async def run():
                     await context.storage_state(path=str(state_path))
                     print(f"\n[Success] Login detected. Session saved to: {state_path.resolve()}")
                     logged_in = True
+                    
+                    # Sync session to remote backend server if configured
+                    backend_url = os.environ.get("BACKEND_URL", "http://localhost:8000").rstrip("/")
+                    try:
+                        import httpx
+                        sync_url = f"{backend_url}/api/facebook/session"
+                        print(f"[Sync] Uploading session state to backend ({sync_url})...")
+                        async with httpx.AsyncClient(timeout=10.0) as client:
+                            res = await client.post(sync_url, json=state)
+                            if res.status_code == 200:
+                                print(f"[Success] Session synced to backend server at {backend_url}.")
+                            else:
+                                print(f"[Warning] Could not sync session to backend ({res.status_code}): {res.text}")
+                    except Exception as upload_err:
+                        print(f"[Warning] Backend sync attempt failed: {upload_err}")
+
                     break
             except Exception as e:
                 print(f"\n[Error] Failure while monitoring the login: {e}")
