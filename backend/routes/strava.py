@@ -378,8 +378,13 @@ async def delete_strava_log(id: str = Query(..., description="ID of activity to 
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('DELETE FROM strava_activities WHERE id = ?', (id_to_delete,))
+            deleted = cursor.rowcount
             conn.commit()
+        if not deleted:
+            raise HTTPException(status_code=404, detail=f"No activity with ID {id_to_delete} was found.")
         return {'status': 'success', 'message': f"Activity {id_to_delete} was deleted."}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -430,7 +435,7 @@ async def get_strava_activity_details(id: str = Query(..., description="ID of ac
         return mock_details
 
     try:
-        is_mock_id = activity_id.startswith('-') or activity_id in ('7', '8', '9')
+        is_mock_id = activity_id.startswith('-')
         access_token = await get_strava_access_token()
         if access_token == 'MOCK_ACCESS_TOKEN' or is_mock_id:
             return serve_mock_details()
@@ -545,8 +550,11 @@ async def get_strava_activity_details(id: str = Query(..., description="ID of ac
             }
             return details
         except Exception as api_err:
-            print(f"Strava activity details real API failed ({api_err}), falling back to mock details.")
-            return serve_mock_details()
+            # A real API failure (429 rate-limit, network error, Strava outage) must not be
+            # masked as a fabricated activity with a 200 OK - that hid a broken connection
+            # behind plausible-looking fake training data (mock detail data is for the
+            # explicit MOCK_ACCESS_TOKEN/demo-id path above, not for real-token failures).
+            raise Exception(f"Strava activity details request failed: {api_err}") from api_err
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Could not fetch the activity details: {str(e)}")
 
@@ -585,8 +593,10 @@ async def get_strava_athlete_stats():
                 stats = res.json()
             return stats
         except Exception as api_err:
-            print(f"Failed to fetch real athlete stats ({api_err}), falling back to mock stats.")
-            return mock_stats
+            # Same rule as get_strava_activity_details: mock_stats is for the explicit
+            # MOCK_ACCESS_TOKEN demo path only - a real-token failure must not be masked as
+            # fabricated lifetime stats with a 200 OK.
+            raise Exception(f"Strava athlete stats request failed: {api_err}") from api_err
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Could not fetch the athlete statistics: {str(e)}")
 
