@@ -62,7 +62,9 @@ def _is_git_push(name: str, args: dict) -> bool:
     """`git push` publishes to a remote and is hard to reverse, unlike the other
     codex_git_ops actions (status/log/clone/checkout/commit stay local). It must always
     be re-confirmed per call, even when the user has permanently allowed codex_git_ops."""
-    return name == "codex_git_ops" and (args or {}).get("action", "").strip().lower() == "push"
+    action_val = (args or {}).get("action")
+    action_str = str(action_val).strip().lower() if action_val is not None else ""
+    return name == "codex_git_ops" and action_str == "push"
 
 
 def _grant_key(name: str, args: dict) -> str:
@@ -226,7 +228,8 @@ async def post_cancel_download():
     try:
         from backend.services.learning_service import cancel_learning
         cancel_learning()
+        return {"status": "cancelled"}
     except Exception as e:
         print(f"[Tools Route] Failed to call cancel_learning: {e}")
-    return {"status": "cancelled"}
+        return {"status": "error", "error": str(e)}
 

@@ -64,20 +64,25 @@ async def lifespan(app: FastAPI):
     yield
     # Shutdown: Clean up background tasks
     task.cancel()
-    await stop_task_queue()
-    # Dispose the shared outbound HTTP connection pool (Issue #24).
-    from backend.services.http_client import close_shared_client
-    await close_shared_client()
     try:
         await task
     except asyncio.CancelledError:
         pass
+    await stop_task_queue()
+    # Dispose the shared outbound HTTP connection pool after awaiting cancelled tasks (Issue #24, #175).
+    from backend.services.http_client import close_shared_client
+    await close_shared_client()
+
+enable_docs = os.environ.get("FREJA_ENABLE_DOCS", "").lower() in ("true", "1", "yes")
 
 # Create FastAPI app
 app = FastAPI(
     title="F.R.E.J.A. Neural Backend",
     description="FastAPI migration serving cybernetic health dashboard diagnostics and secure AI proxying.",
     version="2.0.0",
+    docs_url="/docs" if enable_docs else None,
+    redoc_url="/redoc" if enable_docs else None,
+    openapi_url="/openapi.json" if enable_docs else None,
     lifespan=lifespan
 )
 
@@ -165,9 +170,10 @@ def run_server():
     print("  API keys database & security active (FastAPI Mode)")
     print("===========================================================")
     # reload=True forces SelectorEventLoop on Windows, which doesn't support subprocesses (needed for Playwright).
-    # Thus, reload is disabled on Windows.
-    reload_enabled = os.name != 'nt'
-    uvicorn.run("server:app", host="0.0.0.0", port=PORT, log_level="info", reload=reload_enabled)
+    # Thus, reload is disabled by default on Windows unless explicitly requested via FREJA_RELOAD.
+    reload_enabled = os.environ.get("FREJA_RELOAD", "").lower() in ("true", "1", "yes") if os.name == 'nt' else True
+    reload_dirs = [str(PROJECT_ROOT / "backend"), str(PROJECT_ROOT / "client")] if reload_enabled else None
+    uvicorn.run("server:app", host="0.0.0.0", port=PORT, log_level="info", reload=reload_enabled, reload_dirs=reload_dirs)
 
 if __name__ == "__main__":
     run_server()

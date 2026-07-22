@@ -112,7 +112,7 @@ def get_all_api_keys(unmask: bool = False) -> dict:
     Sensitive values (API keys, client secrets, passwords, and tokens) are masked automatically
     unless unmask is set to True.
     """
-    sensitive_keywords = {"secret", "token", "password", "apikey", "api_key"}
+    sensitive_keywords = {"secret", "token", "password", "apikey", "api_key", "email"}
     non_sensitive_keys = {
         "freja_instagram_business_account_id",
         "freja_instagram_username",
@@ -184,12 +184,13 @@ def init_db():
         ("baselines_updated_at", "TEXT"),
     ])
 
-    # trainer_bookings is queried by date range (booking/replacing/listing PT sessions) and
-    # joined on plan_id on every workout list - `Base.metadata.create_all` only adds these
-    # indexes to a table it creates from scratch, so an already-existing DB needs them
-    # backfilled explicitly too (issue #65).
+    # Backfill indexes for existing databases (issue #65, #162, #163)
     cursor.execute("CREATE INDEX IF NOT EXISTS ix_trainer_bookings_workout_date ON trainer_bookings (workout_date)")
     cursor.execute("CREATE INDEX IF NOT EXISTS ix_trainer_bookings_plan_id ON trainer_bookings (plan_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS ix_strava_activities_date ON strava_activities (date)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS ix_trainer_plans_date ON trainer_plans (date)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS ix_trainer_injury_logs_date ON trainer_injury_logs (date)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS ix_trainer_strength_logs_date ON trainer_strength_logs (date)")
 
     # Demo rows, inserted only into empty tables so the HUD dashboards render before any
     # provider is connected. The Swedish activity names mirror what a real sync writes

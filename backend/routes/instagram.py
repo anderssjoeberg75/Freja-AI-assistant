@@ -25,12 +25,16 @@ logger = logging.getLogger("freja.instagram.router")
 _PENDING_OAUTH_STATE = {"value": None, "expires_at": 0.0}
 _OAUTH_STATE_TTL_SECONDS = 600
 
+from backend.origins import is_trusted_host
+
+
 def get_oauth_config(request: Request):
     """Retrieves client ID, secret and callback redirect URL."""
     base_url = str(request.base_url).rstrip("/")
+    hostname = request.url.hostname or ""
     
     # If accessing via local IP or loopback, force redirect_uri to localhost to satisfy Meta's HTTPS whitelist exemption
-    if "localhost" in base_url or "127.0.0.1" in base_url or "192.168." in base_url or "10." in base_url:
+    if is_trusted_host(hostname):
         port = request.url.port or 8000
         redirect_uri = f"http://localhost:{port}/api/instagram/callback"
     else:

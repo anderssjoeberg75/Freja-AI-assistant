@@ -65,7 +65,7 @@ class StravaActivity(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String)
     type = Column(String)
-    date = Column(String)
+    date = Column(String, index=True)
     distance = Column(Float)
     moving_time = Column(Integer)
     elapsed_time = Column(Integer)
@@ -105,7 +105,7 @@ class GoogleCalendarEvent(Base):
 class TrainerPlan(Base):
     __tablename__ = 'trainer_plans'
     id = Column(Integer, primary_key=True, autoincrement=True)
-    date = Column(String)
+    date = Column(String, index=True)
     goal = Column(String)
     advice_text = Column(String)
     limitations = Column(String)
@@ -151,7 +151,7 @@ class TrainerInjuryLog(Base):
     """
     __tablename__ = 'trainer_injury_logs'
     id = Column(Integer, primary_key=True, autoincrement=True)
-    date = Column(String)          # YYYY-MM-DD the problem was noted
+    date = Column(String, index=True)          # YYYY-MM-DD the problem was noted
     area = Column(String)          # body area, e.g. "Höger knä"
     severity = Column(Integer)     # 1-10, how limiting it is right now
     note = Column(String)
@@ -168,7 +168,7 @@ class TrainerStrengthLog(Base):
     the session came from when known (nullable for ad-hoc logs)."""
     __tablename__ = 'trainer_strength_logs'
     id = Column(Integer, primary_key=True, autoincrement=True)
-    date = Column(String)          # YYYY-MM-DD the set was performed
+    date = Column(String, index=True)          # YYYY-MM-DD the set was performed
     exercise_name = Column(String)
     sets = Column(Integer)
     reps = Column(Integer)

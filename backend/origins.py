@@ -55,6 +55,8 @@ def origin_of(url: str):
         return None
     if parsed.scheme not in ("http", "https") or not parsed.hostname:
         return None
+    if (parsed.scheme == "http" and port == 80) or (parsed.scheme == "https" and port == 443):
+        port = None
     return f"{parsed.scheme}://{parsed.hostname}" + (f":{port}" if port else "")
 
 
@@ -63,7 +65,10 @@ def is_trusted_host(host: str) -> bool:
     machine or LAN, which a public web page can never present as its origin."""
     if not host:
         return False
-    host = host.strip().strip("[]").lower()
+    host = host.strip()
+    if host.startswith("[") and host.endswith("]"):
+        host = host[1:-1]
+    host = host.lower()
     if host in LOOPBACK_HOSTS or host.endswith(".local"):
         return True
     try:

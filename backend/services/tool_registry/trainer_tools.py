@@ -228,20 +228,21 @@ async def _build_trainer_context_summary(days: int = 14) -> dict:
             # 3. Fetch active injuries
             try:
                 cursor.execute('''
-                    SELECT area, description, severity, date_logged
+                    SELECT area, note, severity, date
                     FROM trainer_injury_logs
-                    ORDER BY date_logged DESC
+                    WHERE status = 'active' OR status IS NULL
+                    ORDER BY date DESC
                     LIMIT 5
                 ''')
                 for inj in cursor.fetchall():
                     result["injuries"].append({
                         "area": inj[0],
-                        "description": inj[1],
+                        "note": inj[1],
                         "severity": inj[2],
-                        "date_logged": inj[3]
+                        "date": inj[3]
                     })
-            except Exception:
-                pass
+            except Exception as inj_err:
+                print(f"[TRAINER CONTEXT] Injury fetch error: {inj_err}")
 
             # 4. Fetch recent run history from Strava & Garmin
             try:
