@@ -48,8 +48,13 @@ async def delete_learned_entry(knowledge_id: int):
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM learned_knowledge WHERE id = ?", (knowledge_id,))
+            deleted = cursor.rowcount
             conn.commit()
+        if not deleted:
+            raise HTTPException(status_code=404, detail=f"No knowledge entry with ID {knowledge_id} was found.")
         return {"status": "success", "message": "Knowledge deleted."}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -117,12 +122,17 @@ async def delete_learning_credentials(clean_domain: str):
         domain_key = f"login_domain_{clean_domain}"
         user_key = f"login_user_{clean_domain}"
         pass_key = f"login_pass_{clean_domain}"
-        
+
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM api_keys WHERE key_name IN (?, ?, ?)", (domain_key, user_key, pass_key))
+            deleted = cursor.rowcount
             conn.commit()
-            
+
+        if not deleted:
+            raise HTTPException(status_code=404, detail=f"No credentials were found for '{clean_domain}'.")
         return {"status": "success", "message": "Autentiseringsuppgifter raderade."}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
