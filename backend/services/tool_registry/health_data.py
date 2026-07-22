@@ -39,7 +39,11 @@ def is_sync_recent(provider: str, max_age_hours: int = 12) -> bool:
     },
 )
 async def exec_garmin_health(args):
-    days = int(args.get("days", 1) or 1)
+    # Unclamped, this reached run_garmin_sync_flow directly (bypassing the MAX_SYNC_DAYS cap
+    # that /api/garmin/sync applies) and could queue a run hammering Garmin's API far past its
+    # rate limits, monopolizing the single-worker background task queue in the process.
+    from backend.routes.garmin import MAX_SYNC_DAYS
+    days = max(1, min(int(args.get("days", 1) or 1), MAX_SYNC_DAYS))
     sync_status = "not performed"
     sync_message = ""
     

@@ -97,7 +97,7 @@ def _stub_garminconnect(monkeypatch, good_date, failing_dates):
             pass
         def login(self, **k):
             return True
-        def get_activities(self, *a):
+        def get_activities_by_date(self, *a, **k):
             return []
         def get_stats(self, d):
             if d == good_date:
@@ -173,6 +173,132 @@ def test_failed_day_stores_null_not_yesterdays_values(monkeypatch):
     assert bad is not None, "the failed day should still get a row"
     for column, value in zip(("steps", "sleep_hours", "resting_hr", "body_battery", "hrv"), bad):
         assert value is None, f"{column} carried over from the previous day: {value!r}"
+
+
+def test_sync_raises_when_every_day_fails(monkeypatch):
+    """If every per-day metric call fails for every day in the window (expired session,
+    Garmin rate-limiting/lockout mid-run), the run must raise instead of committing all-NULL
+    rows and letting run_garmin_sync_flow report "success" - which would advance
+    last_sync_garmin and permanently strand the gap, since no later sync would ever retry it.
+    """
+    import datetime
+    from backend.database import get_db_connection
+    from backend.routes.garmin import run_garmin_sync_task_blocking
+
+    today = datetime.date.today()
+    bad_date = today.strftime('%Y-%m-%d')
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM garmin_health WHERE date = ?", (bad_date,))
+        conn.commit()
+
+    # good_date=None means nothing ever matches -> every day fails every metric.
+    _stub_garminconnect(monkeypatch, good_date=None, failing_dates=[bad_date])
+
+    with pytest.raises(Exception, match="no health data"):
+        run_garmin_sync_task_blocking('a@b.c', 'pw', 1)
+
+
+def test_resync_preserves_existing_value_when_one_metric_fails(monkeypatch):
+    """Resyncing an already-populated date (the window always re-covers at least yesterday)
+    must not null out a previously-correct value when just one metric call fails on the
+    resync - the per-day reset-to-None exists to stop cross-day carryover, but the UPSERT
+    used to write that None straight over good historical data instead of preserving it.
+    """
+    import datetime
+    import sys
+    import types
+    from backend.database import get_db_connection
+    from backend.routes.garmin import run_garmin_sync_task_blocking
+
+    today = datetime.date.today()
+    target_date = today.strftime('%Y-%m-%d')
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM garmin_health WHERE date = ?", (target_date,))
+        cursor.execute(
+            "INSERT INTO garmin_health (date, steps, hrv) VALUES (?, ?, ?)",
+            (target_date, 9999, 55)
+        )
+        conn.commit()
+
+    class PartiallyFailingGarmin:
+        """steps succeeds with a fresh value; hrv fails on this resync and must not be
+        nulled - the previously-stored 55 must survive."""
+        def __init__(self, *a, **k):
+            pass
+        def login(self, **k):
+            return True
+        def get_activities_by_date(self, *a, **k):
+            return []
+        def get_stats(self, d):
+            return {'totalSteps': 12345, 'activeCalories': 600}
+        def get_sleep_data(self, d):
+            raise RuntimeError("no sleep data")
+        def get_heart_rates(self, d):
+            raise RuntimeError("no heart rate data")
+        def get_hrv_data(self, d):
+            raise RuntimeError("Garmin unavailable for hrv this run")
+        def get_body_battery(self, d):
+            raise RuntimeError("no body battery")
+        def get_max_metrics(self, d):
+            raise RuntimeError("no vo2max")
+        def get_training_status(self, d):
+            raise RuntimeError("no training status")
+        def get_training_readiness(self, d):
+            raise RuntimeError("no readiness")
+
+    module = types.ModuleType('garminconnect')
+    module.Garmin = PartiallyFailingGarmin
+    monkeypatch.setitem(sys.modules, 'garminconnect', module)
+
+    run_garmin_sync_task_blocking('a@b.c', 'pw', 1)
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT steps, hrv FROM garmin_health WHERE date = ?", (target_date,))
+        row = cursor.fetchone()
+    # steps: overwritten with the freshly-measured value. hrv: its fetch failed on this
+    # resync, so the previously-stored 55 must survive, not be nulled out.
+    assert row == (12345, 55)
+
+
+def test_explicit_days_over_the_cap_is_clamped(auth_headers, monkeypatch):
+    """An explicitly-supplied `days` used to bypass MAX_SYNC_DAYS entirely (only the no-args
+    branch clamped it), letting a single request queue a run hammering Garmin's API far past
+    its rate limits and monopolizing the background task queue."""
+    from backend.database import set_api_key
+    import backend.routes.garmin as gm
+    from fastapi.testclient import TestClient
+    from server import app
+
+    set_api_key('freja_garmin_email', 'a@b.c')
+    set_api_key('freja_garmin_password', 'pw')
+
+    captured = {}
+
+    def fake_enqueue(fn, email, password, days):
+        captured["days"] = days
+
+    # get_garmin_sync imports enqueue_task locally inside the function body, so the source
+    # module has to be patched for this to take effect.
+    import backend.services.task_queue as task_queue_module
+    monkeypatch.setattr(task_queue_module, "enqueue_task", fake_enqueue)
+
+    client = TestClient(app)
+    response = client.get("/api/garmin/sync?days=5000", headers=auth_headers)
+    assert response.status_code == 200
+    assert captured["days"] == gm.MAX_SYNC_DAYS
+
+
+def test_delete_garmin_log_missing_date_returns_404(auth_headers):
+    from fastapi.testclient import TestClient
+    from server import app
+    client = TestClient(app)
+    response = client.get("/api/garmin/delete?date=2099-01-01", headers=auth_headers)
+    assert response.status_code == 404
 
 
 @pytest.mark.asyncio

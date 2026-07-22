@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from backend.config import PROJECT_ROOT
 from backend.database import get_db_connection, get_api_key, set_api_key
 from backend.services.sync_status import set_sync_state
+from backend.services.time_utils import today_local
 
 # --- Sync window sizing (Issue #56) ------------------------------------------
 # A run fetches at most this many days, to stay clear of Garmin's rate limits. The days a
@@ -109,19 +110,33 @@ def run_garmin_sync_task_blocking(email, password, days, end_date=None):
         client = Garmin(email, password)
         client.login(tokenstore=token_dir)
 
-        window_end = end_date or datetime.date.today()
+        window_end = end_date or today_local()
         dates_to_sync = [(window_end - datetime.timedelta(days=i)).strftime('%Y-%m-%d') for i in range(days)]
         dates_to_sync.reverse()
-        
+
         activities = []
         try:
-            activities = client.get_activities(0, 30)
+            # get_activities(0, 30) returns the 30 most-recent activities counting back from
+            # *now*, unfiltered by date - not a date-range query. During a backfill chunk
+            # (anchored weeks/months in the past) or on a high-activity account, those 30
+            # activities can miss the window being synced entirely, silently dropping
+            # workout_type/workout_duration for backfilled or older days.
+            # get_activities_by_date is the actual date-range-correct call.
+            activities = client.get_activities_by_date(dates_to_sync[0], dates_to_sync[-1])
         except Exception as act_err:
             print(f"Error fetching activities: {act_err}")
             
+        # Tracks whether ANY per-day metric call succeeded for ANY day in the window. If the
+        # whole run fails silently (expired session, Garmin rate-limiting/lockout mid-run),
+        # every field for every day stays None and the per-day try/excepts swallow it, so
+        # nothing here would otherwise stop the run from committing all-NULL rows and
+        # reporting "success" - which also advances last_sync_garmin, so the gap is never
+        # retried by a later sync.
+        any_day_succeeded = False
+
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            
+
             for date_str in dates_to_sync:
                 # Reset EVERY per-day field here, so a failed fetch leaves NULL instead of
                 # carrying over the previous day's value. Each metric below is assigned only
@@ -283,32 +298,47 @@ def run_garmin_sync_task_blocking(email, password, days, end_date=None):
                     except Exception as tr_err:
                         print(f"Error fetching training readiness for {date_str}: {tr_err}")
                         
+                day_fields = (
+                    steps, sleep_hours, resting_hr, active_calories, body_battery, hrv,
+                    recovery_time, training_status, stress_avg, stress_max, sleep_deep_hours,
+                    sleep_light_hours, sleep_rem_hours, sleep_awake_hours, vo2max,
+                    intensity_minutes, sleep_score,
+                )
+                if any(v is not None for v in day_fields):
+                    any_day_succeeded = True
+
                 cursor.execute('''
                     INSERT INTO garmin_health (date, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status, stress_avg, stress_max, sleep_deep_hours, sleep_light_hours, sleep_rem_hours, sleep_awake_hours, vo2max, intensity_minutes, sleep_score)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(date) DO UPDATE SET
-                        steps = excluded.steps,
-                        sleep_hours = excluded.sleep_hours,
-                        resting_hr = excluded.resting_hr,
-                        active_calories = excluded.active_calories,
+                        steps = COALESCE(excluded.steps, garmin_health.steps),
+                        sleep_hours = COALESCE(excluded.sleep_hours, garmin_health.sleep_hours),
+                        resting_hr = COALESCE(excluded.resting_hr, garmin_health.resting_hr),
+                        active_calories = COALESCE(excluded.active_calories, garmin_health.active_calories),
                         workout_type = excluded.workout_type,
                         workout_duration = excluded.workout_duration,
-                        body_battery = excluded.body_battery,
-                        hrv = excluded.hrv,
-                        recovery_time = excluded.recovery_time,
-                        training_status = excluded.training_status,
-                        stress_avg = excluded.stress_avg,
-                        stress_max = excluded.stress_max,
-                        sleep_deep_hours = excluded.sleep_deep_hours,
-                        sleep_light_hours = excluded.sleep_light_hours,
-                        sleep_rem_hours = excluded.sleep_rem_hours,
-                        sleep_awake_hours = excluded.sleep_awake_hours,
-                        vo2max = excluded.vo2max,
-                        intensity_minutes = excluded.intensity_minutes,
-                        sleep_score = excluded.sleep_score
+                        body_battery = COALESCE(excluded.body_battery, garmin_health.body_battery),
+                        hrv = COALESCE(excluded.hrv, garmin_health.hrv),
+                        recovery_time = COALESCE(excluded.recovery_time, garmin_health.recovery_time),
+                        training_status = COALESCE(excluded.training_status, garmin_health.training_status),
+                        stress_avg = COALESCE(excluded.stress_avg, garmin_health.stress_avg),
+                        stress_max = COALESCE(excluded.stress_max, garmin_health.stress_max),
+                        sleep_deep_hours = COALESCE(excluded.sleep_deep_hours, garmin_health.sleep_deep_hours),
+                        sleep_light_hours = COALESCE(excluded.sleep_light_hours, garmin_health.sleep_light_hours),
+                        sleep_rem_hours = COALESCE(excluded.sleep_rem_hours, garmin_health.sleep_rem_hours),
+                        sleep_awake_hours = COALESCE(excluded.sleep_awake_hours, garmin_health.sleep_awake_hours),
+                        vo2max = COALESCE(excluded.vo2max, garmin_health.vo2max),
+                        intensity_minutes = COALESCE(excluded.intensity_minutes, garmin_health.intensity_minutes),
+                        sleep_score = COALESCE(excluded.sleep_score, garmin_health.sleep_score)
                 ''', (date_str, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status, stress_avg, stress_max, sleep_deep_hours, sleep_light_hours, sleep_rem_hours, sleep_awake_hours, vo2max, intensity_minutes, sleep_score))
-                
+
             conn.commit()
+
+        if dates_to_sync and not any_day_succeeded:
+            raise Exception(
+                "Garmin sync retrieved no health data for any day in the requested window - "
+                "the session may have expired or Garmin may be rate-limiting/blocking login."
+            )
     except Exception as e:
         raise e
 
@@ -415,7 +445,7 @@ async def get_garmin_sync(
             try:
                 # Parse the last sync date and calculate difference
                 last_sync_dt = datetime.datetime.strptime(last_sync_val, "%Y-%m-%d %H:%M:%S").date()
-                today = datetime.date.today()
+                today = today_local()
                 wanted = max(1, (today - last_sync_dt).days + 1)  # +1 so today is included
                 days = min(MAX_SYNC_DAYS, wanted)
                 if wanted > days:
@@ -432,9 +462,15 @@ async def get_garmin_sync(
                 days = DEFAULT_SYNC_DAYS
         else:
             days = DEFAULT_SYNC_DAYS  # No sync history yet
-        
+    else:
+        # An explicitly-supplied `days` (HTTP caller or the get_garmin_health AI tool) bypassed
+        # the cap entirely - only the no-args branch above clamped to MAX_SYNC_DAYS. An
+        # unbounded value here queues a run that hammers Garmin's API (~8 calls/day) far past
+        # its rate limits and monopolizes the single-worker background task queue.
+        days = max(1, min(int(days), MAX_SYNC_DAYS))
+
     set_sync_state("garmin", "syncing")
-    
+
     from backend.services.task_queue import enqueue_task
     enqueue_task(run_garmin_sync_flow, email, password, days)
     
@@ -453,8 +489,13 @@ async def delete_garmin_log(date: str = Query(..., description="Date to delete")
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('DELETE FROM garmin_health WHERE date = ?', (date_to_delete,))
+            deleted = cursor.rowcount
             conn.commit()
+        if not deleted:
+            raise HTTPException(status_code=404, detail=f"No log was found for {date_to_delete}.")
         return {'status': 'success', 'message': f"The log for {date_to_delete} was deleted."}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
