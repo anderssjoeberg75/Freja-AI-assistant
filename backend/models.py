@@ -137,9 +137,9 @@ class TrainerProfile(Base):
 class TrainerBooking(Base):
     __tablename__ = 'trainer_bookings'
     id = Column(Integer, primary_key=True, autoincrement=True)
-    plan_id = Column(Integer)
+    plan_id = Column(Integer, index=True)
     event_id = Column(Integer)
-    workout_date = Column(String)
+    workout_date = Column(String, index=True)
     week = Column(Integer, default=0)
 
 class TrainerInjuryLog(Base):

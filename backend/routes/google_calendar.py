@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from backend.database import get_db_connection, get_api_key, set_api_key
 from backend.origins import origin_of, is_allowed_origin
 from backend.services.sync_status import set_sync_state
+from backend.services.time_utils import today_local
 
 router = APIRouter()
 
@@ -202,7 +203,7 @@ async def get_google_calendar_sync(background_tasks: BackgroundTasks):
 
 def core_get_calendar_data(days: int = 30) -> list[dict]:
     """Retrieves cached calendar events from the local SQLite database."""
-    today = datetime.date.today()
+    today = today_local()
     start_bound = (today - datetime.timedelta(days=days)).strftime('%Y-%m-%d')
     end_bound = (today + datetime.timedelta(days=days)).strftime('%Y-%m-%d')
     
@@ -278,6 +279,9 @@ async def core_save_calendar_event(
                 "end": {"dateTime": f"{end_time}:00", "timeZone": "Europe/Stockholm"}
             }
             
+            # A failed push here must not fall through to the "success" return below - a
+            # caller reporting success while the event never reached Google (issue #59) is
+            # what let PT sessions be marked "booked" with nothing on the user's calendar.
             try:
                 async with shared_client() as client:
                     if google_event_id:
@@ -285,7 +289,7 @@ async def core_save_calendar_event(
                         url = f"https://www.googleapis.com/calendar/v3/calendars/primary/events/{google_event_id}"
                         res = await client.put(url, headers=headers, json=event_resource, timeout=8.0)
                         if res.status_code not in (200, 201):
-                            print(f"[GOOGLE CALENDAR UPDATE ERROR]: HTTP {res.status_code} - {res.text}")
+                            raise RuntimeError(f"HTTP {res.status_code} - {res.text}")
                     else:
                         # Create Google Event
                         url = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
@@ -293,9 +297,10 @@ async def core_save_calendar_event(
                         if res.status_code in (200, 201):
                             google_event_id = res.json().get("id")
                         else:
-                            print(f"[GOOGLE CALENDAR CREATE ERROR]: HTTP {res.status_code} - {res.text}")
+                            raise RuntimeError(f"HTTP {res.status_code} - {res.text}")
             except Exception as e:
                 print(f"[GOOGLE CALENDAR API ERROR]: {e}")
+                raise RuntimeError(f"Failed to sync the event to Google Calendar: {e}") from e
 
         # Update local database
         if db_id:
@@ -340,7 +345,10 @@ async def core_delete_calendar_event(db_id: int) -> dict:
             
         google_event_id, summary = row[0], row[1]
         
-        # Try to delete from Google Calendar API
+        # Try to delete from Google Calendar API. A failure here must raise rather than be
+        # swallowed (issue #58) - callers that only remove their own tracking row once this
+        # succeeds (e.g. trainer.py's replace-don't-stack booking) rely on that to avoid
+        # deleting the row for an event that is still live on the user's calendar.
         if google_event_id:
             access_token = await get_google_access_token()
             if access_token and access_token != "MOCK_ACCESS_TOKEN":
@@ -349,11 +357,16 @@ async def core_delete_calendar_event(db_id: int) -> dict:
                 try:
                     async with shared_client() as client:
                         res = await client.delete(url, headers=headers, timeout=8.0)
-                        if res.status_code not in (200, 204):
-                            print(f"[GOOGLE CALENDAR DELETE ERROR]: HTTP {res.status_code} - {res.text}")
+                        # 404/410 means Google already considers it gone - that's the outcome
+                        # we want, not a failure.
+                        if res.status_code not in (200, 204, 404, 410):
+                            raise RuntimeError(f"HTTP {res.status_code} - {res.text}")
+                except RuntimeError:
+                    raise
                 except Exception as e:
                     print(f"[GOOGLE CALENDAR DELETE ERROR]: {e}")
-                    
+                    raise RuntimeError(f"Failed to delete the event from Google Calendar: {e}") from e
+
         # Delete from local DB
         cursor.execute("DELETE FROM google_calendar_events WHERE id = ?", (db_id,))
         conn.commit()

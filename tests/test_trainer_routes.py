@@ -821,6 +821,227 @@ def test_trainer_booking_is_idempotent(auth_headers):
     assert booking_count == 2
 
 
+def test_trainer_booking_replaces_longer_plan_with_shorter(auth_headers):
+    """Booking a shorter plan must clear a longer existing plan's later weeks too - the
+    replace window used to be bounded by the *new* plan's own span, so a shorter plan
+    replacing a longer one left the old plan's tail dangling (issue #61)."""
+    client = TestClient(app)
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM trainer_bookings WHERE workout_date >= '2026-08-03' AND workout_date <= '2026-08-24'")
+        conn.commit()
+
+    long_plan = json.dumps({"workouts": [
+        {"day": "Måndag", "activity_type": "Löpning", "title": "Vecka 1", "description": "",
+         "duration_minutes": 30, "week": 0},
+        {"day": "Måndag", "activity_type": "Löpning", "title": "Vecka 3", "description": "",
+         "duration_minutes": 30, "week": 2},
+    ]})
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO trainer_plans (date, goal, advice_text, limitations) VALUES (?, ?, ?, ?)",
+            ("2026-08-03", "Lång plan", long_plan, "Inga")
+        )
+        conn.commit()
+        long_plan_id = cursor.lastrowid
+
+    first = client.post("/api/trainer/plans/book", json={"plan_id": long_plan_id, "start_date": "2026-08-03"}, headers=auth_headers)
+    assert first.status_code == 200
+    assert first.json().get("booked_count") == 2
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM trainer_bookings WHERE workout_date = '2026-08-17'")
+        assert cursor.fetchone()[0] == 1  # week-3 Monday = 2026-08-03 + 14 days
+
+    short_plan = json.dumps({"workouts": [
+        {"day": "Måndag", "activity_type": "Löpning", "title": "Ersätter", "description": "",
+         "duration_minutes": 20, "week": 0},
+    ]})
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO trainer_plans (date, goal, advice_text, limitations) VALUES (?, ?, ?, ?)",
+            ("2026-08-03", "Kort plan", short_plan, "Inga")
+        )
+        conn.commit()
+        short_plan_id = cursor.lastrowid
+
+    second = client.post("/api/trainer/plans/book", json={"plan_id": short_plan_id, "start_date": "2026-08-03"}, headers=auth_headers)
+    assert second.status_code == 200
+    assert second.json().get("booked_count") == 1
+    assert second.json().get("replaced_count") == 2  # both of the long plan's sessions
+
+    # The long plan's week-3 session must be gone too, not just the overlapping week 1.
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM trainer_bookings WHERE workout_date = '2026-08-17'")
+        assert cursor.fetchone()[0] == 0
+
+
+def test_trainer_booking_with_no_bookable_workouts_leaves_prior_booking(auth_headers):
+    """A plan whose every workout has an unparseable day (or is all rest days) must not wipe
+    an existing booking with nothing to replace it (issue #63)."""
+    client = TestClient(app)
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM trainer_bookings WHERE workout_date = '2026-09-07'")
+        conn.commit()
+
+    good_plan = json.dumps({"workouts": [
+        {"day": "Måndag", "activity_type": "Löpning", "title": "Bra pass", "description": "",
+         "duration_minutes": 30}
+    ]})
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO trainer_plans (date, goal, advice_text, limitations) VALUES (?, ?, ?, ?)",
+            ("2026-09-07", "Bra plan", good_plan, "Inga")
+        )
+        conn.commit()
+        good_plan_id = cursor.lastrowid
+
+    first = client.post("/api/trainer/plans/book", json={"plan_id": good_plan_id, "start_date": "2026-09-07"}, headers=auth_headers)
+    assert first.status_code == 200
+    assert first.json().get("booked_count") == 1
+
+    bad_plan = json.dumps({"workouts": [
+        {"day": "Blurdag", "activity_type": "Löpning", "title": "Trasigt pass", "description": "",
+         "duration_minutes": 30}
+    ]})
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO trainer_plans (date, goal, advice_text, limitations) VALUES (?, ?, ?, ?)",
+            ("2026-09-07", "Trasig plan", bad_plan, "Inga")
+        )
+        conn.commit()
+        bad_plan_id = cursor.lastrowid
+
+    second = client.post("/api/trainer/plans/book", json={"plan_id": bad_plan_id, "start_date": "2026-09-07"}, headers=auth_headers)
+    assert second.status_code == 200
+    assert second.json().get("booked_count") == 0
+    assert second.json().get("replaced_count") == 0
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT plan_id FROM trainer_bookings WHERE workout_date = '2026-09-07'")
+        row = cursor.fetchone()
+    assert row is not None and row[0] == good_plan_id
+
+
+def test_trainer_plan_delete_clears_its_bookings(auth_headers):
+    """Deleting a plan must clear its booked sessions too, not leave them as invisible
+    orphans that still occupy the user's calendar (issue #60)."""
+    client = TestClient(app)
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM trainer_bookings WHERE workout_date = '2026-09-14'")
+        conn.commit()
+
+    plan_json = json.dumps({"workouts": [
+        {"day": "Måndag", "activity_type": "Löpning", "title": "Pass", "description": "",
+         "duration_minutes": 30}
+    ]})
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO trainer_plans (date, goal, advice_text, limitations) VALUES (?, ?, ?, ?)",
+            ("2026-09-14", "Raderas", plan_json, "Inga")
+        )
+        conn.commit()
+        plan_id = cursor.lastrowid
+
+    booked = client.post("/api/trainer/plans/book", json={"plan_id": plan_id, "start_date": "2026-09-14"}, headers=auth_headers)
+    assert booked.status_code == 200
+    assert booked.json().get("booked_count") == 1
+
+    delete_res = client.delete(f"/api/trainer/plans?plan_id={plan_id}", headers=auth_headers)
+    assert delete_res.status_code == 200
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM trainer_bookings WHERE plan_id = ?", (plan_id,))
+        assert cursor.fetchone()[0] == 0
+
+
+def test_trainer_booking_skips_workout_on_calendar_sync_failure(auth_headers, monkeypatch):
+    """A Google Calendar failure for one session must not crash the whole booking, and must
+    not leave a phantom 'booked' row with nothing on the real calendar (issues #58/#59/#62).
+    `core_book_plan_internal` imports core_save_calendar_event with a function-local
+    `from ... import ...`, so the source module has to be patched for this to take effect."""
+    import backend.routes.google_calendar as gcal_module
+
+    client = TestClient(app)
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM trainer_bookings WHERE workout_date = '2026-09-21'")
+        conn.commit()
+
+    plan_json = json.dumps({"workouts": [
+        {"day": "Måndag", "activity_type": "Löpning", "title": "Pass", "description": "",
+         "duration_minutes": 30}
+    ]})
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO trainer_plans (date, goal, advice_text, limitations) VALUES (?, ?, ?, ?)",
+            ("2026-09-21", "Synkfel", plan_json, "Inga")
+        )
+        conn.commit()
+        plan_id = cursor.lastrowid
+
+    async def failing_save(*args, **kwargs):
+        raise RuntimeError("simulated Google Calendar outage")
+    monkeypatch.setattr(gcal_module, "core_save_calendar_event", failing_save)
+
+    res = client.post("/api/trainer/plans/book", json={"plan_id": plan_id, "start_date": "2026-09-21"}, headers=auth_headers)
+    assert res.status_code == 200
+    body = res.json()
+    assert body.get("booked_count") == 0
+    assert body.get("sync_failed_count") == 1
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM trainer_bookings WHERE plan_id = ?", (plan_id,))
+        assert cursor.fetchone()[0] == 0
+
+
+def test_trainer_plan_delete_keeps_booking_when_calendar_delete_fails(auth_headers, monkeypatch):
+    """If the Google-side delete fails, the booking row must stay in place - it still
+    represents a live calendar event, so dropping it would create an untracked orphan
+    (issue #58)."""
+    import backend.routes.google_calendar as gcal_module
+
+    client = TestClient(app)
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO trainer_plans (date, goal, advice_text, limitations) VALUES (?, ?, ?, ?)",
+            ("2026-09-28", "Raderas ej", "{}", "Inga")
+        )
+        conn.commit()
+        plan_id = cursor.lastrowid
+        cursor.execute(
+            "INSERT INTO trainer_bookings (plan_id, event_id, workout_date, week) VALUES (?, ?, ?, ?)",
+            (plan_id, 424242, "2026-09-28", 0)
+        )
+        conn.commit()
+
+    async def failing_delete(*args, **kwargs):
+        raise RuntimeError("simulated Google Calendar outage")
+    monkeypatch.setattr(gcal_module, "core_delete_calendar_event", failing_delete)
+
+    delete_res = client.delete(f"/api/trainer/plans?plan_id={plan_id}", headers=auth_headers)
+    assert delete_res.status_code == 200
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM trainer_bookings WHERE plan_id = ?", (plan_id,))
+        assert cursor.fetchone()[0] == 1  # still tracked - the event is still live
+
+
 # --- Training-load history, booking anchor and chat context -------------------
 # The three regressions below all produced silently wrong coaching rather than an error:
 # the workouts endpoint 500'd on every call, plans were booked onto the wrong weekdays, and

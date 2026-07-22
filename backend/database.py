@@ -184,6 +184,13 @@ def init_db():
         ("baselines_updated_at", "TEXT"),
     ])
 
+    # trainer_bookings is queried by date range (booking/replacing/listing PT sessions) and
+    # joined on plan_id on every workout list - `Base.metadata.create_all` only adds these
+    # indexes to a table it creates from scratch, so an already-existing DB needs them
+    # backfilled explicitly too (issue #65).
+    cursor.execute("CREATE INDEX IF NOT EXISTS ix_trainer_bookings_workout_date ON trainer_bookings (workout_date)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS ix_trainer_bookings_plan_id ON trainer_bookings (plan_id)")
+
     # Demo rows, inserted only into empty tables so the HUD dashboards render before any
     # provider is connected. The Swedish activity names mirror what a real sync writes
     # (see the type_mapping in backend/routes/garmin.py), so the UI looks the same either way.

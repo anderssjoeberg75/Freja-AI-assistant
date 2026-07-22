@@ -51,18 +51,7 @@ BASELINE_MIN_SAMPLES = 3    # Fewest data points a baseline needs to be trustwor
 # Marks a forecast string as a failure so the caller knows not to cache it.
 WEATHER_ERROR_PREFIX = "[weather unavailable] "
 
-try:
-    from zoneinfo import ZoneInfo
-    LOCAL_TZ = ZoneInfo("Europe/Stockholm")
-except Exception:  # pragma: no cover - tzdata may be missing on some hosts
-    LOCAL_TZ = None
-
-
-def today_local() -> datetime.date:
-    """Today's date in the app's configured timezone (falls back to server time)."""
-    if LOCAL_TZ is not None:
-        return datetime.datetime.now(LOCAL_TZ).date()
-    return datetime.date.today()
+from backend.services.time_utils import today_local
 
 
 def _dict_row(cursor, row):
@@ -1105,9 +1094,49 @@ async def get_trainer_plans(limit: int = Query(20, description="Number of plans 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+async def _clear_bookings(rows) -> int:
+    """Deletes trainer_bookings rows whose calendar event is confirmed gone.
+
+    `rows` is an iterable of (booking_id, event_id) tuples. A booking is only removed once
+    its calendar event has actually been deleted (or never had one) - if the Google-side
+    delete fails, the row is left in place so it keeps representing the still-live event
+    instead of becoming an untracked orphan on the calendar (issue #58). Shared between plan
+    deletion and plan re-booking, which both need to replace a set of prior bookings.
+    """
+    from backend.routes.google_calendar import core_delete_calendar_event
+
+    cleared_ids = []
+    for booking_id, event_id in rows:
+        if event_id:
+            try:
+                await core_delete_calendar_event(event_id)
+            except Exception as del_err:
+                print(f"[TRAINER BOOK] Could not delete the previous event {event_id}: {del_err}")
+                continue
+        cleared_ids.append(booking_id)
+
+    if cleared_ids:
+        placeholders = ",".join("?" * len(cleared_ids))
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(f"DELETE FROM trainer_bookings WHERE id IN ({placeholders})", cleared_ids)
+            conn.commit()
+    return len(cleared_ids)
+
+
 @router.delete("/api/trainer/plans")
 async def delete_trainer_plan(plan_id: int = Query(..., description="ID of the plan to delete")):
     try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id, event_id FROM trainer_bookings WHERE plan_id = ?", (plan_id,))
+            bookings = cursor.fetchall()
+
+        # Clear this plan's booked sessions and their calendar events before deleting the
+        # plan row - otherwise the bookings become invisible orphans that still occupy the
+        # user's calendar with no way to see or manage them (issue #60).
+        await _clear_bookings(bookings)
+
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('DELETE FROM trainer_plans WHERE id = ?', (plan_id,))
@@ -2967,60 +2996,59 @@ async def core_book_plan_internal(plan_id: int, start_date: datetime.date, skip_
     # mapping is shared with the plan export so both schedule a plan identically.
     day_offsets = plan_export.SWEDISH_DAY_OFFSETS
 
-    from backend.routes.google_calendar import (
-        core_save_calendar_event, core_delete_calendar_event, core_get_calendar_data
-    )
-
-    # --- Replace, don't stack: remove any PT sessions already booked in the window this
-    #     plan will occupy, regardless of which plan created them. Booking a *different*
-    #     plan onto overlapping dates used to only clear the same plan_id, so repeated
-    #     generate-and-book runs piled dozens of duplicate sessions onto the same days.
-    #     Only future days are cleared when skip_past is set, so completed/past sessions
-    #     stay as history. Only PT bookings (this table) and their events are touched -
-    #     the user's own calendar entries are never removed. ---
-    booked_offsets = []
-    for w in workouts:
+    def _bookable_offset(w) -> int | None:
+        """The day offset for `w`, or None if it has no valid day or is a rest day."""
         off = day_offsets.get(str(w.get("day", "")).lower())
         if off is None:
-            continue
+            return None
+        try:
+            duration = int(w.get("duration_minutes", 0) or 0)
+        except (TypeError, ValueError):
+            duration = 0
+        if duration <= 0:
+            return None
         try:
             wk = max(0, min(51, int(w.get("week", 0) or 0)))
         except (TypeError, ValueError):
             wk = 0
-        booked_offsets.append(off + wk * 7)
+        return off + wk * 7
 
+    bookable_offsets = [o for o in (_bookable_offset(w) for w in workouts) if o is not None]
+    if not bookable_offsets:
+        # Nothing in this plan can actually be booked (unparseable day names, or every entry
+        # is a rest day). Bail out before touching any existing booking - a plan that books
+        # nothing must not delete something that was already booked (issue #63).
+        return {"status": "success", "message": "No bookable workouts in this plan.", "booked_count": 0, "replaced_count": 0}
+
+    from backend.routes.google_calendar import core_save_calendar_event, core_get_calendar_data
+
+    # --- Replace, don't stack: remove every PT session already booked from window_start
+    #     onward, regardless of which plan created it or how far into the future it runs.
+    #     Booking a *different* (or shorter) plan onto overlapping dates used to only clear
+    #     bookings within the new plan's own span, so a shorter replacement plan left the old
+    #     plan's later weeks dangling (issue #61) - there is no upper bound here on purpose.
+    #     Only future days are cleared when skip_past is set, so completed/past sessions stay
+    #     as history. Only PT bookings (this table) and their events are touched - the user's
+    #     own calendar entries are never removed. ---
     window_start = start_date
     if skip_past and window_start < today_local():
         window_start = today_local()
-    window_end = (start_date + datetime.timedelta(days=max(booked_offsets))) if booked_offsets else start_date
 
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT id, event_id FROM trainer_bookings WHERE workout_date >= ? AND workout_date <= ?",
-            (window_start.isoformat(), window_end.isoformat())
+            "SELECT id, event_id FROM trainer_bookings WHERE workout_date >= ?",
+            (window_start.isoformat(),)
         )
         prior = cursor.fetchall()
-    for booking_id, event_id in prior:
-        if event_id:
-            try:
-                await core_delete_calendar_event(event_id)
-            except Exception as del_err:
-                print(f"[TRAINER BOOK] Could not delete the previous event {event_id}: {del_err}")
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            "DELETE FROM trainer_bookings WHERE workout_date >= ? AND workout_date <= ?",
-            (window_start.isoformat(), window_end.isoformat())
-        )
-        conn.commit()
-    rebooked = len(prior)
+    rebooked = await _clear_bookings(prior)
 
     # Existing calendar events used for conflict avoidance (mutated as we book).
     all_events = core_get_calendar_data(days=60)
 
     booked_count = 0
     skipped_past = 0
+    sync_failed_count = 0
     for w in workouts:
         day_name = str(w.get("day", "")).lower()
         offset = day_offsets.get(day_name)
@@ -3064,13 +3092,21 @@ async def core_book_plan_internal(plan_id: int, start_date: datetime.date, skip_
         )
         location = WORKOUT_LOCATION_MARKER
 
-        result = await core_save_calendar_event(
-            summary=summary,
-            start_time=start_dt,
-            end_time=end_dt,
-            description=description,
-            location=location
-        )
+        # A failed sync must not leave a "booked" row with nothing on the real calendar
+        # (issue #59) - skip this workout and keep going rather than aborting the whole
+        # plan and losing sessions that would have booked fine (issue #62).
+        try:
+            result = await core_save_calendar_event(
+                summary=summary,
+                start_time=start_dt,
+                end_time=end_dt,
+                description=description,
+                location=location
+            )
+        except Exception as save_err:
+            print(f"[TRAINER BOOK] Could not sync the session on {workout_date} to the calendar: {save_err}")
+            sync_failed_count += 1
+            continue
         event_id = (result.get("event") or {}).get("id")
 
         # Record the booking so it can be de-duplicated / adjusted later.
@@ -3091,12 +3127,15 @@ async def core_book_plan_internal(plan_id: int, start_date: datetime.date, skip_
         msg += f" ({rebooked} previously booked sessions were replaced.)"
     if skipped_past:
         msg += f" ({skipped_past} sessions fell before today and were skipped.)"
+    if sync_failed_count:
+        msg += f" ({sync_failed_count} sessions could not be synced to the calendar and were skipped.)"
     return {
         "status": "success",
         "message": msg,
         "booked_count": booked_count,
         "replaced_count": rebooked,
         "skipped_past_count": skipped_past,
+        "sync_failed_count": sync_failed_count,
     }
 
 
