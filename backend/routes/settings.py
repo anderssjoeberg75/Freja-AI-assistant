@@ -5,6 +5,7 @@ import collections
 import datetime
 import logging
 import os
+import re
 import sys
 import subprocess
 import json
@@ -25,6 +26,29 @@ os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
 # In-memory circular log buffer (up to 150 entries)
 SYSTEM_LOGS = collections.deque(maxlen=150)
 
+# Cap on-disk log size. The handler below is attached to uvicorn.access, so every HTTP
+# request the server handles appends a line here - with no cap, this grows for the entire
+# life of the deployment (the DELETE endpoint that would otherwise reclaim it is
+# intentionally locked down for compliance reasons, so this is the only backstop).
+LOG_FILE_MAX_BYTES = 10 * 1024 * 1024  # 10 MB
+LOG_FILE_TRIM_KEEP_BYTES = 5 * 1024 * 1024  # keep the most recent ~5 MB when trimming
+
+
+def _rotate_log_file_if_needed():
+    try:
+        if os.path.getsize(LOG_FILE) <= LOG_FILE_MAX_BYTES:
+            return
+        with open(LOG_FILE, "rb") as f:
+            f.seek(-LOG_FILE_TRIM_KEEP_BYTES, os.SEEK_END)
+            tail = f.read()
+        # Drop a possibly-truncated first line so every remaining line is valid JSON.
+        tail = tail.split(b"\n", 1)[-1] if b"\n" in tail else b""
+        with open(LOG_FILE, "wb") as f:
+            f.write(tail)
+    except (FileNotFoundError, OSError):
+        pass
+
+
 def add_system_log(level: str, message: str):
     """Helper to record a log entry to the in-memory system log queue and append to persistent file."""
     entry = {
@@ -34,6 +58,7 @@ def add_system_log(level: str, message: str):
     }
     SYSTEM_LOGS.append(entry)
     try:
+        _rotate_log_file_if_needed()
         with open(LOG_FILE, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry) + "\n")
     except Exception:
@@ -77,10 +102,26 @@ async def get_keys(unmask: bool = Query(False, description="Unmask sensitive key
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# Keys this endpoint must never accept a write for: the app's own auth credential (writing
+# it rotates the token every integration and the legitimate owner relies on, or lets whoever
+# briefly held a leaked token persist their own), and internal bookkeeping the app manages
+# itself (sync watermarks, the heartbeat's client identity, the Garmin backfill queue) that a
+# generic "save my settings" call was never meant to touch or corrupt.
+_PROTECTED_KEY_NAMES = {"freja_access_token"}
+_PROTECTED_KEY_PREFIXES = ("last_sync_", "freja_client_")
+
+
+def _is_protected_key(key_name: str) -> bool:
+    return key_name in _PROTECTED_KEY_NAMES or key_name.startswith(_PROTECTED_KEY_PREFIXES) or key_name == "garmin_backfill_range"
+
+
 @router.post("/api/keys")
 async def post_keys(request: Request):
     try:
         data = await request.json()
+        blocked = [k for k in data if _is_protected_key(k)]
+        if blocked:
+            raise HTTPException(status_code=400, detail=f"These settings cannot be changed here: {', '.join(sorted(blocked))}.")
         for key_name, key_value in data.items():
             # Skip saving if client sends back masked placeholder
             if key_value in ("[MASKED]", "configured") or (key_value and key_value.startswith("••••")):
@@ -88,6 +129,8 @@ async def post_keys(request: Request):
             set_api_key(key_name, key_value)
         add_system_log("INFO", "Settings saved to the database.")
         return {'status': 'success'}
+    except HTTPException:
+        raise
     except Exception as e:
         add_system_log("ERROR", f"Error while saving settings: {e}")
         raise HTTPException(status_code=400, detail=str(e))
@@ -153,11 +196,17 @@ async def clear_system_logs():
 @router.get("/api/docs/{filename}")
 async def serve_doc_report(filename: str):
     """Securely serves generated codebase audit reports from the docs directory."""
-    # Prevent directory traversal attacks
-    if ".." in filename or filename.startswith("/") or filename.startswith("\\"):
+    # The old ".."/leading-slash string checks didn't cover a Windows drive-absolute
+    # filename (e.g. "C:\\Users\\...\\keys.db") - FastAPI's {filename} path segment accepts
+    # backslashes as ordinary characters, and os.path.join silently discards the base path
+    # entirely once the second argument is itself absolute on Windows, so that request
+    # served the real file at the absolute path, completely bypassing the docs sandbox.
+    # Resolving to a real path and checking containment is the actual safe pattern.
+    docs_root = os.path.realpath(os.path.join(PROJECT_ROOT, "docs"))
+    report_path = os.path.realpath(os.path.join(docs_root, filename))
+    if os.path.commonpath([report_path, docs_root]) != docs_root:
         raise HTTPException(status_code=400, detail="Ogiltigt filnamn.")
 
-    report_path = os.path.join(PROJECT_ROOT, "docs", filename)
     if not os.path.exists(report_path):
         raise HTTPException(status_code=404, detail="The document was not found.")
 
@@ -177,13 +226,18 @@ async def client_heartbeat(request: Request):
     LAST_HEARTBEAT_TIME = time.time()
     LAST_HEARTBEAT_INFO = request.headers.get("user-agent", "Unknown browser")
     
-    # Try parsing hostname from request body and store in DB if valid
+    # Try parsing hostname from request body and store in DB if valid. This value is later
+    # spliced verbatim into the assistant's own system prompt (see gemini_proxy.py /
+    # telegram_service.py), so an unvalidated client-supplied string here is an indirect
+    # prompt-injection vector - restrict it to a short, plain hostname-shaped value instead
+    # of trusting whatever the client sends.
     try:
         data = await request.json()
-        if data and "hostname" in data and data["hostname"] != "Unknown":
-            LAST_CLIENT_HOSTNAME = data["hostname"]
+        hostname = str(data.get("hostname", "")).strip() if data else ""
+        if hostname and hostname != "Unknown" and len(hostname) <= 64 and re.fullmatch(r"[A-Za-z0-9._-]+", hostname):
+            LAST_CLIENT_HOSTNAME = hostname
             from backend.database import set_api_key
-            set_api_key("freja_client_hostname", data["hostname"])
+            set_api_key("freja_client_hostname", hostname)
     except Exception:
         pass
 
