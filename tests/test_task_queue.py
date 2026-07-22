@@ -69,3 +69,26 @@ async def test_task_error_handling():
     fut = enqueue_task(failing_task)
     with pytest.raises(ValueError, match="Intentional failure"):
         await fut
+
+@pytest.mark.asyncio
+async def test_worker_survives_a_baseexception_and_keeps_processing():
+    """A task raising something other than Exception (e.g. a library's internals) must not
+    silently kill the worker loop - every future enqueued task would otherwise never run,
+    leaving any "syncing" flag set by the caller stuck forever."""
+    class _WeirdFailure(BaseException):
+        pass
+
+    def failing_task():
+        raise _WeirdFailure("not a plain Exception")
+
+    fut1 = enqueue_task(failing_task)
+    with pytest.raises(_WeirdFailure):
+        await fut1
+
+    # The worker loop must still be alive and processing after that.
+    async def sample_async_task(val):
+        return val * 2
+
+    fut2 = enqueue_task(sample_async_task, 21)
+    result = await fut2
+    assert result == 42

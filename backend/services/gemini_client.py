@@ -49,4 +49,9 @@ async def generate_text(prompt: str, system_instruction: str = "",
         resp.raise_for_status()
         resp_json = resp.json()
 
-    return resp_json.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+    # Gemini can return HTTP 200 with an explicitly empty "candidates" list (e.g. a
+    # safety-blocked prompt) - candidates[0] would then raise IndexError instead of a clear
+    # "no output" result, since dict.get(key, default) only substitutes on a missing key.
+    candidates = resp_json.get("candidates") or [{}]
+    parts = candidates[0].get("content", {}).get("parts") or [{}]
+    return parts[0].get("text", "")

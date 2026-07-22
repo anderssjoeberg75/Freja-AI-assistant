@@ -2,18 +2,18 @@
 
 import datetime
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from backend.database import get_db_connection
 
 router = APIRouter()
 
 class ChatMessage(BaseModel):
     sender: str
-    content: str
+    content: str = Field(max_length=50_000)
     channel: str = "web"
 
 @router.get("/api/chat/history")
-async def get_chat_history(limit: int = Query(50, description="Number of messages to fetch")):
+async def get_chat_history(limit: int = Query(50, ge=1, le=500, description="Number of messages to fetch")):
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()

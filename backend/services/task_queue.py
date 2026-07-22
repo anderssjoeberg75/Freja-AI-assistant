@@ -26,7 +26,14 @@ async def task_worker_loop():
                 if not future.cancelled():
                     future.set_result(result)
                 logger.info(f"Task {func.__name__} completed successfully.")
-            except Exception as e:
+            except asyncio.CancelledError:
+                # The worker itself is being shut down (stop_task_queue) - let this propagate
+                # to the outer handler instead of being reported as a task failure.
+                raise
+            except BaseException as e:
+                # Deliberately wider than Exception: a task raising anything else (e.g. from a
+                # library's internals) must not silently kill this loop forever - every future
+                # sync would then get stuck reporting "syncing" since nothing drains the queue.
                 logger.error(f"Task {func.__name__} failed with error: {e}\n{traceback.format_exc()}")
                 if not future.cancelled():
                     future.set_exception(e)

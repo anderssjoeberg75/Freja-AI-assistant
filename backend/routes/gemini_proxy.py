@@ -1,5 +1,6 @@
 """Gemini API secure proxy route."""
 
+import re
 import httpx
 from backend.services.http_client import shared_client
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -7,11 +8,28 @@ from backend.services import gemini_client
 
 router = APIRouter()
 
+# Gemini model identifiers are e.g. "gemini-2.5-flash" - restricting the shape before it's
+# spliced into the request URL stops an arbitrary client-supplied value (any string, since
+# this was previously unvalidated) from being forwarded as-is to Google.
+_MODEL_NAME_PATTERN = re.compile(r'^[A-Za-z0-9_.-]+$')
+
+# A generous cap on the whole request body - large enough for any real conversation, small
+# enough to stop a buggy/malicious client from running up unbounded cost against the server's
+# own Gemini API key with a single request.
+MAX_PAYLOAD_BYTES = 2_000_000
+
 @router.post("/api/gemini/generate")
 async def proxy_gemini_generate(
     request: Request,
     model: str = Query(None, description="Gemini model identifier (defaults to server-configured model)")
 ):
+    if model is not None and not _MODEL_NAME_PATTERN.match(model):
+        raise HTTPException(status_code=400, detail="Invalid model identifier.")
+
+    body = await request.body()
+    if len(body) > MAX_PAYLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="Request payload is too large.")
+
     try:
         payload = await request.json()
     except Exception:
