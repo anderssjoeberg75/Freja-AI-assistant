@@ -107,7 +107,7 @@ async def exec_manage_google_calendar(args):
             },
             "limit": {
                 "type": "INTEGER",
-                "description": "Maximum number of images to download (default is 1000)."
+                "description": "Maximum number of images to download. Default is 0 (unlimited, downloads all available photos)."
             }
         },
         "required": ["profile_url"]
@@ -115,7 +115,7 @@ async def exec_manage_google_calendar(args):
 )
 async def exec_download_facebook_photos(args, progress_callback=None):
     profile_url = args.get("profile_url", "")
-    limit = int(args.get("limit", 1000) or 1000)
+    limit = int(args.get("limit", 0) or 0)
     if not profile_url:
         return {"error": "The Facebook profile URL is missing."}
     # This loads a real, logged-in browser session and navigates it to `profile_url` - with

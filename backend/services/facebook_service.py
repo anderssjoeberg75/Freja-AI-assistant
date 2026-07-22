@@ -25,7 +25,7 @@ def cancel_facebook_download():
         except Exception as e:
             print(f"[Facebook Scraper] Error closing active page: {e}")
 
-async def download_facebook_photos_impl(profile_url: str, limit: int = 1000, progress_callback=None) -> dict:
+async def download_facebook_photos_impl(profile_url: str, limit: int = 0, progress_callback=None) -> dict:
     """
     Scrapes public photos from a Facebook profile or photo gallery URL using Playwright.
     Saves them under PROJECT_ROOT/downloads/facebook_photos/<profile_id>/ and returns list of relative paths.
@@ -294,8 +294,9 @@ async def download_facebook_photos_impl(profile_url: str, limit: int = 1000, pro
             
             print(f"[Facebook Scraper] Total found: {len(photo_urls)} photo link candidates.")
             
-            # Limit download count
-            photo_urls = photo_urls[:limit]
+            # Limit download count if limit > 0 (0 means unlimited / download all)
+            if limit and limit > 0:
+                photo_urls = photo_urls[:limit]
             total_photos = len(photo_urls)
             
             # Visit each photo page, wait for the image to render, and download it
