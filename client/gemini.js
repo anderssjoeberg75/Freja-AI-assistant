@@ -198,30 +198,37 @@ class GeminiClient {
         // These keyword lists match what the *user* types, and the user speaks Swedish to Freja,
         // so the keywords are Swedish. They are input data, not UI copy.
         const lowerMsg = userMessage.toLowerCase();
-        const isFacebookQuery = lowerMsg.includes("facebook") ||
-            lowerMsg.includes("bilder") ||
-            lowerMsg.includes("foton") ||
+        const isFacebookQuery = lowerMsg.includes("facebook") && (
+            lowerMsg.includes("bild") ||
+            lowerMsg.includes("foto") ||
+            lowerMsg.includes("ladda") ||
             lowerMsg.includes("nedladdning") ||
-            lowerMsg.includes("prova") ||
-            lowerMsg.includes("samma") ||
-            lowerMsg.includes("hämta");
+            lowerMsg.includes("hämta") ||
+            lowerMsg.includes("prova")
+        );
 
         if (isFacebookQuery) {
             let filteredHistory = this.history.filter((h, index) => {
                 // Keep the current user message unconditionally
                 if (index === this.history.length - 1) return true;
 
+                // Do not drop function responses or function calls to avoid breaking tool-turn pairing
+                if (h.role === 'function') return true;
+                if (h.parts && h.parts.some(p => p && p.functionCall)) return true;
+
                 const text = (h.parts && h.parts[0] && h.parts[0].text) || "";
+                if (typeof text !== "string") return true;
                 const lowerText = text.toLowerCase();
-                // If it relates to facebook, photos, downloads, or limits, purge it!
-                const isPurgeTarget = lowerText.includes("facebook") ||
-                    lowerText.includes("bild") ||
-                    lowerText.includes("foto") ||
-                    lowerText.includes("nedladdning") ||
+
+                // Purge previous negative/failed constraint text items regarding facebook downloads
+                const isPurgeTarget = lowerText.includes("facebook") && (
                     lowerText.includes("82") ||
                     lowerText.includes("detsamma") ||
                     lowerText.includes("oförändrat") ||
-                    lowerText.includes("inloggning");
+                    lowerText.includes("inloggning") ||
+                    lowerText.includes("kan inte") ||
+                    lowerText.includes("misslyckades")
+                );
                 if (isPurgeTarget) {
                     console.log("[GEMINI] Purged biased history item:", text);
                     return false;
@@ -229,25 +236,29 @@ class GeminiClient {
                 return true;
             });
 
-            // Normalize history to guarantee alternating roles starting with 'user'
+            // Normalize history to guarantee valid alternating turns starting with 'user'
             const normalized = [];
-            let lastRole = null;
             for (const item of filteredHistory) {
                 if (item.role === 'user') {
-                    if (lastRole === 'user') {
-                        normalized[normalized.length - 1].parts[0].text += "\n" + item.parts[0].text;
+                    const last = normalized[normalized.length - 1];
+                    if (last && last.role === 'user' && last.parts && last.parts[0] && typeof last.parts[0].text === 'string' && item.parts && item.parts[0] && typeof item.parts[0].text === 'string') {
+                        last.parts[0].text += "\n" + item.parts[0].text;
                     } else {
                         normalized.push(item);
-                        lastRole = 'user';
                     }
                 } else if (item.role === 'model') {
-                    if (lastRole === 'model') {
-                        normalized[normalized.length - 1].parts[0].text += "\n" + item.parts[0].text;
-                    } else if (lastRole === 'user') {
+                    const last = normalized[normalized.length - 1];
+                    if (last && last.role === 'model' && last.parts && last.parts[0] && typeof last.parts[0].text === 'string' && item.parts && item.parts[0] && typeof item.parts[0].text === 'string' && !item.parts.some(p => p && p.functionCall)) {
+                        last.parts[0].text += "\n" + item.parts[0].text;
+                    } else {
                         normalized.push(item);
-                        lastRole = 'model';
                     }
+                } else {
+                    normalized.push(item);
                 }
+            }
+            while (normalized.length > 0 && normalized[0].role !== 'user') {
+                normalized.shift();
             }
             this.history = normalized;
         }
