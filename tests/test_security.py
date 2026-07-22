@@ -304,3 +304,29 @@ def test_run_and_fix_rejects_disallowed_file_extension():
     # .gitignore exists at the project root and has no allowlisted extension.
     res = asyncio.run(codex_run_and_fix_impl({"command": "pytest", "file_path": ".gitignore"}))
     assert "error" in res and "Security error" in res["error"]
+
+
+def test_crypto_utils_handles_non_string_types():
+    from backend.crypto_utils import encrypt_value, decrypt_value
+    encrypted_int = encrypt_value(12345)
+    assert decrypt_value(encrypted_int) == "12345"
+    assert decrypt_value(12345) == "12345"
+    assert decrypt_value(None) == ""
+
+
+def test_init_db_rotates_legacy_weak_token():
+    from backend.database import get_db_connection, init_db, encrypt_value, get_api_key
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT OR REPLACE INTO api_keys (key_name, key_value) VALUES ('freja_access_token', ?)",
+            (encrypt_value('freja_secret'),)
+        )
+        conn.commit()
+
+    init_db()
+
+    rotated_token = get_api_key('freja_access_token')
+    assert rotated_token is not None
+    assert rotated_token not in ('freja_secret', 'freja1234')
+    assert len(rotated_token) >= 32

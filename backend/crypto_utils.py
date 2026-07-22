@@ -39,9 +39,10 @@ def _get_fernet() -> Fernet:
 
 def encrypt_value(value):
     """Encrypts a secret for storage. None/empty values pass through unchanged."""
-    if not value:
+    if value is None or value == "":
         return value
-    token = _get_fernet().encrypt(value.encode("utf-8")).decode("utf-8")
+    val_str = str(value)
+    token = _get_fernet().encrypt(val_str.encode("utf-8")).decode("utf-8")
     return ENC_PREFIX + token
 
 
@@ -49,8 +50,8 @@ def decrypt_value(value):
     """Decrypts a stored secret. Values without the enc: prefix are legacy
     plaintext (written before encryption-at-rest existed) and are returned
     unchanged, so existing installs keep working with no migration step."""
-    if not value or not value.startswith(ENC_PREFIX):
-        return value
+    if not value or not isinstance(value, str) or not value.startswith(ENC_PREFIX):
+        return str(value) if value is not None else ""
     token = value[len(ENC_PREFIX):]
     try:
         return _get_fernet().decrypt(token.encode("utf-8")).decode("utf-8")
