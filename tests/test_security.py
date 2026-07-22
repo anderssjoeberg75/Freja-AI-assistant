@@ -330,3 +330,22 @@ def test_init_db_rotates_legacy_weak_token():
     assert rotated_token is not None
     assert rotated_token not in ('freja_secret', 'freja1234')
     assert len(rotated_token) >= 32
+
+
+def test_auth_middleware_client_ip_ipv6_normalization():
+    from backend.middleware.auth import _client_ip
+    class DummyRequest:
+        class Client:
+            host = "::ffff:127.0.0.1"
+        client = Client()
+    assert _client_ip(DummyRequest()) == "127.0.0.1"
+
+
+def test_auth_middleware_prunes_stale_failures():
+    from backend.middleware.auth import _record_failure, _failed_attempts
+    _failed_attempts.clear()
+    _failed_attempts["1.2.3.4"] = [time.time() - 600]
+    _record_failure("5.6.7.8", "/api/test")
+    assert "1.2.3.4" not in _failed_attempts
+    assert "5.6.7.8" in _failed_attempts
+    _failed_attempts.clear()

@@ -36,7 +36,10 @@ _locked_until = {}  # ip -> unix timestamp when the lockout lifts
 
 
 def _client_ip(request: Request) -> str:
-    return request.client.host if request.client else "unknown"
+    host = request.client.host if request.client else "unknown"
+    if host.startswith("::ffff:"):
+        return host[7:]
+    return host
 
 
 def _is_locked_out(ip: str) -> bool:
@@ -52,9 +55,16 @@ def _is_locked_out(ip: str) -> bool:
 
 def _record_failure(ip: str, path: str):
     now = time.time()
-    attempts = [t for t in _failed_attempts[ip] if now - t < FAILED_ATTEMPT_WINDOW_SECONDS]
+    # Periodically prune stale entries to prevent memory accumulation over long uptime
+    for tracked_ip in list(_failed_attempts.keys()):
+        valid = [t for t in _failed_attempts[tracked_ip] if now - t < FAILED_ATTEMPT_WINDOW_SECONDS]
+        if valid:
+            _failed_attempts[tracked_ip] = valid
+        else:
+            _failed_attempts.pop(tracked_ip, None)
+
+    attempts = _failed_attempts[ip]
     attempts.append(now)
-    _failed_attempts[ip] = attempts
     logger.warning("Freja auth: rejected request from %s to %s (invalid or missing token)", ip, path)
     if len(attempts) >= FAILED_ATTEMPT_THRESHOLD:
         _locked_until[ip] = now + LOCKOUT_SECONDS
@@ -94,9 +104,10 @@ def _cors_response(request: Request, status_code: int, content: dict, headers: d
 class FrejaAuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
+        normalized_path = path.rstrip("/")
 
         # 1. Bypass auth for CORS preflight (OPTIONS), non-API endpoints, and OAuth redirects.
-        if request.method == "OPTIONS" or not path.startswith("/api/") or path in AUTH_EXEMPT_PATHS:
+        if request.method == "OPTIONS" or not path.startswith("/api/") or normalized_path in AUTH_EXEMPT_PATHS:
             return await call_next(request)
 
         ip = _client_ip(request)

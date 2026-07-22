@@ -13,7 +13,8 @@ window.FrejaMarkdown = {
 
     parseMarkdown(text) {
         const codeBlocks = [];
-        let html = text;
+        const inlineSpans = [];
+        let html = text || "";
         
         // 1. Extract and escape code blocks
         html = html.replace(/```([\s\S]*?)```/g, (match, p1) => {
@@ -23,18 +24,23 @@ window.FrejaMarkdown = {
             return id;
         });
         
-        // 2. Parse inline code ticks
+        // 2. Extract and escape inline code ticks
         html = html.replace(/`([^`]+)`/g, (match, p1) => {
-            return `<code>${this.escapeHTML(p1)}</code>`;
+            const id = `__INLINE_CODE_${inlineSpans.length}__`;
+            inlineSpans.push(`<code>${this.escapeHTML(p1)}</code>`);
+            return id;
         });
+
+        // 3. Escape HTML tags in remaining body text to prevent stored/reflected XSS
+        html = this.escapeHTML(html);
         
-        // 3. Parse bold symbols
+        // 4. Parse bold symbols
         html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
         
-        // 4. Parse italics
+        // 5. Parse italics
         html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
         
-        // 5. Parse links: [label](url) - supports both http(s) and relative URLs (e.g. /api/docs/...)
+        // 6. Parse links: [label](url) - supports both http(s) and relative URLs (e.g. /api/docs/...)
         html = html.replace(/\[([^\]]+)\]\(((?:https?:\/\/|\/)[^\s)]+)\)/g, (match, text, url) => {
             let finalUrl = url;
             if (url.startsWith('/api/docs/')) {
@@ -46,13 +52,18 @@ window.FrejaMarkdown = {
             return `<a href="${finalUrl}" target="_blank" class="hud-link">${text} <i class="fa-solid fa-arrow-up-right-from-square" style="font-size: 8px;"></i></a>`;
         });
         
-        // 6. Parse list items (lines starting with * or - or •)
+        // 7. Parse list items (lines starting with * or - or •)
         html = html.replace(/^[-*•]\s+(.+)$/gm, '• $1');
         
-        // 7. Replace newlines with <br>
+        // 8. Replace newlines with <br>
         html = html.replace(/\n/g, '<br>');
+
+        // 9. Restore inline code spans
+        inlineSpans.forEach((span, index) => {
+            html = html.replace(`__INLINE_CODE_${index}__`, span);
+        });
         
-        // 8. Restore code blocks
+        // 10. Restore code blocks
         codeBlocks.forEach((block, index) => {
             html = html.replace(`__CODE_BLOCK_${index}__`, block);
         });
