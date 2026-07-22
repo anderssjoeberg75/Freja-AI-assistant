@@ -330,6 +330,52 @@ class TestFixedBugs:
         assert "QA_TEST_old" not in names, "a 40-day-old activity must fall outside days=7"
         assert "QA_TEST_today" in names
 
+    def test_search_dedup_does_not_readmit_a_seen_link_via_title_fallback(self, monkeypatch):
+        """A result whose link was already added must not slip back in under the title-fallback
+        branch just because a later copy has a slightly different title (previously the elif
+        fired for both link-less results AND already-seen links, since it only checked
+        `if link and link not in seen_links` was False without distinguishing the two cases)."""
+        from backend.services import search_service as ss
+
+        dup = [
+            {"title": "Original headline", "snippet": "a", "link": "https://example.com/x"},
+            {"title": "Re-fetched headline", "snippet": "b", "link": "https://example.com/x"},
+        ]
+        monkeypatch.setattr(ss, "perform_ddg_lite_search", lambda q: dup)
+        monkeypatch.setattr(ss, "perform_ddg_api_search", lambda q: [])
+        monkeypatch.setattr(ss, "perform_ddg_html_search", lambda q: [])
+
+        results, degraded = asyncio.run(ss.perform_search_detailed("query"))
+        assert len(results) == 1
+        assert degraded is False
+
+    def test_search_reports_degraded_when_every_tier_errors(self, monkeypatch):
+        """A genuinely empty result set (nothing found) must be distinguishable from every
+        search tier having errored out - both previously collapsed to the same `[]`."""
+        from backend.services import search_service as ss
+
+        def _raise(q):
+            raise RuntimeError("scraper broke")
+
+        monkeypatch.setattr(ss, "perform_ddg_lite_search", _raise)
+        monkeypatch.setattr(ss, "perform_ddg_api_search", _raise)
+        monkeypatch.setattr(ss, "perform_ddg_html_search", _raise)
+
+        results, degraded = asyncio.run(ss.perform_search_detailed("query"))
+        assert results == []
+        assert degraded is True
+
+    def test_search_not_degraded_on_genuine_zero_results(self, monkeypatch):
+        from backend.services import search_service as ss
+
+        monkeypatch.setattr(ss, "perform_ddg_lite_search", lambda q: [])
+        monkeypatch.setattr(ss, "perform_ddg_api_search", lambda q: [])
+        monkeypatch.setattr(ss, "perform_ddg_html_search", lambda q: [])
+
+        results, degraded = asyncio.run(ss.perform_search_detailed("query"))
+        assert results == []
+        assert degraded is False
+
     def test_google_calendar_sync_does_not_block_the_event_loop(self):
         """The sync task must yield to the loop rather than hold it with a blocking sleep."""
         from backend.routes.google_calendar import run_google_calendar_sync_task

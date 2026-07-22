@@ -6,7 +6,7 @@ from backend.services.search_service import perform_search
 router = APIRouter()
 
 @router.get("/api/search")
-async def get_search(q: str = Query("", alias="q")):
+async def get_search(q: str = Query("", alias="q", max_length=300)):
     query = q.strip()
     if not query:
         return []
