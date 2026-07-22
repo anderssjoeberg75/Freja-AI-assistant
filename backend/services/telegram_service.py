@@ -19,6 +19,8 @@ else:
 chat_histories = {}
 # Recent message logs cache (up to 10 entries)
 recent_messages = []
+# Set of unauthorized chat IDs that have already received an access denied warning
+_warned_unauthorized_chats = set()
 
 def get_telegram_config():
     """Fetches Telegram bot token and authorized chat_id from environment or SQLite database."""
@@ -255,12 +257,13 @@ async def telegram_worker_loop():
                     # Enforce chat ID authorization check
                     if chat_id != auth_chat_id:
                         print(f"[TELEGRAM] Unauthorized access attempt from chat_id {chat_id} (Configured: {auth_chat_id})")
-                        # Send one-time access denied message
-                        await send_telegram_message(
-                            token,
-                            chat_id,
-                            "Access Denied: This F.R.E.J.A. bot instance is locked to the owner's account."
-                        )
+                        if chat_id not in _warned_unauthorized_chats:
+                            _warned_unauthorized_chats.add(chat_id)
+                            await send_telegram_message(
+                                token,
+                                chat_id,
+                                "Access Denied: This F.R.E.J.A. bot instance is locked to the owner's account."
+                            )
                         continue
                         
                     # Save user message to persistent DB history
