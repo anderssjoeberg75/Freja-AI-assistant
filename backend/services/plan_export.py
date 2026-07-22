@@ -172,7 +172,7 @@ def build_ics(plan: dict, plan_data: dict, start_date: datetime.date, now: datet
 
     for idx, occ in enumerate(plan_occurrences(plan_data, start_date)):
         w = occ["workout"]
-        summary = f"💪 {w.get('activity_type', 'Träning')}: {w.get('title', 'Pass')}"
+        summary = f"💪 {w.get('activity_type') or 'Träning'}: {w.get('title') or 'Pass'}"
         desc_parts = [str(w.get("description") or "").strip()]
         exercises = format_exercises(w.get("exercises"))
         if exercises:
@@ -327,16 +327,19 @@ def build_pdf(plan: dict, plan_data, start_date: datetime.date = None) -> bytes:
         blocks.append(("spacer", ""))
 
         blocks.append(("h2", "Pass"))
-        # When a start date is given, label each session with the date it falls on.
+        # When a start date is given, label each session with the date it falls on. Keyed by
+        # (day, week) - not day alone - since a multi-week plan repeats weekday names across
+        # weeks, and a day-only key would collapse every week onto the first occurrence's date.
         dates_by_day = {}
         if start_date:
             for occ in plan_occurrences(plan_data, start_date):
-                dates_by_day.setdefault(str(occ["workout"].get("day", "")).lower(), occ["date"])
+                key = (str(occ["workout"].get("day", "")).lower(), occ["workout"].get("week", 0) or 0)
+                dates_by_day.setdefault(key, occ["date"])
 
         for w in (plan_data.get("workouts") or []):
             if not isinstance(w, dict):
                 continue
-            when = dates_by_day.get(str(w.get("day", "")).lower())
+            when = dates_by_day.get((str(w.get("day", "")).lower(), w.get("week", 0) or 0))
             day_label = str(w.get("day", "")) + (f" ({when.isoformat()})" if when else "")
             try:
                 duration = int(w.get("duration_minutes") or 0)
@@ -344,8 +347,8 @@ def build_pdf(plan: dict, plan_data, start_date: datetime.date = None) -> bytes:
                 duration = 0
             if duration > 0:
                 heading = (
-                    f"{day_label} – {w.get('activity_type', 'Träning')}: "
-                    f"{w.get('title', '')} [{duration} min]"
+                    f"{day_label} – {w.get('activity_type') or 'Träning'}: "
+                    f"{w.get('title') or ''} [{duration} min]"
                 )
             else:
                 heading = f"{day_label} – Vila"

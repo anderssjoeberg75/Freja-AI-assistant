@@ -31,6 +31,49 @@ def test_trainer_plan_update(auth_headers):
     assert response.status_code == 200
     assert response.json().get("status") == "success"
 
+def test_trainer_plan_update_rejects_missing_plan(auth_headers):
+    """Updating a non-existent plan_id must 404, not silently report success (no rowcount check
+    previously meant the UPDATE matched zero rows and the endpoint still returned 200)."""
+    client = TestClient(app)
+    response = client.put(
+        "/api/trainer/plans",
+        json={"plan_id": 999999999, "advice_text": "x"},
+        headers=auth_headers,
+    )
+    assert response.status_code == 404
+
+def test_trainer_plan_update_rejects_oversized_payload(auth_headers):
+    """A gigantic advice_text (or a plan with an absurd number of workouts) must be rejected
+    up front - plan_occurrences/build_ics/build_pdf iterate every workout synchronously inside
+    the request handler with no cap, so an unbounded payload here is a same-request DoS vector."""
+    client = TestClient(app)
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO trainer_plans (date, goal, advice_text, limitations)
+            VALUES (?, ?, ?, ?)
+        ''', ("2026-07-02", "Cap test", "Mock", "Inga"))
+        conn.commit()
+        plan_id = cursor.lastrowid
+
+    huge_text_response = client.put(
+        "/api/trainer/plans",
+        json={"plan_id": plan_id, "advice_text": "x" * 200_001},
+        headers=auth_headers,
+    )
+    assert huge_text_response.status_code == 400
+
+    huge_workouts = json.dumps({"workouts": [
+        {"day": "Måndag", "activity_type": "Löpning", "title": "Pass", "duration_minutes": 30}
+        for _ in range(121)
+    ]})
+    huge_workouts_response = client.put(
+        "/api/trainer/plans",
+        json={"plan_id": plan_id, "advice_text": huge_workouts},
+        headers=auth_headers,
+    )
+    assert huge_workouts_response.status_code == 400
+
 def test_trainer_plan_booking(auth_headers):
     client = TestClient(app)
     mock_advice_json = '{"workouts": [{"day": "Måndag", "activity_type": "Löpning", "title": "Intervaller", "description": "Spring snabbt", "duration_minutes": 30}]}'
@@ -762,18 +805,61 @@ def test_export_and_booking_schedule_a_plan_identically():
     ]
 
 
-def test_ics_folds_long_lines():
-    """Content lines are folded to 75 octets so strict parsers accept the file."""
+def test_build_pdf_labels_each_week_with_its_own_date():
+    """A workout on the same weekday in different weeks must show that week's own date, not
+    always the first week's - dates_by_day used to be keyed by weekday name alone, so
+    setdefault() kept only the earliest occurrence's date for every later week's session."""
     import datetime
     from backend.services import plan_export
 
+    plan_data = {"workouts": [
+        {"day": "Måndag", "activity_type": "Löpning", "title": "Vecka 1", "duration_minutes": 30, "week": 0},
+        {"day": "Måndag", "activity_type": "Löpning", "title": "Vecka 2", "duration_minutes": 30, "week": 1},
+    ]}
+    pdf_bytes = plan_export.build_pdf({"id": 1, "goal": "Test"}, plan_data, datetime.date(2026, 7, 27))
+    pdf_text = pdf_bytes.decode("latin-1")
+    assert "2026-07-27" in pdf_text  # week 0's Monday
+    assert "2026-08-03" in pdf_text  # week 1's Monday - previously mislabeled as 2026-07-27 too
+
+
+def test_build_pdf_and_ics_treat_explicit_null_fields_as_missing():
+    """An explicit JSON null for activity_type/title (possible via the unrestricted plan-update
+    endpoint) must fall back to the Swedish default, not render the literal string "None" -
+    dict.get(key, default) only substitutes when the key is absent, not when it's null."""
+    import datetime
+    from backend.services import plan_export
+
+    plan_data = {"workouts": [
+        {"day": "Måndag", "activity_type": None, "title": None, "description": None, "duration_minutes": 30}
+    ]}
+    ics = plan_export.build_ics({"id": 1, "goal": "Test"}, plan_data, datetime.date(2026, 7, 27))
+    assert "None" not in ics
+
+    pdf_text = plan_export.build_pdf({"id": 1, "goal": "Test"}, plan_data, datetime.date(2026, 7, 27)).decode("latin-1")
+    assert "None" not in pdf_text
+
+
+def test_ics_folds_long_lines():
+    """Content lines are folded to 75 octets so strict parsers accept the file, and
+    unfolding (undoing the RFC 5545 continuation) reproduces the original text exactly -
+    the fold length check alone wouldn't catch a regression that corrupts UTF-8 content
+    while still respecting the 75-octet limit."""
+    import datetime
+    from backend.services import plan_export
+
+    long_desc = "Ö" * 400
     plan_data = {"workouts": [{
         "day": "Måndag", "activity_type": "Löpning", "title": "Långt pass",
-        "description": "Ö" * 400, "duration_minutes": 45
+        "description": long_desc, "duration_minutes": 45
     }]}
     ics = plan_export.build_ics({"id": 1, "goal": "Test"}, plan_data, datetime.date(2026, 7, 27))
     for line in ics.split("\r\n"):
         assert len(line.encode("utf-8")) <= 75, f"unfolded line: {line[:40]}..."
+
+    # RFC 5545 unfolding: a CRLF followed by a single leading space is removed.
+    unfolded = ics.replace("\r\n ", "")
+    description_line = next(l for l in unfolded.split("\r\n") if l.startswith("DESCRIPTION:"))
+    assert long_desc in description_line
 
 
 def test_trainer_booking_is_idempotent(auth_headers):

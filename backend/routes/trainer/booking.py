@@ -168,10 +168,10 @@ async def core_book_plan_internal(plan_id: int, start_date: datetime.date, skip_
         # Event title/description land in the user's calendar, so they stay Swedish.
         # The 💪 prefix and the "F.R.E.J.A. PT" location are what is_workout_event()
         # later matches on to tell PT sessions apart from ordinary meetings.
-        summary = f"💪 {w.get('activity_type', 'Träning')}: {w.get('title', 'Pass')}"
+        summary = f"💪 {w.get('activity_type') or 'Träning'}: {w.get('title') or 'Pass'}"
         exercises_block = _format_exercises_for_calendar(w.get("exercises"))
         description = (
-            f"Träningspass genererat av COACH AI.\n\nBeskrivning:\n{w.get('description', '')}"
+            f"Träningspass genererat av COACH AI.\n\nBeskrivning:\n{w.get('description') or ''}"
             f"{exercises_block}\n\nTid: {duration} minuter."
         )
         location = WORKOUT_LOCATION_MARKER

@@ -122,10 +122,10 @@ async def get_trainer_workouts(days: int = Query(14, description="Lookback/looka
 
                 if matching_w:
                     duration = int(matching_w.get("duration_minutes", 0) or 0)
-                    summary = f"💪 {matching_w.get('activity_type', 'Träning')}: {matching_w.get('title', 'Pass')}"
+                    summary = f"💪 {matching_w.get('activity_type') or 'Träning'}: {matching_w.get('title') or 'Pass'}"
                     exercises_block = _format_exercises_for_calendar(matching_w.get("exercises"))
                     description = (
-                        f"Träningspass genererat av COACH AI.\n\nBeskrivning:\n{matching_w.get('description', '')}"
+                        f"Träningspass genererat av COACH AI.\n\nBeskrivning:\n{matching_w.get('description') or ''}"
                         f"{exercises_block}\n\nTid: {duration} minuter."
                     )
                     results.append({
@@ -139,8 +139,8 @@ async def get_trainer_workouts(days: int = Query(14, description="Lookback/looka
                         "end_time": _workout_end_time(w_date_str, duration),
                         "location": WORKOUT_LOCATION_MARKER,
                         "duration_minutes": duration,
-                        "activity_type": matching_w.get("activity_type", "Träning"),
-                        "title": matching_w.get("title", "Pass"),
+                        "activity_type": matching_w.get("activity_type") or "Träning",
+                        "title": matching_w.get("title") or "Pass",
                         "exercises": matching_w.get("exercises", [])
                     })
             except Exception as parse_err:
@@ -171,10 +171,10 @@ async def get_trainer_workouts(days: int = Query(14, description="Lookback/looka
                             continue
                         w_date = monday + datetime.timedelta(days=offset)
                         w_date_str = w_date.isoformat()
-                        summary = f"💪 {w.get('activity_type', 'Träning')}: {w.get('title', 'Pass')}"
+                        summary = f"💪 {w.get('activity_type') or 'Träning'}: {w.get('title') or 'Pass'}"
                         exercises_block = _format_exercises_for_calendar(w.get("exercises"))
                         description = (
-                            f"Träningspass genererat av COACH AI.\n\nBeskrivning:\n{w.get('description', '')}"
+                            f"Träningspass genererat av COACH AI.\n\nBeskrivning:\n{w.get('description') or ''}"
                             f"{exercises_block}\n\nTid: {duration} minuter."
                         )
                         results.append({
@@ -186,8 +186,8 @@ async def get_trainer_workouts(days: int = Query(14, description="Lookback/looka
                             "end_time": _workout_end_time(w_date_str, duration),
                             "location": WORKOUT_LOCATION_MARKER,
                             "duration_minutes": duration,
-                            "activity_type": w.get("activity_type", "Träning"),
-                            "title": w.get("title", "Pass"),
+                            "activity_type": w.get("activity_type") or "Träning",
+                            "title": w.get("title") or "Pass",
                             "exercises": w.get("exercises", [])
                         })
                 except Exception as fb_err:
@@ -312,7 +312,7 @@ def build_chat_context_block() -> str:
                 )
             lines.append(
                 f"- {w_date.isoformat()} ({SWEDISH_WEEKDAYS[w_date.weekday()]}): "
-                f"{w.get('activity_type', 'Träning')} - {w.get('title', 'Pass')}, {dur} min.{marker}"
+                f"{w.get('activity_type') or 'Träning'} - {w.get('title') or 'Pass'}, {dur} min.{marker}"
                 f" {desc}{ex_str}".rstrip()
             )
         if not any(w_date == today for w_date, _ in workouts):
@@ -443,6 +443,38 @@ async def export_trainer_plan(
     )
 
 
+# Sanity caps for PUT /api/trainer/plans - the one place a plan's stored JSON can be
+# replaced wholesale with arbitrary caller-supplied content (the Gemini generation path is
+# implicitly bounded by maxOutputTokens; this endpoint isn't). plan_occurrences/build_ics/
+# build_pdf iterate every workout with no upper bound, synchronously, inside the request
+# handler - so an unbounded payload here is a same-request DoS vector, not just bad data.
+MAX_ADVICE_TEXT_CHARS = 200_000
+MAX_WORKOUTS_PER_PLAN = 120
+MAX_WORKOUT_FIELD_CHARS = 4_000
+
+
+def _validate_plan_advice_text(advice_text) -> str:
+    text = str(advice_text)
+    if len(text) > MAX_ADVICE_TEXT_CHARS:
+        raise HTTPException(status_code=400, detail="The training plan text is too large.")
+
+    parsed = plan_export.parse_plan_text(text)
+    if isinstance(parsed, dict):
+        workouts = parsed.get("workouts")
+        if isinstance(workouts, list):
+            if len(workouts) > MAX_WORKOUTS_PER_PLAN:
+                raise HTTPException(status_code=400, detail="The training plan has too many workouts.")
+            for w in workouts:
+                if not isinstance(w, dict):
+                    continue
+                for key, value in w.items():
+                    if isinstance(value, str) and len(value) > MAX_WORKOUT_FIELD_CHARS:
+                        raise HTTPException(
+                            status_code=400, detail=f"The workout field '{key}' is too long."
+                        )
+    return text
+
+
 @router.put("/api/trainer/plans")
 async def update_trainer_plan(request: Request):
     try:
@@ -451,17 +483,22 @@ async def update_trainer_plan(request: Request):
         advice_text = body.get("advice_text")
         if not plan_id or advice_text is None:
             raise HTTPException(status_code=400, detail="A plan ID and the updated training plan are required.")
-            
+        advice_text = _validate_plan_advice_text(advice_text)
+
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                UPDATE trainer_plans 
-                SET advice_text = ? 
+                UPDATE trainer_plans
+                SET advice_text = ?
                 WHERE id = ?
             ''', (advice_text, plan_id))
             conn.commit()
-            
+            if cursor.rowcount == 0:
+                raise HTTPException(status_code=404, detail="Training plan not found.")
+
         return {"status": "success", "message": "The training plan was updated successfully."}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

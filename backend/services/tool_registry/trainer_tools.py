@@ -3,6 +3,7 @@
 import datetime
 import json
 from backend.database import get_db_connection
+from backend.services import plan_export
 from ._registry import registry
 
 @registry.register(
@@ -156,7 +157,10 @@ async def _build_trainer_context_summary(days: int = 14) -> dict:
                     ORDER BY b.workout_date ASC
                 ''', (monday.isoformat(), sunday.isoformat()))
                 rows = cursor.fetchall()
-                day_offsets = {"måndag": 0, "tisdag": 1, "onsdag": 2, "torsdag": 3, "fredag": 4, "lördag": 5, "söndag": 6}
+                # Single source of truth (see plan_export.py's docstring) - stops this AI
+                # tool from drifting away from what booking.py/plan_export.py use to
+                # schedule/export the same plan.
+                day_offsets = plan_export.SWEDISH_DAY_OFFSETS
 
                 for b_row in rows:
                     b_id, p_id, w_date_str, w_week, advice_text = b_row
@@ -363,7 +367,10 @@ async def exec_update_trainer_workout(args):
                 plan_json = json.loads(cleaned)
                 workouts = plan_json.get("workouts", [])
 
-                day_offsets = {"måndag": 0, "tisdag": 1, "onsdag": 2, "torsdag": 3, "fredag": 4, "lördag": 5, "söndag": 6}
+                # Single source of truth (see plan_export.py's docstring) - stops this AI
+                # tool from drifting away from what booking.py/plan_export.py use to
+                # schedule/export the same plan.
+                day_offsets = plan_export.SWEDISH_DAY_OFFSETS
                 target_dt = datetime.datetime.strptime(w_date, "%Y-%m-%d").date()
                 target_dow = target_dt.weekday()
 
