@@ -42,31 +42,55 @@ def get_gemini_api_key():
     except Exception:
         return ""
 
-async def send_telegram_message(token, chat_id, text):
-    """Sends an HTML-formatted message to the specified Telegram Chat ID."""
+async def send_telegram_message(token, chat_id, text, _plain_text_fallback=None, _use_html=True):
+    """Sends a message to the specified Telegram Chat ID (HTML-formatted by default).
+
+    Returns True if Telegram accepted the message. On an HTML-parsing rejection (e.g. a
+    malformed/nested tag markdown_to_html let through), retries once as plain text (no
+    parse_mode) so the user gets *something* instead of the reply silently vanishing - the
+    reply is already recorded in chat history as sent by the time this is called, so a
+    delivery failure here previously had no visible effect at all.
+    """
     url = f"https://api.telegram.org/bot{token}/sendMessage"
-    payload = {
-        "chat_id": chat_id,
-        "text": text,
-        "parse_mode": "HTML"
-    }
+    payload = {"chat_id": chat_id, "text": text}
+    if _use_html:
+        payload["parse_mode"] = "HTML"
     try:
         async with shared_client() as client:
             res = await client.post(url, json=payload, timeout=10.0)
-            if res.status_code != 200:
-                print(f"[TELEGRAM] Send message error: HTTP {res.status_code}: {res.text}")
+            if res.status_code == 200:
+                return True
+            print(f"[TELEGRAM] Send message error: HTTP {res.status_code}: {res.text}")
+            if _use_html and _plain_text_fallback is not None and res.status_code == 400:
+                return await send_telegram_message(token, chat_id, _plain_text_fallback, _use_html=False)
+            return False
     except Exception as e:
         print(f"[TELEGRAM] Send message exception: {e}")
+        return False
 
 def markdown_to_html(text):
     """Safely escapes HTML tags and translates standard Markdown bold/italic/code tags to HTML for Telegram."""
     escaped = html.escape(text)
+
+    # Code spans are stashed and substituted back in LAST. Applying bold/italic first meant a
+    # code span containing markdown-like characters (e.g. `a*b*c`) got *,* matched by the
+    # italic regex before the code regex ever ran, producing a nested <i> inside the eventual
+    # <code> tag - Telegram's HTML parse_mode rejects nested tags in <code>/<pre> and the
+    # sendMessage call failed with HTTP 400, silently, after the reply was already recorded
+    # as sent in chat history.
+    code_spans = []
+
+    def _stash_code(m):
+        code_spans.append(m.group(1))
+        return f"\x00CODE{len(code_spans) - 1}\x00"
+
+    escaped = re.sub(r'`(.*?)`', _stash_code, escaped)
     # Match double asterisks for bold -> <b>
     escaped = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', escaped)
     # Match single asterisks/underscores for italic -> <i>
     escaped = re.sub(r'\*(.*?)\*', r'<i>\1</i>', escaped)
-    # Match backticks for code -> <code>
-    escaped = re.sub(r'`(.*?)`', r'<code>\1</code>', escaped)
+    for i, content in enumerate(code_spans):
+        escaped = escaped.replace(f"\x00CODE{i}\x00", f"<code>{content}</code>")
     return escaped
 
 async def query_gemini_with_tools(contents, api_key, system_prompt):
@@ -368,7 +392,7 @@ async def telegram_worker_loop():
 
                     # Format response and transmit to Telegram
                     html_reply = markdown_to_html(reply_text)
-                    await send_telegram_message(token, chat_id, html_reply)
+                    await send_telegram_message(token, chat_id, html_reply, _plain_text_fallback=reply_text)
                     
             except Exception as err:
                 print(f"[TELEGRAM] Exception in loop: {err}")
