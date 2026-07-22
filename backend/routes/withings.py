@@ -8,13 +8,18 @@ import time
 from fastapi import APIRouter, HTTPException, Query, Request, BackgroundTasks
 from backend.database import get_db_connection, get_api_key, set_api_key
 from backend.services.sync_status import set_sync_state
+from backend.services.time_utils import today_local
+
+MAX_SYNC_DAYS = 365  # Sanity cap on the sync window; Withings has no per-day API cost here
+                      # (this route makes 3 fixed calls total, not one per day like Garmin),
+                      # but an unbounded value still produces pathological date windows.
 
 router = APIRouter()
 
 @router.get("/api/withings/data")
 async def get_withings_data(days: int = Query(7, description="Number of days to retrieve")):
     try:
-        cutoff = (datetime.date.today() - datetime.timedelta(days=days)).strftime('%Y-%m-%d')
+        cutoff = (today_local() - datetime.timedelta(days=days)).strftime('%Y-%m-%d')
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
@@ -53,7 +58,7 @@ async def run_withings_sync_task(client_id, client_secret, refresh_token, days: 
         if client_id == 'withings123' or refresh_token in ('refreshtokentoken', 'MOCK_REFRESH_TOKEN'):
             with get_db_connection() as conn:
                 cursor = conn.cursor()
-                today = datetime.date.today()
+                today = today_local()
                 for i in range(days):
                     day_date = today - datetime.timedelta(days=i)
                     date_str = day_date.strftime('%Y-%m-%d')
@@ -121,7 +126,7 @@ async def run_withings_sync_task(client_id, client_secret, refresh_token, days: 
             set_api_key('freja_withings_refresh_token', new_refresh_token)
 
 
-        today_date = datetime.date.today()
+        today_date = today_local()
         start_date_str = (today_date - datetime.timedelta(days=days)).strftime('%Y-%m-%d')
         end_date_str = today_date.strftime('%Y-%m-%d')
         lastupdate = int(time.time()) - days * 24 * 3600
@@ -132,6 +137,22 @@ async def run_withings_sync_task(client_id, client_secret, refresh_token, days: 
             res.raise_for_status()
             meas_body = res.json()
             
+        # Tracks whether each of the three fetches actually completed (status==0 / no
+        # exception), not whether it returned any rows - an empty-but-successful response is
+        # a legitimate "nothing new since the user's last scale/tracker use", not a failure,
+        # so this must not be confused with "wrote zero rows" the way garmin.py's per-day
+        # check can be (Garmin devices record passively every day; a Withings scale doesn't).
+        # Withings returns HTTP 200 with a non-zero `status` field for application-level
+        # errors (rate limit, revoked scope), and the sleep/activity fetches each swallow
+        # their own exceptions - neither stopped this function from reporting "success" even
+        # when every fetch had actually failed, hiding a broken sync indefinitely.
+        meas_call_ok = meas_body.get('status') == 0
+        sleep_call_ok = False
+        activity_call_ok = False
+
+        if not meas_call_ok:
+            print(f"[WITHINGS SYNC] Measurements request returned status {meas_body.get('status')!r}: {meas_body}")
+
         with get_db_connection() as conn:
             cursor = conn.cursor()
             if meas_body.get('status') == 0:
@@ -166,7 +187,7 @@ async def run_withings_sync_task(client_id, client_secret, refresh_token, days: 
                                 bone_mass = COALESCE(excluded.bone_mass, bone_mass),
                                 heart_pulse = COALESCE(excluded.heart_pulse, heart_pulse)
                         ''', (date_str, weight, fat_ratio, bone_mass, heart_pulse))
-                        
+
             try:
                 sleep_url = 'https://wbsapi.withings.net/v2/sleep'
                 payload_sleep = {
@@ -178,7 +199,8 @@ async def run_withings_sync_task(client_id, client_secret, refresh_token, days: 
                     res = await client.post(sleep_url, data=payload_sleep, headers={'Authorization': f"Bearer {access_token}"}, timeout=10.0)
                     res.raise_for_status()
                     sleep_body = res.json()
-                if sleep_body.get('status') == 0:
+                sleep_call_ok = sleep_body.get('status') == 0
+                if sleep_call_ok:
                     series = sleep_body.get('body', {}).get('series', [])
                     for item in series:
                         s_date = item.get('date')
@@ -211,7 +233,8 @@ async def run_withings_sync_task(client_id, client_secret, refresh_token, days: 
                     res = await client.post(act_url, data=payload_act, headers={'Authorization': f"Bearer {access_token}"}, timeout=10.0)
                     res.raise_for_status()
                     act_body = res.json()
-                if act_body.get('status') == 0:
+                activity_call_ok = act_body.get('status') == 0
+                if activity_call_ok:
                     activities = act_body.get('body', {}).get('activities', [])
                     for act in activities:
                         a_date = act.get('date')
@@ -233,6 +256,13 @@ async def run_withings_sync_task(client_id, client_secret, refresh_token, days: 
                 print(f"Error fetching activity from Withings: {act_err}")
                 
             conn.commit()
+
+        if not (meas_call_ok or sleep_call_ok or activity_call_ok):
+            raise Exception(
+                "Withings sync could not retrieve data from any endpoint (measurements, "
+                "sleep, activity) - the token may be invalid or Withings may be rate-limiting."
+            )
+
         set_sync_state("withings", "success")
     except Exception as e:
         print(f"[WITHINGS SYNC TASK ERROR]: {e}")
@@ -252,7 +282,8 @@ async def get_withings_sync(
             status_code=400,
             detail="Withings API credentials are missing. Enter the Client ID, Client Secret and Refresh Token in Settings."
         )
-        
+
+    days = max(1, min(days, MAX_SYNC_DAYS))
     set_sync_state("withings", "syncing")
     background_tasks.add_task(run_withings_sync_task, client_id, client_secret, refresh_token, days)
     return {'status': 'syncing', 'message': "Withings sync started in the background."}
@@ -266,8 +297,13 @@ async def delete_withings_log(date: str = Query(..., description="Date to delete
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('DELETE FROM withings_measurements WHERE date = ?', (date_to_delete,))
+            deleted = cursor.rowcount
             conn.commit()
+        if not deleted:
+            raise HTTPException(status_code=404, detail=f"No measurement was found for {date_to_delete}.")
         return {'status': 'success', 'message': f"The measurement for {date_to_delete} was deleted."}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -289,10 +325,10 @@ async def post_withings_data(request: Request):
                 INSERT INTO withings_measurements (date, weight, fat_ratio, bone_mass, heart_pulse)
                 VALUES (?, ?, ?, ?, ?)
                 ON CONFLICT(date) DO UPDATE SET
-                    weight = excluded.weight,
-                    fat_ratio = excluded.fat_ratio,
-                    bone_mass = excluded.bone_mass,
-                    heart_pulse = excluded.heart_pulse
+                    weight = COALESCE(excluded.weight, weight),
+                    fat_ratio = COALESCE(excluded.fat_ratio, fat_ratio),
+                    bone_mass = COALESCE(excluded.bone_mass, bone_mass),
+                    heart_pulse = COALESCE(excluded.heart_pulse, heart_pulse)
             ''', (date_str, weight, fat_ratio, bone_mass, heart_pulse))
             conn.commit()
         return {'status': 'success', 'message': 'Withings log saved.'}
