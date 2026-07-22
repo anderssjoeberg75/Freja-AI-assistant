@@ -259,6 +259,20 @@ Assistant: "${assistantMsg}"`;
     }
 
     /**
+     * Normalizes a mem0 API response into a plain array of memory objects. mem0 wraps list
+     * responses in an envelope ({"results": [...]}, sometimes {"memories": [...]}) rather
+     * than returning a bare array - accepting either shape here (plus a literal bare array,
+     * in case a future API version returns one) avoids silently treating every real response
+     * as empty.
+     */
+    unwrapMemoryList(data) {
+        if (Array.isArray(data)) return data;
+        if (data && Array.isArray(data.results)) return data.results;
+        if (data && Array.isArray(data.memories)) return data.memories;
+        return [];
+    }
+
+    /**
      * Queries memories matching user queries (injects results into the system prompts).
      */
     async searchMemory(query) {
@@ -279,7 +293,11 @@ Assistant: "${assistantMsg}"`;
                 });
                 if (response.ok) {
                     const data = await response.json();
-                    return Array.isArray(data) ? data : [];
+                    // mem0's v3 search endpoint wraps results as {"results": [...]}, not a
+                    // bare array - Array.isArray(data) was false on every real response, so
+                    // this returned [] unconditionally for anyone with a working API key,
+                    // silently disabling memory retrieval entirely with no error anywhere.
+                    return this.unwrapMemoryList(data);
                 }
             } catch (e) {
                 console.error("[MEM0] API Search failed:", e);
@@ -325,7 +343,7 @@ Assistant: "${assistantMsg}"`;
                 });
                 if (response.ok) {
                     const data = await response.json();
-                    return Array.isArray(data) ? data.map(m => ({ id: m.id, memory: m.memory })) : [];
+                    return this.unwrapMemoryList(data).map(m => ({ id: m.id, memory: m.memory }));
                 }
             } catch (e) {
                 console.error("[MEM0] API Get All failed:", e);
@@ -341,7 +359,14 @@ Assistant: "${assistantMsg}"`;
     async deleteMemory(memoryId) {
         if (!this.enabled) return false;
 
-        if (!this.isSandboxMode() && isNaN(parseInt(memoryId)) && !memoryId.startsWith("mem_")) {
+        // getAllMemories()/searchMemory() never mix sources - they return EITHER the real
+        // mem0 results OR the local sandbox list, never both - so the current mode alone
+        // tells us where any given displayed ID came from. The previous check instead
+        // guessed from the ID's shape (isNaN(parseInt(id)) && !id.startsWith("mem_")), but
+        // parseInt() stops at the first non-digit character, so real mem0 UUIDs starting
+        // with a decimal digit (~5 of every 8) parsed to a non-NaN number and were routed to
+        // the wrong (no-op) branch - the delete silently never reached the API at all.
+        if (!this.isSandboxMode()) {
             try {
                 const response = await fetch(`/api/mem0/delete/${encodeURIComponent(memoryId)}`, {
                     method: "DELETE"

@@ -409,7 +409,13 @@ class FrejaUIController {
         if (this.memory && this.memory.enabled) {
             const self = this;
             this.memory.addMemory(text, response).then((res) => {
-                if (res) {
+                if (res && typeof res === "object") {
+                    // The real mem0 /v3/memories/add/ call is asynchronous - it returns a
+                    // queued job (e.g. {"status":"PENDING","event_id":...}), not a completed
+                    // save. Nothing here polls that job to completion, so claiming it was
+                    // already "encoded securely" overstated what actually happened.
+                    self.writeLog("NEURAL ENGRAM QUEUED FOR ENCODING", "sys");
+                } else if (res) {
                     self.writeLog("NEURAL ENGRAM ENCODED SECURELY", "sys");
                 }
             }).catch(e => {
