@@ -72,27 +72,13 @@ async def download_facebook_photos_impl(profile_url: str, limit: int = 1000, pro
             except Exception:
                 pass
 
-        # Determine whether headful browser launch is supported by the host OS environment.
-        # On Linux without an XServer/Wayland ($DISPLAY / $WAYLAND_DISPLAY), headed launch crashes.
-        has_display = True
-        if sys.platform not in ("win32", "darwin"):
-            has_display = bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
-
-        use_headless = is_logged_in or not has_display
-
+        # Always run background scraping in headless mode so server environments without a display never crash
         launch_args = [
             "--no-sandbox",
             "--disable-setuid-sandbox",
             "--disable-blink-features=AutomationControlled"
         ]
-        try:
-            browser = await p.chromium.launch(headless=use_headless, args=launch_args)
-        except Exception as launch_err:
-            if not use_headless and ("XServer" in str(launch_err) or "DISPLAY" in str(launch_err) or "Target page" in str(launch_err) or "closed" in str(launch_err)):
-                print(f"[Facebook Scraper] Headed launch failed ({launch_err}). Retrying with headless=True...")
-                browser = await p.chromium.launch(headless=True, args=launch_args)
-            else:
-                raise
+        browser = await p.chromium.launch(headless=True, args=launch_args)
         
         if is_logged_in:
             print("[Facebook Scraper] Loading saved session state...")
@@ -111,87 +97,9 @@ async def download_facebook_photos_impl(profile_url: str, limit: int = 1000, pro
         page = await context.new_page()
         ACTIVE_PAGE = page
         
-        if not is_logged_in:
-            print("[Facebook Scraper] Not logged in. Loading Facebook home...")
-            if progress_callback:
-                progress_callback(0, 100, "Please log in to Facebook in the browser window that just opened...")
-            await page.goto("https://www.facebook.com", wait_until="domcontentloaded", timeout=25000)
-            await page.wait_for_timeout(2000)
-            
-            # Dismiss cookie consent dialogs on the login page to uncover the form fields.
-            # These are Facebook's own button labels, matched by visible text, so they must stay
-            # in the locales Facebook may render (English and Swedish) - they are not our UI copy.
-            cookie_buttons = [
-                "Decline optional cookies",
-                "Decline all",
-                "Reject all",
-                "Avvisa valfria cookies",
-                "Avvisa alla",
-                "Tillåt alla cookies",
-                "Allow all cookies",
-                "Accept all",
-                "Only allow essential cookies",
-                "Neka valfria cookies"
-            ]
-            for btn_text in cookie_buttons:
-                try:
-                    button = page.locator(f"role=button[name*='{btn_text}' i]")
-                    if await button.count() > 0:
-                        await button.first.click()
-                        print(f"[Facebook Scraper] Cookie banner dismissed via: '{btn_text}'")
-                        await page.wait_for_timeout(2000)
-                        break
-                except Exception:
-                    pass
-            
-            print("[Facebook Scraper] Waiting for user to complete login in the opened browser window...")
-            max_login_wait = 60 # wait up to 120s
-            for wait_idx in range(max_login_wait):
-                await page.wait_for_timeout(2000)
-                if ABORT_DOWNLOAD:
-                    break
-                if progress_callback:
-                    progress_callback(wait_idx, max_login_wait, "Waiting for the login in the opened window...")
-                try:
-                    from urllib.parse import urlparse
-                    parsed_url = urlparse(page.url)
-                    path = parsed_url.path.lower()
-                    
-                    # Do not consider login complete if we are on a login or checkpoint page
-                    checkpoint_paths = ["/checkpoint", "/login", "/two_step", "/confirm"]
-                    if any(path.startswith(p) for p in checkpoint_paths):
-                        if progress_callback:
-                            progress_callback(wait_idx, max_login_wait, "Security step/2FA active. Complete the login in the window...")
-                        continue
-
-                    state = await context.storage_state()
-                    cookies = state.get("cookies", [])
-                    if any(c.get("name") == "c_user" for c in cookies):
-                        is_logged_in = True
-                        print("[Facebook Scraper] Login detected (c_user found)! Saving session state...")
-                        if progress_callback:
-                            progress_callback(100, 100, "Inloggning lyckades! Sparar session...")
-                        await context.storage_state(path=str(state_path))
-                        await page.wait_for_timeout(2000)
-                        await context.storage_state(path=str(state_path))
-                        break
-                except Exception:
-                    pass
-            if not is_logged_in:
-                await browser.close()
-                if ABORT_DOWNLOAD:
-                    return {
-                        "status": "cancelled",
-                        "downloaded_count": 0,
-                        "images": []
-                    }
-                raise Exception("The Facebook login failed or was aborted by the user.")
-        else:
-            print("[Facebook Scraper] Session verified (c_user exists). Direct load.")
-            
-        # Proceed to scrape the profile page directly in the same headful browser instance!
+        # Proceed to scrape the profile page directly in headless mode
         try:
-            print(f"[Facebook Scraper] Loading profile page: {profile_url} ...")
+            print(f"[Facebook Scraper] Direct load of profile page: {profile_url} ...")
             await page.goto(profile_url, wait_until="domcontentloaded", timeout=30000)
             await page.wait_for_timeout(3000)
             
