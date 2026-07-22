@@ -45,6 +45,28 @@ def test_instagram_auth_with_client_id():
     location = response.headers.get("location")
     assert "facebook.com/v19.0/dialog/oauth" in location
     assert "client_id=test_client_id" in location
+    assert "state=" in location
+
+
+def test_instagram_callback_rejects_missing_state():
+    """Without a state param (or a mismatched one), the callback must refuse to exchange the
+    code - otherwise an attacker who completes their own Facebook login can trick the admin's
+    browser into linking the attacker's Instagram account to this Freja instance."""
+    client = TestClient(app)
+    response = client.get("/api/instagram/callback?code=some_code", follow_redirects=False)
+    assert response.status_code in (307, 302)
+    assert "error=" in (response.headers.get("location") or "")
+
+
+def test_instagram_callback_rejects_mismatched_state():
+    set_api_key("freja_instagram_client_id", "test_client_id")
+    client = TestClient(app)
+    # Mint a real pending state via /auth...
+    client.get("/api/instagram/auth", follow_redirects=False)
+    # ...then present a different one to /callback.
+    response = client.get("/api/instagram/callback?code=some_code&state=not-the-real-state", follow_redirects=False)
+    assert response.status_code in (307, 302)
+    assert "error=" in (response.headers.get("location") or "")
 
 def test_instagram_status_no_token():
     client = TestClient(app)
@@ -86,3 +108,16 @@ def test_instagram_disconnect(db_token):
     assert not get_api_key("freja_instagram_access_token")
     assert not get_api_key("freja_instagram_business_account_id")
     assert not get_api_key("freja_instagram_username")
+
+
+@pytest.mark.asyncio
+async def test_publish_media_rejects_non_https_url():
+    """publish_media posts publicly and irreversibly to the real linked Instagram account -
+    a non-https media_url (file:/javascript:/plain-http) must be rejected before it ever
+    reaches Meta's API, the same minimal bar applied to every other externally-sourced URL
+    this app hands off."""
+    from backend.services.instagram_service import publish_media
+
+    for bad_url in ["http://example.com/x.jpg", "file:///etc/passwd", "javascript:alert(1)", ""]:
+        result = await publish_media(bad_url, "caption")
+        assert "error" in result

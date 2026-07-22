@@ -118,6 +118,12 @@ async def publish_media(media_url: str, caption: str, media_type: str = "IMAGE")
         return {"error": f"Unsupported media_type '{media_type}'. Use 'IMAGE' or 'REELS'."}
     if not media_url:
         return {"error": "A public media URL is required."}
+    if not media_url.lower().startswith("https://"):
+        # This publishes publicly and irreversibly to the real linked Instagram account, so
+        # the same minimal bar applied to every other URL this app hands off to an external
+        # party applies here too - reject file:/javascript:/plain-http before it ever reaches
+        # Meta's API.
+        return {"error": "Security error: media_url must be an https:// address."}
 
     token, ig_id, cfg_err = _require_config()
     if cfg_err:

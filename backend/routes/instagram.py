@@ -1,6 +1,9 @@
 """Meta Instagram Graph API routes using FastAPI."""
 
 import httpx
+import secrets
+import time
+import urllib.parse
 from backend.services.http_client import shared_client
 import logging
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -10,6 +13,17 @@ from backend.database import get_api_key, set_api_key
 
 router = APIRouter()
 logger = logging.getLogger("freja.instagram.router")
+
+# CSRF protection for the OAuth dance: /auth mints a nonce and /callback must see the same
+# one back. Without this, an attacker who completes their OWN Facebook login (getting a
+# valid `code` for their own account) can trick the admin's browser into hitting
+# /api/instagram/callback?code=<attacker_code> - the callback is necessarily auth-exempt
+# (Meta redirects the browser directly, with no way to attach our access token), so nothing
+# else stopped that code from being exchanged and silently re-pointing every automated
+# Instagram publish/reply action at an account the admin doesn't control. A single in-memory
+# slot is enough - this app has exactly one admin and one OAuth flow in flight at a time.
+_PENDING_OAUTH_STATE = {"value": None, "expires_at": 0.0}
+_OAUTH_STATE_TTL_SECONDS = 600
 
 def get_oauth_config(request: Request):
     """Retrieves client ID, secret and callback redirect URL."""
@@ -45,22 +59,34 @@ async def instagram_auth(request: Request):
         "pages_show_list"
     ]
     scope_str = ",".join(scopes)
-    
+
+    state = secrets.token_urlsafe(24)
+    _PENDING_OAUTH_STATE["value"] = state
+    _PENDING_OAUTH_STATE["expires_at"] = time.time() + _OAUTH_STATE_TTL_SECONDS
+
     auth_url = (
         f"https://www.facebook.com/{GRAPH_API_VERSION}/dialog/oauth?"
         f"client_id={client_id}&"
         f"redirect_uri={redirect_uri}&"
         f"scope={scope_str}&"
+        f"state={state}&"
         f"response_type=code"
     )
     return RedirectResponse(auth_url)
 
 @router.get("/api/instagram/callback")
-async def instagram_callback(request: Request, code: str = Query(None)):
+async def instagram_callback(request: Request, code: str = Query(None), state: str = Query(None)):
     """Handles the OAuth authorization code, exchanges it for tokens, and queries the user's accounts."""
     if not code:
         raise HTTPException(status_code=400, detail="Missing authorization code.")
-        
+
+    expected_state = _PENDING_OAUTH_STATE["value"]
+    state_expired = time.time() > _PENDING_OAUTH_STATE["expires_at"]
+    _PENDING_OAUTH_STATE["value"] = None  # single-use, regardless of outcome
+    if not expected_state or state_expired or not secrets.compare_digest(state or "", expected_state):
+        logger.error("Instagram OAuth callback rejected: missing or mismatched state parameter.")
+        return RedirectResponse("/admin?error=" + urllib.parse.quote("Invalid or expired OAuth state - please try connecting again."))
+
     client_id, client_secret, redirect_uri = get_oauth_config(request)
     if not client_id or not client_secret:
         raise HTTPException(status_code=400, detail="Missing OAuth client credentials.")
@@ -79,7 +105,7 @@ async def instagram_callback(request: Request, code: str = Query(None)):
             resp = await client.get(token_url, params=params, timeout=15.0)
             if resp.status_code != 200:
                 logger.error(f"Failed short-lived token exchange: {resp.text}")
-                return RedirectResponse(f"/admin?error={resp.text}")
+                return RedirectResponse("/admin?error=" + urllib.parse.quote(resp.text))
                 
             short_token = resp.json().get("access_token")
             
@@ -95,7 +121,7 @@ async def instagram_callback(request: Request, code: str = Query(None)):
             long_resp = await client.get(long_token_url, params=long_params, timeout=15.0)
             if long_resp.status_code != 200:
                 logger.error(f"Failed long-lived token exchange: {long_resp.text}")
-                return RedirectResponse(f"/admin?error={long_resp.text}")
+                return RedirectResponse("/admin?error=" + urllib.parse.quote(long_resp.text))
                 
             long_token = long_resp.json().get("access_token")
             
@@ -109,7 +135,7 @@ async def instagram_callback(request: Request, code: str = Query(None)):
             accounts_resp = await client.get(accounts_url, params=accounts_params, timeout=15.0)
             if accounts_resp.status_code != 200:
                 logger.error(f"Failed to query user's accounts: {accounts_resp.text}")
-                return RedirectResponse(f"/admin?error={accounts_resp.text}")
+                return RedirectResponse("/admin?error=" + urllib.parse.quote(accounts_resp.text))
                 
             pages = accounts_resp.json().get("data", [])
             ig_id = ""
@@ -136,7 +162,7 @@ async def instagram_callback(request: Request, code: str = Query(None)):
             
     except Exception as e:
         logger.exception("Failed to complete Instagram OAuth callback")
-        return RedirectResponse(f"/admin?error={str(e)}")
+        return RedirectResponse("/admin?error=" + urllib.parse.quote(str(e)))
 
 @router.get("/api/instagram/status")
 async def instagram_status():
