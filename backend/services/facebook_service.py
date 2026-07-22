@@ -1,6 +1,7 @@
 """Facebook Photo Downloader Service using Playwright."""
 
 import os
+import sys
 import re
 import httpx
 from backend.services.http_client import shared_client
@@ -71,16 +72,27 @@ async def download_facebook_photos_impl(profile_url: str, limit: int = 1000, pro
             except Exception:
                 pass
 
-        # Launch browser. Run headless only if we are already logged in.
-        # Otherwise, run headful so the user can see the login window.
-        browser = await p.chromium.launch(
-            headless=is_logged_in,
-            args=[
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-blink-features=AutomationControlled"
-            ]
-        )
+        # Determine whether headful browser launch is supported by the host OS environment.
+        # On Linux without an XServer/Wayland ($DISPLAY / $WAYLAND_DISPLAY), headed launch crashes.
+        has_display = True
+        if sys.platform not in ("win32", "darwin"):
+            has_display = bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+
+        use_headless = is_logged_in or not has_display
+
+        launch_args = [
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--disable-blink-features=AutomationControlled"
+        ]
+        try:
+            browser = await p.chromium.launch(headless=use_headless, args=launch_args)
+        except Exception as launch_err:
+            if not use_headless and ("XServer" in str(launch_err) or "DISPLAY" in str(launch_err) or "Target page" in str(launch_err) or "closed" in str(launch_err)):
+                print(f"[Facebook Scraper] Headed launch failed ({launch_err}). Retrying with headless=True...")
+                browser = await p.chromium.launch(headless=True, args=launch_args)
+            else:
+                raise
         
         if is_logged_in:
             print("[Facebook Scraper] Loading saved session state...")
