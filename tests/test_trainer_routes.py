@@ -55,7 +55,7 @@ def test_trainer_plan_booking(auth_headers):
 
 def test_trainer_checkin_requires_gemini_key(auth_headers, monkeypatch):
     # Force the "no Gemini key" branch so the endpoint fails fast (no external calls).
-    monkeypatch.setattr(trainer_module, "get_api_key", lambda name: "")
+    monkeypatch.setattr(trainer_module.checkin, "get_api_key", lambda name: "")
     client = TestClient(app)
 
     response = client.post("/api/trainer/checkin", json={}, headers=auth_headers)
@@ -64,17 +64,17 @@ def test_trainer_checkin_requires_gemini_key(auth_headers, monkeypatch):
 
 def test_trainer_checkin_success(auth_headers, monkeypatch):
     # Provide a Gemini key and mock both the weather forecast and the Gemini call.
-    monkeypatch.setattr(trainer_module, "get_api_key", lambda name: "MOCK_GEMINI_KEY")
+    monkeypatch.setattr(trainer_module.checkin, "get_api_key", lambda name: "MOCK_GEMINI_KEY")
 
     # The check-in now syncs the wearables first. get_api_key is stubbed truthy above, so
     # without this the real Garmin/Strava/Withings clients would fire on real credentials.
     async def fake_refresh(days=trainer_module.CHECKIN_SYNC_DAYS):
         return {"garmin": "synced", "strava": "synced", "withings": "synced"}
-    monkeypatch.setattr(trainer_module, "refresh_health_sources_for_checkin", fake_refresh)
+    monkeypatch.setattr(trainer_module.checkin, "refresh_health_sources_for_checkin", fake_refresh)
 
     async def fake_weather(location="Stockholm"):
         return f"Väderprognos för {location}: idag klart, 15°C till 22°C."
-    monkeypatch.setattr(trainer_module, "fetch_7day_weather_forecast", fake_weather)
+    monkeypatch.setattr(trainer_module.checkin, "fetch_7day_weather_forecast", fake_weather)
 
     checkin_obj = {
         "sleep_summary": "Du sov 7,5h – bra återhämtning.",
@@ -111,7 +111,7 @@ def test_trainer_checkin_success(auth_headers, monkeypatch):
             }
             return FakeResponse(gemini_payload)
 
-    monkeypatch.setattr(trainer_module, "shared_client", FakeAsyncClient)
+    monkeypatch.setattr(trainer_module.checkin, "shared_client", FakeAsyncClient)
     client = TestClient(app)
 
     response = client.post("/api/trainer/checkin", json={"location": "Stockholm"}, headers=auth_headers)
@@ -131,18 +131,18 @@ def test_trainer_checkin_skips_sync_without_credentials(auth_headers, monkeypatc
     # refresh must then skip every provider (no network) and the check-in must still brief.
     def fake_key(name):
         return "MOCK_GEMINI_KEY" if name == "freja_gemini_apikey" else ""
-    monkeypatch.setattr(trainer_module, "get_api_key", fake_key)
+    monkeypatch.setattr(trainer_module.checkin, "get_api_key", fake_key)
 
     async def fake_weather(location="Stockholm"):
         return f"Väderprognos för {location}: idag klart, 15°C."
-    monkeypatch.setattr(trainer_module, "fetch_7day_weather_forecast", fake_weather)
+    monkeypatch.setattr(trainer_module.checkin, "fetch_7day_weather_forecast", fake_weather)
 
     checkin_obj = {
         "sleep_summary": "s", "recovery_summary": "r", "yesterday_status": "y",
         "todays_plan": "p", "recommendation": "rec", "adjust_workout": False,
         "closing_question": "q", "briefing": "**Morgon!**",
     }
-    monkeypatch.setattr(trainer_module, "shared_client", _make_fake_gemini_client(checkin_obj))
+    monkeypatch.setattr(trainer_module.checkin, "shared_client", _make_fake_gemini_client(checkin_obj))
     client = TestClient(app)
 
     response = client.post("/api/trainer/checkin", json={}, headers=auth_headers)
@@ -159,9 +159,9 @@ def test_refresh_health_sources_reports_per_provider(monkeypatch):
         return "synced"
     async def boom(days):
         return "failed: token expired"
-    monkeypatch.setattr(trainer_module, "_sync_garmin_for_checkin", ok)
-    monkeypatch.setattr(trainer_module, "_sync_strava_for_checkin", boom)
-    monkeypatch.setattr(trainer_module, "_sync_withings_for_checkin", ok)
+    monkeypatch.setattr(trainer_module.checkin, "_sync_garmin_for_checkin", ok)
+    monkeypatch.setattr(trainer_module.checkin, "_sync_strava_for_checkin", boom)
+    monkeypatch.setattr(trainer_module.checkin, "_sync_withings_for_checkin", ok)
 
     import asyncio
     result = asyncio.run(trainer_module.refresh_health_sources_for_checkin())
@@ -218,11 +218,11 @@ def test_trainer_profile_put_and_get(auth_headers):
 
 
 def test_trainer_generate_success(auth_headers, monkeypatch):
-    monkeypatch.setattr(trainer_module, "get_api_key", lambda name: "MOCK_GEMINI_KEY")
+    monkeypatch.setattr(trainer_module.generation, "get_api_key", lambda name: "MOCK_GEMINI_KEY")
 
     async def fake_weather(location="Stockholm"):
         return f"Väderprognos för {location}: idag mulet, 12°C."
-    monkeypatch.setattr(trainer_module, "fetch_7day_weather_forecast", fake_weather)
+    monkeypatch.setattr(trainer_module.generation, "fetch_7day_weather_forecast", fake_weather)
 
     plan_obj = {
         "summary": "Stabil grund, god återhämtning.",
@@ -234,7 +234,7 @@ def test_trainer_generate_success(auth_headers, monkeypatch):
              "description": "30 min i samtalstempo.", "duration_minutes": 30}
         ]
     }
-    monkeypatch.setattr(trainer_module, "shared_client", _make_fake_gemini_client(plan_obj))
+    monkeypatch.setattr(trainer_module.generation, "shared_client", _make_fake_gemini_client(plan_obj))
 
     client = TestClient(app)
     response = client.post(
@@ -279,7 +279,7 @@ def _insert_workout_event(summary, start_time, end_time, google_event_id):
 
 def test_trainer_optimize_requires_gemini_key(auth_headers, monkeypatch):
     import datetime
-    monkeypatch.setattr(trainer_module, "get_api_key", lambda name: "")
+    monkeypatch.setattr(trainer_module.optimize, "get_api_key", lambda name: "")
     today = datetime.date.today().strftime('%Y-%m-%d')
     _insert_workout_event("💪 Löpning: Tempo", f"{today}T08:00", f"{today}T09:00", "evt-optim-nokey")
 
@@ -291,7 +291,7 @@ def test_trainer_optimize_requires_gemini_key(auth_headers, monkeypatch):
 
 def test_trainer_optimize_reduces_upcoming_workout(auth_headers, monkeypatch):
     import datetime
-    monkeypatch.setattr(trainer_module, "get_api_key", lambda name: "MOCK_GEMINI_KEY")
+    monkeypatch.setattr(trainer_module.optimize, "get_api_key", lambda name: "MOCK_GEMINI_KEY")
 
     today = datetime.date.today().strftime('%Y-%m-%d')
     event_id = _insert_workout_event(
@@ -306,7 +306,7 @@ def test_trainer_optimize_reduces_upcoming_workout(auth_headers, monkeypatch):
              "new_title": "", "reason": "Låg HRV, sänkt belastning."}
         ]
     }
-    monkeypatch.setattr(trainer_module, "shared_client", _make_fake_gemini_client(opt_obj))
+    monkeypatch.setattr(trainer_module.optimize, "shared_client", _make_fake_gemini_client(opt_obj))
 
     client = TestClient(app)
     response = client.post("/api/trainer/optimize", json={}, headers=auth_headers)
@@ -326,7 +326,7 @@ def test_trainer_optimize_reduces_upcoming_workout(auth_headers, monkeypatch):
 
 def test_trainer_optimize_keeps_when_recovered(auth_headers, monkeypatch):
     import datetime
-    monkeypatch.setattr(trainer_module, "get_api_key", lambda name: "MOCK_GEMINI_KEY")
+    monkeypatch.setattr(trainer_module.optimize, "get_api_key", lambda name: "MOCK_GEMINI_KEY")
 
     today = datetime.date.today().strftime('%Y-%m-%d')
     event_id = _insert_workout_event(
@@ -341,7 +341,7 @@ def test_trainer_optimize_keeps_when_recovered(auth_headers, monkeypatch):
              "new_title": "", "reason": "God återhämtning."}
         ]
     }
-    monkeypatch.setattr(trainer_module, "shared_client", _make_fake_gemini_client(opt_obj))
+    monkeypatch.setattr(trainer_module.optimize, "shared_client", _make_fake_gemini_client(opt_obj))
 
     client = TestClient(app)
     response = client.post("/api/trainer/optimize", json={}, headers=auth_headers)
@@ -1118,11 +1118,11 @@ def test_generate_prompt_includes_thirty_day_history(auth_headers, monkeypatch):
     """The generated plan must be built on a month of completed training, not just 7 days."""
     captured = {}
 
-    monkeypatch.setattr(trainer_module, "get_api_key", lambda name: "MOCK_GEMINI_KEY")
+    monkeypatch.setattr(trainer_module.generation, "get_api_key", lambda name: "MOCK_GEMINI_KEY")
 
     async def fake_weather(location="Stockholm"):
         return "Väderprognos: mulet."
-    monkeypatch.setattr(trainer_module, "fetch_7day_weather_forecast", fake_weather)
+    monkeypatch.setattr(trainer_module.generation, "fetch_7day_weather_forecast", fake_weather)
 
     plan_obj = {"summary": "s", "resting_hr_trend": "r", "hrv_trend": "h", "weekly_focus": "f",
                 "workouts": [{"day": "Tisdag", "activity_type": "Löpning", "title": "Pass",
@@ -1145,7 +1145,7 @@ def test_generate_prompt_includes_thirty_day_history(auth_headers, monkeypatch):
             captured["prompt"] = kwargs["json"]["contents"][0]["parts"][0]["text"]
             return FakeResponse()
 
-    monkeypatch.setattr(trainer_module, "shared_client", CapturingClient)
+    monkeypatch.setattr(trainer_module.generation, "shared_client", CapturingClient)
 
     client = TestClient(app)
     response = client.post(
