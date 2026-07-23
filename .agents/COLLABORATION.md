@@ -16,6 +16,22 @@ update them here.
 
 ---
 
+## 0. Operating model — Claude leads, Antigravity executes
+
+Anders talks to **Claude Code** as the single point of contact. Claude plans the work,
+does its own lane, and for anything in Antigravity's lane it writes a **turnkey task** on
+the board — including a ready-to-run `▶ Antigravity prompt` — and can open Antigravity on
+this repo (`open-antigravity.bat`, or Claude runs the CLI). Anders' only action on the
+Antigravity side is to press **Run** on the queued task. Antigravity executes the embedded
+prompt, browser-verifies, commits & pushes; Claude then continues.
+
+Neither tool can trigger the other's agent unattended — that human "Run" click is the one
+manual step. Everything else (planning, routing, context) is carried by Claude + the board.
+Claude *can* also do frontend + browser-verification itself (built-in preview tools) when
+Anders prefers a single agent for a given task.
+
+---
+
 ## 1. Roles — who is best at what
 
 ### Claude Code owns (backend & correctness)
@@ -61,6 +77,7 @@ The board is the shared queue. Every task is owned by exactly one agent at a tim
 - Depends-on: T-xxx (optional)
 - Spec: what "done" means, incl. API contract / expected UI
 - Handoff-notes: context the receiving agent needs
+- ▶ Antigravity prompt: (handoff to Antigravity only) the exact instruction it can run as-is
 ```
 
 **Status lifecycle:** `todo → in-progress → review → done` (`blocked` when waiting on a dependency).
@@ -95,7 +112,8 @@ everything they need (contract, repro, file paths, screenshots).
 **Mechanics of a handoff:**
 1. Set the task's `Owner` to the other agent and `Status` to `todo` (or `review`).
 2. Write `Handoff-notes`.
-3. `commit` (message: `board: hand off T-0xx to <agent> — <why>`) and `push`.
+3. If the receiver is Antigravity, add a ready-to-run `▶ Antigravity prompt` so Anders only presses Run.
+4. `commit` (message: `board: hand off T-0xx to <agent> — <why>`) and `push`.
 
 The other agent picks it up at its next session start (§3). This is how tasks flow
 back and forth without the two tools ever talking directly.

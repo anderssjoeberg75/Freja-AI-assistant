@@ -33,6 +33,7 @@ Status: `todo · in-progress · review · blocked · done` · Priority: `P1 · P
 - Spec: Original ask was a user-facing provider *selector*. Backend finding (T-001 contract): selection is automatic failover with no selection endpoint, so this needs a scope decision (T-003) before UI work. If automatic failover stays, this shrinks to a read-only "active provider" indicator.
 - DoD: run the client (port 5000), click through a chat exchange, capture a screenshot showing correct behavior; committed & pushed.
 - Handoff-notes (from Claude, 2026-07-23): Do not start until T-003 is resolved — a real selector requires a backend `provider` parameter that does not exist yet. If you scaffold UI early, code against the T-001 contract above and expect only automatic failover for now.
+- ▶ Antigravity prompt (activates after T-003; Claude will finalize it then): "Read `.agents/BOARD.md` task T-002 and the T-001 contract. Implement the agreed UI (active-provider indicator, or selector if T-003 chose a manual one), run the client on port 5000, send a test chat message, screenshot the result, then commit & push. If the backend response lacks the field you need, stop and add a task for `claude` on the board."
 
 ### [T-003] Decide: manual provider selection vs. automatic failover
 - Owner: anders

@@ -24,5 +24,10 @@ fast scaffolding. Backend Python, the LLM provider layer, data/security, and tes
 **Claude Code's lane** — when your work needs any of those, write a task for Claude on the
 board instead of doing it yourself.
 
+**Claude Code leads.** Anders drives everything through Claude; your board tasks usually
+arrive ready to run with an embedded `▶ Antigravity prompt`. Execute that prompt as-is,
+browser-verify, then commit & push. If you hit a backend gap while wiring, add a task for
+`claude` on the board rather than touching backend code yourself.
+
 **Every session:** `git pull` → read `.agents/BOARD.md` → work the highest-priority task
 owned by you → on completion, mark it `done` or hand off to Claude → commit & push.

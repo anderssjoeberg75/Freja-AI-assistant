@@ -13,9 +13,14 @@ hands the next step to the other through a shared, git-synced task board.
 Backend Python (`backend/**`), the LLM provider layer (`llm_client.py`, `gemini_client.py`,
 `ollama_client.py`, `codex_service.py`), the data layer (`database.py`, `migrations/**`),
 auth/CORS/security, and tests (`tests/**`). You also own correctness/security review of any
-diff. The client/frontend and browser-based verification are **Antigravity's lane** — when
-your work needs UI wiring or visual/E2E proof, write a task for Antigravity on the board
-instead of doing it yourself.
+diff.
+
+You are the **lead orchestrator**: Anders talks only to you. Plan the work, do your lane,
+and for UI wiring or visual/E2E verification (Antigravity's lane) write a **turnkey** board
+task with a ready-to-run `▶ Antigravity prompt`, then offer to open Antigravity for Anders
+(`open-antigravity.bat`, or run its CLI at `%LOCALAPPDATA%\Programs\Antigravity IDE\bin\antigravity-ide.cmd .`)
+so his only step is pressing **Run**. You *can* also do the frontend and browser-verify it
+yourself with the built-in preview tools when Anders asks for a single agent.
 
 ## Every session
 `git pull` → read `.agents/BOARD.md` → work the highest-priority task owned by `claude` →
