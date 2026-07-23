@@ -45,6 +45,7 @@ from backend.routes.google_calendar import router as google_calendar_router
 from backend.routes.tools import router as tools_router
 from backend.routes.trainer import router as trainer_router
 from backend.routes.learning import router as learning_router
+from backend.routes.llm import router as llm_router
 
 # Initialize the SQLite database schemas
 init_db()
@@ -138,6 +139,7 @@ app.include_router(google_calendar_router)
 app.include_router(tools_router)
 app.include_router(trainer_router)
 app.include_router(learning_router)
+app.include_router(llm_router)
 
 # Paths
 ADMIN_HTML = os.path.join(PROJECT_ROOT, "backend", "admin", "admin.html")

@@ -203,6 +203,43 @@
             color: var(--color-text);
         }
 
+        /* Per-provider reachability lights in the AI PROVIDER status card. */
+        .provider-lights {
+            display: flex;
+            gap: 14px;
+            margin-top: 6px;
+        }
+
+        .provider-light {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            font-family: var(--font-mono);
+            font-size: 10px;
+            letter-spacing: 1px;
+            color: var(--color-text-muted);
+            cursor: help;
+        }
+
+        .provider-light i {
+            font-size: 8px;
+            color: var(--color-text-muted);
+        }
+
+        .provider-light.online i {
+            color: var(--color-success);
+        }
+
+        .provider-light.offline i {
+            color: var(--color-error);
+        }
+
+        /* The provider actually serving requests, as opposed to merely reachable. */
+        .provider-light.selected {
+            color: var(--color-text);
+            font-weight: 700;
+        }
+
         .grid-layout {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -712,6 +749,17 @@
                     <span class="status-val" id="val-auth-status">VERIFIERAS...</span>
                 </div>
             </div>
+            <div class="status-card">
+                <div class="status-icon"><i class="fa-solid fa-brain"></i></div>
+                <div class="status-info">
+                    <span class="status-label">AI PROVIDER</span>
+                    <span class="status-val" id="val-llm-status">KONTROLLERAR...</span>
+                    <div class="provider-lights">
+                        <span class="provider-light" id="light-ollama" title="Checking the Ollama server..."><i class="fa-solid fa-circle"></i> OLLAMA</span>
+                        <span class="provider-light" id="light-gemini" title="Checking the Gemini API..."><i class="fa-solid fa-circle"></i> GEMINI</span>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <div class="grid-layout">
@@ -740,6 +788,45 @@
                             <span class="label-hint">Comma-separated list (e.g. 192.168.1.50, 10.0.0.5). Leave empty to allow any IP.</span>
                         </label>
                         <input type="text" id="key-freja_allowed_ips" class="input-control" placeholder="e.g. 192.168.1.50, 10.0.0.5">
+                    </div>
+
+                    <hr class="divider">
+
+                    <!-- LLM provider selection -->
+                    <div class="form-group">
+                        <label for="key-freja_llm_provider">
+                            Active AI Provider
+                            <span class="label-hint">Which engine answers Freja's AI requests</span>
+                        </label>
+                        <select id="key-freja_llm_provider" class="input-control">
+                            <option value="auto">Auto — Ollama first, Gemini as fallback</option>
+                            <option value="ollama">Ollama only (local server)</option>
+                            <option value="gemini">Google Gemini only</option>
+                        </select>
+                        <span class="label-hint" style="display: block; margin-top: 6px;">
+                            Applies to the trainer, learning and Codex features. The main chat and
+                            the Telegram bot always run on Gemini.
+                        </span>
+                    </div>
+
+                    <!-- Ollama server -->
+                    <div class="form-group">
+                        <label for="key-freja_ollama_base_url">
+                            Ollama Server URL
+                            <span class="label-hint">Self-hosted Ollama endpoint</span>
+                        </label>
+                        <input type="text" id="key-freja_ollama_base_url" class="input-control" placeholder="http://192.168.107.15:11434">
+                    </div>
+
+                    <!-- Ollama model -->
+                    <div class="form-group">
+                        <label for="key-freja_ollama_model">
+                            Ollama Model
+                            <span class="label-hint">Models installed on that server</span>
+                        </label>
+                        <select id="key-freja_ollama_model" class="input-control">
+                            <option value="qwen2.5:14b">qwen2.5:14b</option>
+                        </select>
                     </div>
 
                     <hr class="divider">
@@ -1009,6 +1096,85 @@
             }
         }
 
+        const PROVIDER_LABELS = { ollama: 'OLLAMA', gemini: 'GEMINI' };
+
+        function ensureOllamaModelOption(modelName) {
+            const select = document.getElementById('key-freja_ollama_model');
+            if (!select || !modelName) return;
+            if (![...select.options].some(opt => opt.value === modelName)) {
+                const opt = document.createElement('option');
+                opt.value = modelName;
+                opt.textContent = modelName;
+                select.appendChild(opt);
+            }
+        }
+
+        // Rebuilds the model picker from what the Ollama server reports as installed.
+        // `effectiveModel` is the model the backend would use right now; it is kept as an
+        // option even when the server does not have it, so that saving the form can never
+        // silently swap the configured model for whichever one happens to be listed first.
+        function populateOllamaModels(models, effectiveModel) {
+            const select = document.getElementById('key-freja_ollama_model');
+            if (!select || !models || models.length === 0) return;
+
+            const current = select.value || effectiveModel;
+            select.innerHTML = '';
+            models.forEach(name => {
+                const opt = document.createElement('option');
+                opt.value = name;
+                opt.textContent = name;
+                select.appendChild(opt);
+            });
+            ensureOllamaModelOption(current);
+            select.value = current;
+        }
+
+        async function checkLlmStatus(forceRefresh = false) {
+            const token = getActiveToken();
+            const headers = {};
+            if (token) headers['X-Freja-Token'] = token;
+
+            try {
+                const res = await fetch('/api/system/llm-status' + (forceRefresh ? '?refresh=true' : ''), { headers: headers });
+                if (!res.ok) return;
+                renderLlmStatus(await res.json());
+            } catch (e) {}
+        }
+
+        function renderLlmStatus(data) {
+            const providers = (data && data.providers) || {};
+            const active = data ? data.active : null;
+            const valEl = document.getElementById('val-llm-status');
+
+            if (active) {
+                const model = providers[active] ? providers[active].model : '';
+                // In auto mode, Gemini answering means Ollama could not be reached.
+                const viaFallback = data.preference === 'auto' && active === 'gemini';
+                valEl.innerText = PROVIDER_LABELS[active] + (model ? ' (' + model + ')' : '') + (viaFallback ? ' — FALLBACK' : '');
+                valEl.style.color = 'var(--color-success)';
+            } else if (data && PROVIDER_LABELS[data.preference]) {
+                valEl.innerText = PROVIDER_LABELS[data.preference] + ' — NO CONTACT';
+                valEl.style.color = 'var(--color-error)';
+            } else {
+                valEl.innerText = 'NO PROVIDER AVAILABLE';
+                valEl.style.color = 'var(--color-error)';
+            }
+
+            ['ollama', 'gemini'].forEach(name => {
+                const light = document.getElementById('light-' + name);
+                if (!light) return;
+                const info = providers[name] || {};
+                light.classList.toggle('online', info.ok === true);
+                light.classList.toggle('offline', info.ok === false);
+                light.classList.toggle('selected', active === name);
+                light.title = info.detail || 'No status reported.';
+            });
+
+            if (providers.ollama) {
+                populateOllamaModels(providers.ollama.models, providers.ollama.model);
+            }
+        }
+
         async function loadBackendSettings() {
             const token = getActiveToken();
             const headers = {};
@@ -1029,7 +1195,11 @@
                 
                 // Dynamically fetch and populate Gemini models list
                 await loadGeminiModels(data['freja_gemini_model']);
-                
+
+                // Same reason as the Gemini list: an <option> has to exist before the loop
+                // below can assign the stored model as the select's value.
+                ensureOllamaModelOption(data['freja_ollama_model']);
+
                 // Populate inputs
                 Object.keys(data).forEach(key => {
                     const el = document.getElementById(`key-${key}`);
@@ -1051,6 +1221,8 @@
                 checkTelegramStatus();
                 // Update Instagram status
                 checkInstagramStatus();
+                // Update AI provider indicator
+                checkLlmStatus();
             } catch (err) {
                 console.error(err);
                 showToast('Could not reach the backend API.', true);
@@ -1162,6 +1334,8 @@
                     hideAuthOverlay();
                     showToast('All backend settings were saved successfully.');
                     checkTelegramStatus();
+                    // The provider/URL/model may have just changed, so skip the status cache.
+                    checkLlmStatus(true);
                     return true;
                 } else if (res.status === 401) {
                     showAuthOverlay();
@@ -1293,6 +1467,7 @@
             loadBackendSettings();
             loadSystemLogs();
             setInterval(loadSystemLogs, 2500);
+            setInterval(checkLlmStatus, 15000);
 
             document.getElementById('btn-save-all').addEventListener('click', saveAllSettings);
             document.getElementById('btn-update-github').addEventListener('click', updateFromGithub);

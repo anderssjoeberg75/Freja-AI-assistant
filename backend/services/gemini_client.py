@@ -31,6 +31,35 @@ def build_generate_url(model: str, api_key: str) -> str:
     return f"{GEMINI_BASE_URL}/{model}:generateContent?key={api_key}"
 
 
+async def check_health(timeout: float = 6.0) -> dict:
+    """Probes the Gemini API and reports whether it can serve requests. Never raises - the
+    admin portal's indicator needs a red/green answer, not a 500 - so every failure comes
+    back as ok=False with the reason in `detail`.
+
+    httpx puts the failing URL in its error messages and our URLs carry the API key as a
+    query parameter, so the key is stripped out before the reason is handed to the portal
+    (which also writes it to the system log)."""
+    api_key = get_gemini_api_key()
+    model = get_gemini_model()
+    status = {"ok": False, "detail": "", "model": model}
+
+    if not api_key:
+        status["detail"] = "No Gemini API key is configured."
+        return status
+
+    try:
+        async with shared_client() as client:
+            resp = await client.get(f"{GEMINI_BASE_URL}?key={api_key}", timeout=timeout)
+            resp.raise_for_status()
+    except Exception as e:
+        status["detail"] = f"API unreachable or key rejected: {str(e).replace(api_key, '***')}"
+        return status
+
+    status["ok"] = True
+    status["detail"] = f"API reachable, using {model}."
+    return status
+
+
 async def generate_text(prompt: str, system_instruction: str = "",
                          temperature: float = 0.2, timeout: float = 60.0) -> str:
     """Sends a single-turn text prompt to Gemini and returns the generated text."""

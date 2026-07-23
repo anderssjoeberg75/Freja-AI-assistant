@@ -56,6 +56,39 @@ def _to_json_schema(node):
     return node
 
 
+async def check_health(timeout: float = 4.0) -> dict:
+    """Probes the configured Ollama server and reports whether it can serve requests.
+    Never raises - the admin portal's indicator needs a red/green answer, not a 500 - so
+    every failure comes back as ok=False with the reason in `detail`.
+
+    `models` lists what is actually installed on that server, which the portal uses to
+    populate its model picker."""
+    base_url = get_ollama_base_url()
+    model = get_ollama_model()
+    status = {"ok": False, "detail": "", "model": model, "base_url": base_url, "models": []}
+
+    try:
+        async with shared_client() as client:
+            resp = await client.get(f"{base_url}/api/tags", timeout=timeout)
+            resp.raise_for_status()
+            installed = resp.json().get("models", [])
+    except Exception as e:
+        status["detail"] = f"Server unreachable: {e}"
+        return status
+
+    status["models"] = sorted(m.get("name", "") for m in installed if m.get("name"))
+    # Ollama reports fully-qualified names ("qwen2.5:14b"); a configured name without a
+    # tag means the implicit ":latest" tag, so compare against that form.
+    wanted = model if ":" in model else f"{model}:latest"
+    if wanted not in status["models"]:
+        status["detail"] = f"Server is online but the model '{model}' is not installed on it."
+        return status
+
+    status["ok"] = True
+    status["detail"] = f"Online at {base_url}, serving {model}."
+    return status
+
+
 async def generate_text(prompt: str, system_instruction: str = "",
                          temperature: float = 0.2, timeout: float = 60.0) -> str:
     """Sends a single-turn prompt to the local Ollama server and returns the reply text."""
