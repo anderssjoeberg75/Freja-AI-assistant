@@ -15,24 +15,33 @@ Status: `todo · in-progress · review · blocked · done` · Priority: `P1 · P
 
 ### [T-001] Unify LLM providers behind `llm_client.py`
 - Owner: claude
-- Status: in-progress
+- Status: review
 - Priority: P1
 - Created-by: anders
-- Files: `backend/services/llm_client.py`, `backend/services/ollama_client.py`, `backend/services/gemini_client.py`, `backend/services/codex_service.py`, `backend/routes/trainer/generation.py`, `backend/routes/trainer/optimize.py`, `backend/routes/trainer/checkin.py`
-- Spec: Route trainer LLM calls (generation, optimize, check-in) through a single `llm_client` abstraction so provider (Gemini / Ollama / Codex) is swappable. Keep behavior identical; add logging at each provider boundary.
-- DoD: `pytest tests/ -k "trainer or gemini or learning or codex"` passing; `graphify update .` run; committed & pushed.
-- Handoff-notes: When the provider contract is stable, hand off T-002 to Antigravity with the final response schema so the client can expose a provider selector and be browser-verified.
+- Files: `backend/services/llm_client.py`, `backend/services/ollama_client.py`, `backend/services/gemini_client.py`, `backend/routes/trainer/generation.py`, `backend/routes/trainer/optimize.py`, `backend/routes/trainer/checkin.py`
+- Spec: Route trainer LLM calls (generation, optimize, check-in) through a single `llm_client` facade so the provider is chosen in one place.
+- Progress (Claude, 2026-07-23): Facade implemented in the working tree — `generate_text()` / `generate_json()` try Ollama first and fall back to Gemini only when Ollama fails AND a Gemini key is configured. All three trainer routes import and call `llm_client.generate_json`. Acceptance tests GREEN: `pytest -k "trainer or gemini or learning or codex"` → **74 passed, 3 skipped**. Code is verified but still **uncommitted** in the working tree — awaiting Anders' go-ahead to commit (DoD: committed & pushed + `graphify update .`).
+- Contract for T-002: `llm_client.generate_text(prompt, system_instruction="", temperature, timeout) -> str` and `generate_json(prompt, schema=None, system_instruction="", temperature, max_tokens, timeout) -> dict`. **Provider selection is automatic (Ollama→Gemini failover); there is currently NO client-facing parameter to pick a provider.**
 
-### [T-002] Client: provider selector + verify chat after provider switch
+### [T-002] Client: surface the active LLM provider + verify chat after failover
 - Owner: antigravity
 - Status: blocked
 - Priority: P2
 - Created-by: anders
-- Depends-on: T-001
+- Depends-on: T-003
 - Files: `client/app.js`, `client/gemini.js`, `client/index.html`, `run_client.py`
-- Spec: Once T-001 lands, surface the selectable LLM provider in the client and confirm the chat flow still works end-to-end when the provider changes.
-- DoD: run the client (port 5000), click through a chat exchange for each provider, capture screenshots as proof; committed & pushed.
-- Handoff-notes: Blocked until Claude marks T-001 `done` and posts the final response schema here. If a backend gap surfaces during wiring, open a new task owned by `claude`.
+- Spec: Original ask was a user-facing provider *selector*. Backend finding (T-001 contract): selection is automatic failover with no selection endpoint, so this needs a scope decision (T-003) before UI work. If automatic failover stays, this shrinks to a read-only "active provider" indicator.
+- DoD: run the client (port 5000), click through a chat exchange, capture a screenshot showing correct behavior; committed & pushed.
+- Handoff-notes (from Claude, 2026-07-23): Do not start until T-003 is resolved — a real selector requires a backend `provider` parameter that does not exist yet. If you scaffold UI early, code against the T-001 contract above and expect only automatic failover for now.
+
+### [T-003] Decide: manual provider selection vs. automatic failover
+- Owner: anders
+- Status: todo
+- Priority: P2
+- Created-by: claude
+- Depends-on: T-001
+- Spec: The T-001 facade does automatic Ollama→Gemini failover with no user-facing selector; T-002 assumed a selector. Decision needed — (a) keep automatic failover → T-002 becomes a passive "active provider" indicator (needs the API to return which provider answered); or (b) want a manual selector → Claude adds a `provider` parameter to the trainer endpoints and `llm_client`, then T-002's selector is buildable.
+- Handoff-notes (from Claude, 2026-07-23): Blocking T-002. If Anders picks (b), the backend part comes back to `claude` as a new task.
 
 ---
 
