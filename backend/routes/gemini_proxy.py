@@ -58,17 +58,40 @@ async def proxy_gemini_generate(
                     client_os = "iOS"
 
                 client_name_info = f" (Computer Name/Hostname: '{client_status['client_hostname']}')" if client_status.get("client_hostname") and client_status["client_hostname"] != "Unknown" else ""
+
+                from backend.database import get_api_key
+                from backend.services.llm_client import check_providers, get_active_provider
+
+                provider_health = check_providers()
+                active_provider_mode = get_active_provider()
+                current_gemini_model = model or get_api_key("freja_gemini_model") or gemini_client.get_gemini_model()
+                current_ollama_model = get_api_key("freja_ollama_model") or "llama3"
+                ollama_url = get_api_key("freja_ollama_url") or "http://192.168.107.15:11434"
+
+                # Check active integrations
+                garmin_active = bool(get_api_key("freja_garmin_email"))
+                strava_active = bool(get_api_key("freja_strava_client_id"))
+                withings_active = bool(get_api_key("freja_withings_client_id"))
+                mem0_active = get_api_key("freja_use_mem0") == "true"
+                eleven_active = bool(get_api_key("freja_eleven_apikey"))
+
                 system_info = (
-                    f"\n\n[SYSTEM & PLATFORM INFO]\n"
-                    f"- The web client (HUD) is running in a browser on the user's local machine{client_name_info} (Client OS: {client_os}).\n"
-                    f"- The backend server is running on a host named '{client_status['hostname']}' (Backend OS: {client_status['system']} {client_status['release']})."
+                    f"\n\n[BACKEND CONFIGURATION & REALTIME LLM ENVIRONMENT]\n"
+                    f"- Identity: You are FREJA (F.R.E.J.A.), Anders' personal AI assistant.\n"
+                    f"- Current Primary AI Model: {current_gemini_model}.\n"
+                    f"- Active AI Provider Mode: {active_provider_mode} (Gemini: {'Online' if provider_health.get('gemini') else 'Offline'}, Ollama: {'Online' if provider_health.get('ollama') else 'Offline'} at {ollama_url}).\n"
+                    f"- Configured Ollama Model: {current_ollama_model}.\n"
+                    f"- Integrations Status: Garmin ({'Active' if garmin_active else 'Inactive'}), Strava ({'Active' if strava_active else 'Inactive'}), Withings ({'Active' if withings_active else 'Inactive'}), Mem0 Neural Memory ({'Active' if mem0_active else 'Inactive'}), ElevenLabs Voice ({'Active' if eleven_active else 'Inactive'}).\n"
+                    f"- Web Client Host: '{client_status.get('client_hostname', 'Local Browser')}' (OS: {client_os}).\n"
+                    f"- Backend Server Host: '{client_status.get('hostname')}' (OS: {client_status.get('system')} {client_status.get('release')}).\n"
+                    f"- DIRECTIVE: When asked what AI model you use, state clearly in Swedish that you are FREJA and are currently powered by {current_gemini_model} (with failover/Ollama model {current_ollama_model} in Anders' AI environment). When asked about backend settings, answer using the exact active configuration listed above."
                 )
                 parts[0]["text"] += system_info
                 
                 # Log system info injection for traceability
                 import logging
                 logging.getLogger("freja").info(
-                    f"Injected system info: Client OS={client_os}, Backend Host={client_status['hostname']} ({client_status['system']})"
+                    f"Injected system info: Client OS={client_os}, Model={current_gemini_model}, Provider={active_provider_mode}"
                 )
             except Exception as e:
                 import logging

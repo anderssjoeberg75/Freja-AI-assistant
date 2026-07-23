@@ -1389,7 +1389,9 @@ FrejaUIController.prototype.bindEvents = function () {
     if (btnUpdateGithub) {
         btnUpdateGithub.addEventListener('click', async () => {
             soundSynth.playClick();
+            self.writeLog("INITIERAR KODHÄMTNING FRÅN GITHUB...", "sys");
             if (!confirm("Hämta senaste koden från GitHub (git pull) och starta om Freja?")) {
+                self.writeLog("KODHÄMTNING AVBRUTEN AV ANVÄNDAREN.", "warn");
                 return;
             }
 
