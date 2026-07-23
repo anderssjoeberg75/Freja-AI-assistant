@@ -1,1 +1,7 @@
 graphify-out/graph.json merge=graphify
+
+# Windows batch files must keep CRLF line endings - cmd.exe mis-parses LF-only
+# scripts (multi-line blocks silently fail), which makes a double-clicked .bat
+# look like "nothing happens" because the console closes before the error shows.
+*.bat text eol=crlf
+*.cmd text eol=crlf
