@@ -137,7 +137,15 @@ async def post_keys(request: Request):
 
 async def _delayed_restart():
     await asyncio.sleep(1.5)
-    # Exit process; systemd / uvicorn / process manager will automatically restart it.
+    # Trigger systemd service restart or kill uvicorn parent process so systemd cleanly restarts service
+    try:
+        subprocess.run(["systemctl", "restart", "freja-backend"], check=False)
+    except Exception:
+        pass
+    try:
+        os.kill(os.getppid(), 9)
+    except Exception:
+        pass
     os._exit(0)
 
 @router.post("/api/system/update")
