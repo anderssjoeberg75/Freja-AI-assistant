@@ -112,7 +112,7 @@ def build_backend_context_block(provider_status: dict, client_status: dict = Non
         "- Identity: You are F.R.E.J.A., Anders' personal AI assistant, running on his own backend.",
         f"- AI provider setting (chosen by Anders in the backend control center): {describe_preference(preference)}.",
         f"- Ollama (self-hosted): {provider_state(ollama)} - model '{ollama.get('model') or ollama_client.get_ollama_model()}' "
-        f"at {ollama.get('base_url') or ollama_client.get_ollama_base_url()}, context window {ollama_client.OLLAMA_NUM_CTX} tokens.",
+        f"at {ollama.get('base_url') or ollama_client.get_ollama_base_url()}, context window {ollama_client.get_ollama_num_ctx()} tokens.",
         f"- Google Gemini API: {provider_state(gemini)} - model '{gemini.get('model') or 'unknown'}'.",
         f"- Provider that would serve a request right now: {PROVIDER_LABELS.get(active, 'none - no provider is reachable')}.",
         f"- Backend server host: '{client_status.get('hostname') or 'unknown'}' (OS: {backend_os}).",

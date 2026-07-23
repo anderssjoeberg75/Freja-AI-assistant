@@ -805,8 +805,8 @@
                             <option value="gemini">Google Gemini only</option>
                         </select>
                         <span class="label-hint" style="display: block; margin-top: 6px;">
-                            Applies to the trainer, learning and Codex features. The main chat and
-                            the Telegram bot always run on Gemini.
+                            Applies to the main chat, the trainer, learning and Codex.
+                            The Telegram bot always runs on Gemini (it needs Gemini's tool-calling loop).
                         </span>
                     </div>
 
@@ -828,6 +828,32 @@
                         <select id="key-freja_ollama_model" class="input-control">
                             <option value="qwen2.5:14b">qwen2.5:14b</option>
                         </select>
+                    </div>
+
+                    <!-- Ollama context window -->
+                    <div class="form-group">
+                        <label for="key-freja_ollama_num_ctx">
+                            Ollama Context Window
+                            <span class="label-hint">Tokens per request (prompt + reply)</span>
+                        </label>
+                        <input type="number" id="key-freja_ollama_num_ctx" class="input-control" placeholder="12288" min="1024" max="131072" step="1024">
+                        <span class="label-hint" style="display: block; margin-top: 6px;">
+                            Decides how much VRAM the model needs. Lower this if the server falls back
+                            to the CPU; leave empty for the default (12288).
+                        </span>
+                    </div>
+
+                    <!-- Ollama keep-alive -->
+                    <div class="form-group">
+                        <label for="key-freja_ollama_keep_alive">
+                            Ollama Keep-Alive
+                            <span class="label-hint">How long the model stays loaded</span>
+                        </label>
+                        <input type="text" id="key-freja_ollama_keep_alive" class="input-control" placeholder="30m">
+                        <span class="label-hint" style="display: block; margin-top: 6px;">
+                            e.g. <code>30m</code>, <code>24h</code>, <code>-1</code> to keep it loaded forever.
+                            Ollama's own default is 5 minutes, which costs a full model reload after every quiet spell.
+                        </span>
                     </div>
 
                     <hr class="divider">

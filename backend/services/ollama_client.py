@@ -10,21 +10,26 @@ import json
 from backend.services.http_client import shared_client
 from backend.database import get_api_key
 
-# Points at the RTX 3060 (12GB) box running Ollama. qwen2.5:14b at Q4 fully offloads to
-# that GPU with room to spare at this context size - see OLLAMA_NUM_CTX below.
+# Points at the box running Ollama (an RTX 3060 12GB machine). Every value below is a
+# default that the admin portal can override, because the right numbers depend on the
+# hardware Ollama happens to be running on - see the README's AI provider section.
 DEFAULT_OLLAMA_BASE_URL = "http://192.168.107.15:11434"
 DEFAULT_OLLAMA_MODEL = "qwen2.5:14b"
-# 12288 keeps qwen2.5:14b at 100% GPU offload on a 12GB card (measured ~10.8GB used);
-# large enough for the PT tool's health-data prompts plus a multi-thousand-token
-# structured response. Going to 16384 spills part of the model onto the CPU.
-OLLAMA_NUM_CTX = 12288
+
+# Context window (prompt + reply) requested per call. It sets the KV cache Ollama allocates,
+# so on a GPU it is the number that decides whether the model still fits in VRAM: at 12288,
+# qwen2.5:14b Q4 needs ~11.7GB, which is already at the edge of a 12GB card. Lower it if the
+# server reports partial offload; raise it only if there is headroom to spare.
+DEFAULT_NUM_CTX = 12288
+MIN_NUM_CTX = 1024
+MAX_NUM_CTX = 131072
 
 # How long Ollama keeps the model resident after a request. Its own default is 5 minutes,
 # and Freja's traffic is bursty (a morning check-in, then a few chat turns), so most
 # requests were landing after the model had been evicted and paying to load it again -
 # measured at 10.7 s for qwen2.5:14b on the current server. Holding it for half an hour
 # spends idle memory on the box to take that off every request that follows a quiet spell.
-OLLAMA_KEEP_ALIVE = "30m"
+DEFAULT_KEEP_ALIVE = "30m"
 
 # Ceiling on a plain text reply. The JSON path has always passed max_tokens; the text path
 # was unbounded, so a model that decided to ramble set the worst-case wait with no limit.
@@ -42,6 +47,32 @@ def get_ollama_model() -> str:
     """Returns the configured Ollama model name (settings key 'freja_ollama_model'),
     falling back to the project default."""
     return get_api_key("freja_ollama_model") or DEFAULT_OLLAMA_MODEL
+
+
+def get_ollama_num_ctx() -> int:
+    """Returns the configured context window (settings key 'freja_ollama_num_ctx').
+
+    Tuning this is how the deployment is matched to its GPU, so it lives in the portal
+    rather than in code. A value that is missing, non-numeric or absurd falls back to the
+    default: Ollama answers an out-of-range num_ctx with an error, and losing the LLM
+    entirely because of a typo in a settings field would be a poor trade."""
+    raw = (get_api_key("freja_ollama_num_ctx") or "").strip()
+    if not raw:
+        return DEFAULT_NUM_CTX
+    try:
+        value = int(raw)
+    except ValueError:
+        return DEFAULT_NUM_CTX
+    if value < MIN_NUM_CTX or value > MAX_NUM_CTX:
+        return DEFAULT_NUM_CTX
+    return value
+
+
+def get_ollama_keep_alive() -> str:
+    """Returns how long Ollama should keep the model loaded (settings key
+    'freja_ollama_keep_alive'), e.g. "30m", "24h", "-1" to keep it forever or "0" to unload
+    immediately. Falls back to the project default when unset."""
+    return (get_api_key("freja_ollama_keep_alive") or "").strip() or DEFAULT_KEEP_ALIVE
 
 
 _GEMINI_TO_JSON_SCHEMA_TYPES = {
@@ -114,10 +145,10 @@ async def generate_text(prompt: str, system_instruction: str = "",
         "model": get_ollama_model(),
         "messages": messages,
         "stream": False,
-        "keep_alive": OLLAMA_KEEP_ALIVE,
+        "keep_alive": get_ollama_keep_alive(),
         "options": {
             "temperature": temperature,
-            "num_ctx": OLLAMA_NUM_CTX,
+            "num_ctx": get_ollama_num_ctx(),
             "num_predict": max_tokens,
         },
     }
@@ -146,10 +177,10 @@ async def generate_json(prompt: str, schema: dict = None, system_instruction: st
         "messages": messages,
         "format": _to_json_schema(schema) if schema else "json",
         "stream": False,
-        "keep_alive": OLLAMA_KEEP_ALIVE,
+        "keep_alive": get_ollama_keep_alive(),
         "options": {
             "temperature": temperature,
-            "num_ctx": OLLAMA_NUM_CTX,
+            "num_ctx": get_ollama_num_ctx(),
             "num_predict": max_tokens,
         },
     }

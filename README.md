@@ -365,6 +365,111 @@ To unlock F.R.E.J.A.'s full cognitive capabilities, configure your credentials i
    - Synthesizes highly realistic, lifelike human neural voices.
    - *If no key is provided, the assistant uses your computer's built-in native speech synthesis voice.*
 
+---
+
+## 🧠 AI Providers — Google Gemini and self-hosted Ollama
+
+F.R.E.J.A. can run on Google's Gemini API, on a self-hosted [Ollama](https://ollama.com)
+server, or on both with automatic failover. Everything is configured in the **Backend
+Control Center** (`/admin`) under *Core API Credentials & Security* — no code change, no
+redeploy.
+
+### Choosing the provider
+
+| Setting | Meaning |
+| --- | --- |
+| `auto` | Ollama first, Gemini as fallback. Nothing leaves the LAN unless the local server fails. |
+| `auto_gemini` | Gemini first, Ollama as fallback. Use this when the local box is slow or down. |
+| `ollama` | Pinned to the local server. **No fallback** — a failure surfaces as an error rather than silently going to Google. |
+| `gemini` | Pinned to the Google API. No fallback. |
+
+The choice governs the main chat, the personal trainer, the learning engine and Codex —
+everything that goes through `backend/services/llm_client.py`. The **Telegram bot always
+uses Gemini**, because it depends on Gemini's tool-calling loop.
+
+The **AI PROVIDER** card at the top of the portal shows which engine would answer right
+now, with one light per provider: green when the backend can reach it, red when it cannot
+(hover the light for the reason). Freja is told the same facts in her system prompt — the
+provider setting, both models, both machines, which integrations are configured, which
+tools are permanently allowed, and which engine is serving the current reply. Ask her and
+she answers from that block instead of guessing. Credentials never appear in it; keys are
+reported only as *configured* / *not configured*.
+
+### Ollama settings
+
+| Key | Default | Purpose |
+| --- | --- | --- |
+| `freja_ollama_base_url` | `http://192.168.107.15:11434` | Where the Ollama server listens. |
+| `freja_ollama_model` | `qwen2.5:14b` | Model name. The portal's picker lists what is actually installed on that server. |
+| `freja_ollama_num_ctx` | `12288` | Context window (prompt + reply) per request. |
+| `freja_ollama_keep_alive` | `30m` | How long Ollama keeps the model loaded. `-1` keeps it loaded forever. |
+
+**About `num_ctx`:** it decides how much VRAM the model needs, so it is the number that
+determines whether the model still fits on the GPU. `qwen2.5:14b` at Q4 needs about
+**11.7 GB at 12288 tokens**, which is already at the edge of a 12 GB card. If the server
+reports partial offload, lower it before anything else.
+
+**About `keep_alive`:** Ollama's own default is 5 minutes. Freja's traffic is bursty — a
+morning check-in, then a few chat turns — so with the default, most requests arrive after
+the model has been evicted and pay a full reload (measured at **10.7 s** for `qwen2.5:14b`).
+
+### Making sure Ollama actually uses the GPU
+
+This is the single biggest factor in how fast Freja answers, and it fails silently: Ollama
+picks its compute backend at startup, logs one line about it, and otherwise behaves
+normally — just 15–20× slower.
+
+Check it from anywhere on the network:
+
+```bash
+curl -s http://192.168.107.15:11434/api/ps
+```
+
+`size_vram` is the number that matters. **`"size_vram": 0` means the model is running
+entirely on the CPU.** For reference, measured on this project's server while it was in
+that state, versus what the same RTX 3060 should deliver:
+
+| | CPU (`size_vram: 0`) | GPU (expected) |
+| --- | --- | --- |
+| Generation | 2.0 tokens/s | ~30–40 tokens/s |
+| Prompt reading | 23 tokens/s | ~1000+ tokens/s |
+| "Hej" with a 1226-token system prompt | **64 s** | ~2–3 s |
+
+Note the middle row: on the CPU, every ~100 tokens of system prompt adds **~4 seconds** to
+every single answer, which is why the context block Freja gets is kept terse.
+
+If `size_vram` is 0, run the diagnostic on the Ollama host — it reads local state only and
+changes nothing:
+
+```bash
+bash scripts/diagnose-ollama.sh
+```
+
+It reports the driver state, whether the GPU is visible as a device, any environment
+override pinning the CPU, and the decisive line from Ollama's own startup log. The usual
+causes are: the NVIDIA driver is missing or broke after a kernel update, Ollama was
+installed *before* the driver (re-run `curl -fsSL https://ollama.com/install.sh | sh` to
+make it pick up CUDA), or a leftover `OLLAMA_LLM_LIBRARY=cpu` / `CUDA_VISIBLE_DEVICES=` in
+the systemd unit.
+
+### Recommended server environment (12 GB card)
+
+Set these on the Ollama host with `sudo systemctl edit ollama`, then
+`sudo systemctl restart ollama`:
+
+```ini
+[Service]
+Environment="OLLAMA_FLASH_ATTENTION=1"
+Environment="OLLAMA_KV_CACHE_TYPE=q8_0"
+Environment="OLLAMA_NUM_PARALLEL=1"
+Environment="OLLAMA_MAX_LOADED_MODELS=1"
+```
+
+`OLLAMA_FLASH_ATTENTION` and `OLLAMA_KV_CACHE_TYPE=q8_0` roughly halve the KV cache, which
+is what buys back the headroom for a large `num_ctx`. `OLLAMA_NUM_PARALLEL=1` matters more
+than it looks: with several parallel slots, Ollama multiplies the context allocation, and a
+model that fits on its own suddenly does not.
+
 ### 🛡️ Access Restriction Keys (Optional)
 
 These two keys are set in the **Backend Admin Portal** and are only needed when Freja is reachable
@@ -513,3 +618,9 @@ The container image defaults to `python:3.12-alpine` and can be overridden with 
   - We have implemented soft constraints using `ideal` specifications to eliminate the browser `OverconstrainedError`. If your camera does not initialize, check your browser's address bar to ensure camera permissions have been granted.
 * **Microphone Disconnects or Pauses**:
   - Some browsers suspend microphonic listeners if the tab remains inactive in the background. Simply click the microphone button on the HUD to reconnect the interface.
+* **Ollama answers are extremely slow (tens of seconds)**:
+  - Check `curl -s http://<ollama-host>:11434/api/ps`. If `size_vram` is `0`, the model is running on the CPU, which costs 15–20×. Run `bash scripts/diagnose-ollama.sh` on that machine — see [AI Providers](#-ai-providers--google-gemini-and-self-hosted-ollama).
+* **The AI PROVIDER card shows a red light**:
+  - Hover it: the tooltip carries the reason from the backend's own probe (server unreachable, model not installed on the server, no API key, key rejected). The same reason is in Freja's system prompt, so you can also just ask her.
+* **The chat replies "Gemini API key is not configured" although you run Ollama only**:
+  - Fixed in `backend/routes/gemini_proxy.py`; make sure the backend is up to date via **PULL FROM GITHUB & RESTART** in the portal.

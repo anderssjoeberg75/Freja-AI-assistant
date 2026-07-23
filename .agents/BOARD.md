@@ -29,6 +29,13 @@ Status: `todo · in-progress · review · blocked · done` · Priority: `P1 · P
 - Status: todo
 - Priority: P1
 - Created-by: claude
+- Ready to run on that host: `bash scripts/diagnose-ollama.sh` (read-only; reports driver
+  state, GPU device nodes, unit-file overrides and Ollama's own startup decision).
+- Ruled out from here: it is **not** a VRAM-fit problem. A 4.9 GB model at `num_ctx=2048`
+  with `num_gpu=99` forced still loaded at `size_vram = 0`, so the Ollama process has no
+  usable CUDA at all. Server is Linux with the standard install
+  (`/usr/share/ollama/.ollama/models`), Ollama 0.32.1.
+- Everything tunable from Freja's side is already done (T-009); this is the remaining ~15-20x.
 - Measured 2026-07-23 against the live server: `/api/ps` reports `size_vram = 0.00 GB` for
   `qwen2.5:14b` - 0 % GPU offload. Generation runs at **2.0 tok/s** and prompt evaluation at
   **23 tok/s** (a 1226-token prompt takes 53 s to read). On the RTX 3060 the same work should
@@ -67,6 +74,13 @@ Status: `todo · in-progress · review · blocked · done` · Priority: `P1 · P
 ## Done
 
 - **[T-001]** Unify LLM providers behind `llm_client` — DONE (commit `5358ffd`). Ollama-first, Gemini-fallback facade; trainer routes + learning_service + codex_service all route through it. `pytest -k "trainer or gemini or learning or codex"` → 74 passed.
+- **[T-009]** Ollama configuration + documentation — DONE (claude). `num_ctx` and `keep_alive`
+  are now portal settings (`freja_ollama_num_ctx`, `freja_ollama_keep_alive`) with validated
+  fallbacks, so the deployment is matched to its hardware without a code change; new fields in
+  the admin portal. Added `scripts/diagnose-ollama.sh` (read-only GPU/driver/unit/startup-log
+  diagnostic for the Ollama host) and a full **AI Providers** section in the README: provider
+  modes, every settings key, the measured CPU-vs-GPU numbers, how to read `size_vram`, and the
+  recommended `systemctl edit ollama` environment for a 12 GB card. `pytest` → 352 passed.
 - **[T-007]** Freja's backend self-awareness + Ollama latency work — DONE (claude). New
   `backend/services/system_context.py` builds one authoritative block (provider setting, each
   provider's state and model, both hosts, integrations, allowed tools) used by both the HUD
