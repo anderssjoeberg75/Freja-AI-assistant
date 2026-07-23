@@ -133,6 +133,33 @@ def test_pinned_gemini_skips_ollama_entirely(monkeypatch):
     assert provider == "gemini"
 
 
+def test_auto_gemini_mode_uses_gemini_first_and_falls_back_to_ollama(monkeypatch):
+    gemini_called = []
+    ollama_called = []
+
+    async def fail_gemini(*args, **kwargs):
+        gemini_called.append(True)
+        raise Exception("Gemini API quota exceeded")
+
+    async def ok_ollama(*args, **kwargs):
+        ollama_called.append(True)
+        return "from ollama fallback"
+
+    _set_preference(monkeypatch, "auto_gemini")
+    monkeypatch.setattr(llm_client.gemini_client, "generate_text", fail_gemini)
+    monkeypatch.setattr(llm_client.ollama_client, "generate_text", ok_ollama)
+
+    async def run():
+        result = await llm_client.generate_text("hi")
+        return result, llm_client.get_active_provider()
+
+    result, provider = asyncio.run(run())
+    assert result == "from ollama fallback"
+    assert provider == "ollama"
+    assert len(gemini_called) == 1
+    assert len(ollama_called) == 1
+
+
 def _stub_health(monkeypatch, ollama_ok: bool, gemini_ok: bool):
     async def ollama_health(*args, **kwargs):
         return {"ok": ollama_ok, "detail": "", "model": "qwen2.5:14b", "base_url": "http://x", "models": []}
@@ -145,11 +172,14 @@ def _stub_health(monkeypatch, ollama_ok: bool, gemini_ok: bool):
 
 
 @pytest.mark.parametrize("preference,ollama_ok,gemini_ok,expected_active", [
-    ("auto", True, True, "ollama"),      # Ollama wins while it is reachable
-    ("auto", False, True, "gemini"),     # fallback is what would actually serve
-    ("auto", False, False, None),        # nothing can serve - the card goes red
+    ("auto", True, True, "ollama"),        # Ollama wins while it is reachable
+    ("auto", False, True, "gemini"),       # fallback is what would actually serve
+    ("auto", False, False, None),          # nothing can serve - the card goes red
+    ("auto_gemini", True, True, "gemini"),  # Gemini wins while it is reachable
+    ("auto_gemini", True, False, "ollama"), # fallback to Ollama when Gemini down
+    ("auto_gemini", False, False, None),    # neither reachable
     ("ollama", True, False, "ollama"),
-    ("ollama", False, True, None),       # pinned: a healthy Gemini does not rescue it
+    ("ollama", False, True, None),         # pinned: a healthy Gemini does not rescue it
     ("gemini", False, True, "gemini"),
     ("gemini", True, False, None),
 ])
@@ -162,3 +192,4 @@ def test_check_providers_resolves_the_serving_provider(monkeypatch, preference, 
     assert status["active"] == expected_active
     assert status["providers"]["ollama"]["ok"] is ollama_ok
     assert status["providers"]["gemini"]["ok"] is gemini_ok
+

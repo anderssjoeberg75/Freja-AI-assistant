@@ -64,3 +64,14 @@ def test_repeat_calls_are_served_from_the_cache(monkeypatch, db_token):
     # Saving settings can change the answer, so the portal asks for a fresh probe.
     client.get("/api/system/llm-status?refresh=true", headers={"X-Freja-Token": db_token})
     assert len(calls) == 2
+
+
+def test_get_ollama_models_endpoint(db_token):
+    client = TestClient(app)
+    res = client.get("/api/system/ollama-models", headers={"X-Freja-Token": db_token})
+    assert res.status_code == 200
+    data = res.json()
+    assert isinstance(data, list)
+    assert len(data) > 0
+    assert "id" in data[0] and "name" in data[0]
+

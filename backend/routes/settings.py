@@ -345,4 +345,36 @@ async def get_gemini_models():
     return fallback_models
 
 
+@router.get("/api/system/ollama-models")
+async def get_ollama_models(base_url: str = Query(None)):
+    """Fetches list of available models installed on the configured Ollama server (or given base_url)."""
+    import logging
+    from backend.services.ollama_client import get_ollama_base_url, get_ollama_model
+    from backend.services.http_client import shared_client
+
+    url = (base_url or get_ollama_base_url()).rstrip("/")
+    current_model = get_ollama_model()
+    fallback_models = [{"id": current_model, "name": current_model}]
+
+    try:
+        async with shared_client() as client:
+            resp = await client.get(f"{url}/api/tags", timeout=5.0)
+            if resp.status_code == 200:
+                data = resp.json()
+                models = data.get("models", [])
+                result = []
+                for m in models:
+                    name = m.get("name", "")
+                    if name:
+                        result.append({"id": name, "name": name})
+                if result:
+                    result.sort(key=lambda x: x["name"])
+                    return result
+    except Exception as e:
+        logging.getLogger("freja").warning(f"Could not fetch models from Ollama server at {url}: {e}")
+
+    return fallback_models
+
+
+
 

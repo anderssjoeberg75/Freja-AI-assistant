@@ -24,9 +24,10 @@ from backend.services import ollama_client, gemini_client
 logger = logging.getLogger("freja")
 
 PROVIDER_AUTO = "auto"
+PROVIDER_AUTO_GEMINI = "auto_gemini"
 PROVIDER_OLLAMA = "ollama"
 PROVIDER_GEMINI = "gemini"
-VALID_PREFERENCES = (PROVIDER_AUTO, PROVIDER_OLLAMA, PROVIDER_GEMINI)
+VALID_PREFERENCES = (PROVIDER_AUTO, PROVIDER_AUTO_GEMINI, PROVIDER_OLLAMA, PROVIDER_GEMINI)
 
 # Records which provider served the most recent call in the current async context.
 # A ContextVar (not a module global) so concurrent requests stay isolated.
@@ -44,9 +45,9 @@ def get_active_provider() -> str:
 
 def get_provider_preference() -> str:
     """Returns the provider chosen in the admin portal (settings key
-    `freja_llm_provider`): "auto", "ollama", or "gemini". An unset or unrecognised value
-    means "auto", so a stray value in the database can never leave the backend with no
-    usable provider."""
+    `freja_llm_provider`): "auto", "auto_gemini", "ollama", or "gemini". An unset or
+    unrecognised value means "auto", so a stray value in the database can never leave the
+    backend with no usable provider."""
     preference = (get_api_key("freja_llm_provider") or "").strip().lower()
     return preference if preference in VALID_PREFERENCES else PROVIDER_AUTO
 
@@ -65,10 +66,11 @@ def _require_gemini_fallback(ollama_err: Exception):
 async def _dispatch(operation: str, call_ollama, call_gemini):
     """Runs the request against the configured provider and records which one served it.
 
-    In "auto" an Ollama failure is logged and retried against Gemini. In the pinned modes
-    the failure surfaces to the caller instead: quietly answering from the other engine
-    would contradict an explicit choice, and the admin portal's red indicator is what
-    explains the failure."""
+    In "auto" (Ollama first) an Ollama failure is logged and retried against Gemini.
+    In "auto_gemini" (Gemini first) a Gemini failure is logged and retried against Ollama.
+    In the pinned modes the failure surfaces to the caller instead: quietly answering from
+    the other engine would contradict an explicit choice, and the admin portal's red
+    indicator is what explains the failure."""
     preference = get_provider_preference()
 
     if preference == PROVIDER_GEMINI:
@@ -76,6 +78,24 @@ async def _dispatch(operation: str, call_ollama, call_gemini):
         _active_provider.set(PROVIDER_GEMINI)
         return result
 
+    if preference == PROVIDER_AUTO_GEMINI:
+        try:
+            result = await call_gemini()
+            _active_provider.set(PROVIDER_GEMINI)
+            return result
+        except Exception as gemini_err:
+            logger.warning(f"Gemini request failed, falling back to Ollama: {gemini_err}")
+            try:
+                result = await call_ollama()
+                _active_provider.set(PROVIDER_OLLAMA)
+                return result
+            except Exception as ollama_err:
+                raise Exception(
+                    f"No LLM provider available: Gemini request failed ({gemini_err}) and "
+                    f"Ollama fallback request failed ({ollama_err})."
+                ) from ollama_err
+
+    # Default: PROVIDER_AUTO ("auto" - Ollama first) or PROVIDER_OLLAMA
     try:
         result = await call_ollama()
         _active_provider.set(PROVIDER_OLLAMA)
@@ -137,6 +157,13 @@ async def check_providers(timeout: float = 6.0) -> dict:
         active = PROVIDER_OLLAMA if ollama_status["ok"] else None
     elif preference == PROVIDER_GEMINI:
         active = PROVIDER_GEMINI if gemini_status["ok"] else None
+    elif preference == PROVIDER_AUTO_GEMINI:
+        if gemini_status["ok"]:
+            active = PROVIDER_GEMINI
+        elif ollama_status["ok"]:
+            active = PROVIDER_OLLAMA
+        else:
+            active = None
     elif ollama_status["ok"]:
         active = PROVIDER_OLLAMA
     elif gemini_status["ok"]:

@@ -800,6 +800,7 @@
                         </label>
                         <select id="key-freja_llm_provider" class="input-control">
                             <option value="auto">Auto — Ollama first, Gemini as fallback</option>
+                            <option value="auto_gemini">Auto — Gemini first, Ollama as fallback</option>
                             <option value="ollama">Ollama only (local server)</option>
                             <option value="gemini">Google Gemini only</option>
                         </select>
@@ -1096,7 +1097,53 @@
             }
         }
 
-        const PROVIDER_LABELS = { ollama: 'OLLAMA', gemini: 'GEMINI' };
+        async function loadOllamaModels(selectedModel = null) {
+            const token = getActiveToken();
+            const headers = {};
+            if (token) headers['X-Freja-Token'] = token;
+
+            const baseUrlInput = document.getElementById('key-freja_ollama_base_url');
+            const baseUrl = baseUrlInput ? baseUrlInput.value.trim() : '';
+            const query = baseUrl ? '?base_url=' + encodeURIComponent(baseUrl) : '';
+
+            try {
+                const res = await fetch('/api/system/ollama-models' + query, { headers: headers });
+                if (res.ok) {
+                    const models = await res.json();
+                    const select = document.getElementById('key-freja_ollama_model');
+                    if (select && models.length > 0) {
+                        const currentVal = selectedModel || select.value;
+                        select.innerHTML = '';
+                        models.forEach(model => {
+                            const opt = document.createElement('option');
+                            opt.value = model.id;
+                            opt.textContent = model.name;
+                            select.appendChild(opt);
+                        });
+                        
+                        if (currentVal) {
+                            const hasSelected = models.some(m => m.id === currentVal);
+                            if (!hasSelected) {
+                                const opt = document.createElement('option');
+                                opt.value = currentVal;
+                                opt.textContent = currentVal + " (Uninstalled)";
+                                select.appendChild(opt);
+                            }
+                            select.value = currentVal;
+                        }
+                    }
+                }
+            } catch (err) {
+                console.warn("Could not load dynamic Ollama models:", err);
+            }
+        }
+
+        const PROVIDER_LABELS = { 
+            ollama: 'OLLAMA', 
+            gemini: 'GEMINI',
+            auto: 'AUTO (Ollama first)',
+            auto_gemini: 'AUTO (Gemini first)'
+        };
 
         function ensureOllamaModelOption(modelName) {
             const select = document.getElementById('key-freja_ollama_model');
@@ -1148,9 +1195,10 @@
 
             if (active) {
                 const model = providers[active] ? providers[active].model : '';
-                // In auto mode, Gemini answering means Ollama could not be reached.
-                const viaFallback = data.preference === 'auto' && active === 'gemini';
-                valEl.innerText = PROVIDER_LABELS[active] + (model ? ' (' + model + ')' : '') + (viaFallback ? ' — FALLBACK' : '');
+                // In auto mode, fallback indicator
+                const viaFallback = (data.preference === 'auto' && active === 'gemini') ||
+                                    (data.preference === 'auto_gemini' && active === 'ollama');
+                valEl.innerText = (PROVIDER_LABELS[active] || active.toUpperCase()) + (model ? ' (' + model + ')' : '') + (viaFallback ? ' — FALLBACK' : '');
                 valEl.style.color = 'var(--color-success)';
             } else if (data && PROVIDER_LABELS[data.preference]) {
                 valEl.innerText = PROVIDER_LABELS[data.preference] + ' — NO CONTACT';
@@ -1193,12 +1241,9 @@
                 hideAuthOverlay();
                 const data = await res.json();
                 
-                // Dynamically fetch and populate Gemini models list
+                // Dynamically fetch and populate Gemini and Ollama models list
                 await loadGeminiModels(data['freja_gemini_model']);
-
-                // Same reason as the Gemini list: an <option> has to exist before the loop
-                // below can assign the stored model as the select's value.
-                ensureOllamaModelOption(data['freja_ollama_model']);
+                await loadOllamaModels(data['freja_ollama_model']);
 
                 // Populate inputs
                 Object.keys(data).forEach(key => {
@@ -1473,6 +1518,11 @@
             document.getElementById('btn-update-github').addEventListener('click', updateFromGithub);
             document.getElementById('btn-clear-logs').addEventListener('click', clearLogs);
             
+            const ollamaUrlInput = document.getElementById('key-freja_ollama_base_url');
+            if (ollamaUrlInput) {
+                ollamaUrlInput.addEventListener('change', () => loadOllamaModels());
+            }
+
             document.getElementById('btn-submit-auth').addEventListener('click', () => {
                 const inputToken = document.getElementById('input-auth-token').value.trim();
                 if (inputToken) {
