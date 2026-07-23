@@ -60,10 +60,10 @@ async def proxy_gemini_generate(
                 client_name_info = f" (Computer Name/Hostname: '{client_status['client_hostname']}')" if client_status.get("client_hostname") and client_status["client_hostname"] != "Unknown" else ""
 
                 from backend.database import get_api_key
-                from backend.services.llm_client import check_providers, get_active_provider
+                from backend.services.llm_client import check_providers, get_provider_preference
 
                 provider_health = await check_providers()
-                active_provider_mode = get_active_provider()
+                provider_pref = get_provider_preference()
                 current_gemini_model = model or get_api_key("freja_gemini_model") or gemini_client.get_gemini_model()
                 current_ollama_model = get_api_key("freja_ollama_model") or "llama3"
                 ollama_url = get_api_key("freja_ollama_url") or "http://192.168.107.15:11434"
@@ -75,16 +75,19 @@ async def proxy_gemini_generate(
                 mem0_active = get_api_key("freja_use_mem0") == "true"
                 eleven_active = bool(get_api_key("freja_eleven_apikey"))
 
+                pref_description = "Auto (Gemini först, Ollama som reserv)" if provider_pref == "auto_gemini" else "Auto (Ollama först, Gemini som reserv)" if provider_pref == "auto" else "Ollama endast" if provider_pref == "ollama" else "Gemini endast"
+
                 system_info = (
                     f"\n\n[BACKEND CONFIGURATION & REALTIME LLM ENVIRONMENT]\n"
                     f"- Identity: You are FREJA (F.R.E.J.A.), Anders' personal AI assistant.\n"
-                    f"- Current Primary AI Model: {current_gemini_model}.\n"
-                    f"- Active AI Provider Mode: {active_provider_mode} (Gemini: {'Online' if provider_health.get('gemini') else 'Offline'}, Ollama: {'Online' if provider_health.get('ollama') else 'Offline'} at {ollama_url}).\n"
-                    f"- Configured Ollama Model: {current_ollama_model}.\n"
+                    f"- Configured AI Provider Strategy: {provider_pref} ({pref_description}).\n"
+                    f"- Current Engine servicing this request: Gemini ({current_gemini_model}).\n"
+                    f"- Self-hosted Ollama Status: {'Online' if provider_health.get('ollama') else 'Offline'} (Model: {current_ollama_model} at {ollama_url}).\n"
+                    f"- Google Gemini API Status: {'Online' if provider_health.get('gemini') else 'Offline'}.\n"
                     f"- Integrations Status: Garmin ({'Active' if garmin_active else 'Inactive'}), Strava ({'Active' if strava_active else 'Inactive'}), Withings ({'Active' if withings_active else 'Inactive'}), Mem0 Neural Memory ({'Active' if mem0_active else 'Inactive'}), ElevenLabs Voice ({'Active' if eleven_active else 'Inactive'}).\n"
                     f"- Web Client Host: '{client_status.get('client_hostname', 'Local Browser')}' (OS: {client_os}).\n"
                     f"- Backend Server Host: '{client_status.get('hostname')}' (OS: {client_status.get('system')} {client_status.get('release')}).\n"
-                    f"- DIRECTIVE: When asked what AI model you use, state clearly in Swedish that you are FREJA and are currently powered by {current_gemini_model} (with failover/Ollama model {current_ollama_model} in Anders' AI environment). When asked about backend settings, answer using the exact active configuration listed above."
+                    f"- DIRECTIVE: When asked what AI model/provider strategy you use, explain in Swedish that you are FREJA and that Anders has configured AI Provider strategy: '{pref_description}'. Explain that right now this main chat is using {current_gemini_model} with {current_ollama_model} as local fallback when configured."
                 )
                 parts[0]["text"] += system_info
                 
