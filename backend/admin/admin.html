@@ -1362,6 +1362,8 @@
             });
 
             const token = payload['freja_access_token'] || getActiveToken();
+            delete payload['freja_access_token'];
+
             const headers = { 'Content-Type': 'application/json' };
             if (token) {
                 headers['X-Freja-Token'] = token;
@@ -1387,7 +1389,9 @@
                     showToast('Save failed: access denied (invalid access token)', true);
                     return false;
                 } else {
-                    showToast('Fel vid sparning: ' + res.statusText, true);
+                    const errData = await res.json().catch(() => ({}));
+                    const msg = errData.detail || res.statusText;
+                    showToast('Fel vid sparning: ' + msg, true);
                     return false;
                 }
             } catch (err) {
