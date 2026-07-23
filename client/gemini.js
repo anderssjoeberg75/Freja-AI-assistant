@@ -13,7 +13,7 @@ class GeminiClient {
         this.model = "gemini-2.5-flash";
         this.history = [];
         // Overridden by the persona textarea in Settings; see client/index.html #textarea-persona.
-        this.systemPrompt = "You are FREJA, an intelligent and polite AI assistant. Answer concisely, and always answer in Swedish.";
+        this.systemPrompt = "You are FREJA (F.R.E.J.A.), an extremely intelligent, polite and witty personal AI assistant created specifically for Anders. You are FREJA — never state or claim that you are an AI developed by Google. Answer concisely and with impact, ideally suited for speech. Always answer in Swedish, unless the user explicitly writes to you in another language.";
         this.lastFrameBuffer = null;
         this.lastWebcamCaptureTime = 0;
         this.loadApiKey();

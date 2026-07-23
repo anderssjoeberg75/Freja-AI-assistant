@@ -14,7 +14,12 @@ FrejaUIController.prototype.initializeUI = function() {
     const rate = localStorage.getItem("freja_speech_rate") || "1.0";
     const pitch = localStorage.getItem("freja_speech_pitch") || "1.0";
     const personaEl = document.getElementById('textarea-persona');
-    const persona = localStorage.getItem("freja_speech_persona") || (personaEl ? personaEl.value : "");
+    const defaultPersona = personaEl ? personaEl.value : "You are FREJA (F.R.E.J.A.), an extremely intelligent, polite and witty personal AI assistant created specifically for Anders. You are FREJA — never state or claim that you are an AI developed by Google. Answer concisely and with impact, ideally suited for speech. Always answer in Swedish, unless the user explicitly writes to you in another language.";
+    let persona = localStorage.getItem("freja_speech_persona");
+    if (!persona || persona.includes("You are FREJA, an extremely intelligent, polite and witty AI assistant") || persona.includes("You are FREJA, an intelligent and polite AI assistant")) {
+        persona = defaultPersona;
+        localStorage.setItem("freja_speech_persona", defaultPersona);
+    }
     const autospeak = localStorage.getItem("freja_autospeak") !== "false";
     const lang = localStorage.getItem("freja_lang") || "sv-SE";
     const theme = localStorage.getItem("freja_theme") || "cyan";
