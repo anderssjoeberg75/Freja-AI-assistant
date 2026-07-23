@@ -153,6 +153,8 @@ async def proxy_gemini_generate(
     try:
         res_data = await _dispatch("chat generation", _call_ollama, _call_gemini)
         return res_data
+    except HTTPException:
+        raise
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=e.response.status_code, detail=f"LLM API error: {e.response.text}")
     except Exception as e:
