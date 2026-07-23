@@ -2,11 +2,9 @@
 
 import datetime
 import httpx
-import json
 from fastapi import APIRouter, HTTPException, Query, Request
-from backend.database import get_db_connection, get_api_key
-from backend.services.http_client import shared_client
-from backend.services.gemini_client import get_gemini_model, build_generate_url
+from backend.database import get_db_connection
+from backend.services import llm_client
 from backend.services.time_utils import today_local
 from .shared import (
     get_trainer_profile, calculate_trends, format_trends_summary, format_active_injuries,
@@ -80,10 +78,6 @@ async def core_optimize_upcoming_workouts(
     trends = calculate_trends()
     trends_data_str = format_trends_summary(trends)
 
-    api_key = get_api_key('freja_gemini_apikey') or ""
-    if not api_key:
-        raise HTTPException(status_code=400, detail="The Gemini API key is not configured on the server.")
-
     # Compile the upcoming workouts for the prompt (id lets us map adjustments back).
     workout_lines = []
     for e in upcoming:
@@ -145,51 +139,35 @@ Rules:
   why (or that everything can stay as it is).
 """
 
-    google_url = build_generate_url(get_gemini_model(), api_key)
-    payload = {
-        "contents": [{"parts": [{"text": prompt_content}]}],
-        "generationConfig": {
-            "temperature": 0.2,
-            "maxOutputTokens": 1500,
-            "responseMimeType": "application/json",
-            "responseSchema": {
-                "type": "OBJECT",
-                "properties": {
-                    "assessment": {"type": "STRING", "description": "Short assessment of the recovery status, in Swedish."},
-                    "briefing": {"type": "STRING", "description": "Finished short briefing in markdown, ready to show to the user. In Swedish."},
-                    "adjustments": {
-                        "type": "ARRAY",
-                        "items": {
-                            "type": "OBJECT",
-                            "properties": {
-                                "event_id": {"type": "INTEGER", "description": "Calendar id of the session (from the list above)."},
-                                "action": {"type": "STRING", "description": "keep, reduce or rest."},
-                                "new_duration_minutes": {"type": "INTEGER", "description": "The session's new length in minutes."},
-                                "new_title": {"type": "STRING", "description": "Optional new title in Swedish (empty = keep the existing one)."},
-                                "reason": {"type": "STRING", "description": "Short rationale, written in Swedish (shown in the calendar)."}
-                            },
-                            "required": ["event_id", "action", "new_duration_minutes", "reason"]
-                        }
-                    }
-                },
-                "required": ["assessment", "briefing", "adjustments"]
+    schema = {
+        "type": "OBJECT",
+        "properties": {
+            "assessment": {"type": "STRING", "description": "Short assessment of the recovery status, in Swedish."},
+            "briefing": {"type": "STRING", "description": "Finished short briefing in markdown, ready to show to the user. In Swedish."},
+            "adjustments": {
+                "type": "ARRAY",
+                "items": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "event_id": {"type": "INTEGER", "description": "Calendar id of the session (from the list above)."},
+                        "action": {"type": "STRING", "description": "keep, reduce or rest."},
+                        "new_duration_minutes": {"type": "INTEGER", "description": "The session's new length in minutes."},
+                        "new_title": {"type": "STRING", "description": "Optional new title in Swedish (empty = keep the existing one)."},
+                        "reason": {"type": "STRING", "description": "Short rationale, written in Swedish (shown in the calendar)."}
+                    },
+                    "required": ["event_id", "action", "new_duration_minutes", "reason"]
+                }
             }
-        }
+        },
+        "required": ["assessment", "briefing", "adjustments"]
     }
 
-    async with shared_client() as client:
-        response = await client.post(google_url, json=payload, timeout=GEMINI_TIMEOUT_SECONDS)
-        response.raise_for_status()
-        res_json = response.json()
-
-    opt_text = res_json.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
-    if not opt_text:
-        raise HTTPException(status_code=500, detail="Could not generate the optimization from Gemini.")
-
     try:
-        opt_data = json.loads(opt_text)
-    except Exception:
-        opt_data = {"assessment": "", "briefing": opt_text, "adjustments": []}
+        opt_data = await llm_client.generate_json(
+            prompt_content, schema, temperature=0.2, max_tokens=1500, timeout=GEMINI_TIMEOUT_SECONDS
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Could not generate the optimization: {e}")
 
     by_id = {e.get("id"): e for e in upcoming}
     changes = []

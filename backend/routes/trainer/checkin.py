@@ -3,11 +3,9 @@
 import asyncio
 import datetime
 import httpx
-import json
 from fastapi import APIRouter, HTTPException, Query, Request
 from backend.database import get_db_connection, get_api_key
-from backend.services.http_client import shared_client
-from backend.services.gemini_client import get_gemini_model, build_generate_url
+from backend.services import llm_client
 from backend.services.time_utils import today_local
 from .shared import (
     get_trainer_profile, fetch_7day_weather_forecast, calculate_trends, format_trends_summary,
@@ -233,11 +231,6 @@ async def trainer_daily_checkin(request: Request):
         else:
             adherence_str = "No booked session history to compare against yet."
 
-        # 6. Fetch Gemini API key (fail fast before any external weather call)
-        api_key = get_api_key('freja_gemini_apikey') or ""
-        if not api_key:
-            raise HTTPException(status_code=400, detail="The Gemini API key is not configured on the server.")
-
         # 7. Today's weather (first line of the 7-day forecast is today)
         weather_forecast = await fetch_7day_weather_forecast(location)
 
@@ -305,48 +298,28 @@ Rules for the briefing:
   Do NOT use markdown headings (#, ##): the HUD does not render them and they would show as literal '##'.
 """
 
-        # 9. Call Gemini with a structured schema
-        google_url = build_generate_url(get_gemini_model(), api_key)
-        payload = {
-            "contents": [{"parts": [{"text": prompt_content}]}],
-            "generationConfig": {
-                "temperature": 0.3,
-                "maxOutputTokens": 1500,
-                "responseMimeType": "application/json",
-                # All STRING fields are shown to the user as-is, so the model fills them in Swedish.
-                "responseSchema": {
-                    "type": "OBJECT",
-                    "properties": {
-                        "sleep_summary": {"type": "STRING", "description": "Short summary of last night's sleep, in Swedish."},
-                        "recovery_summary": {"type": "STRING", "description": "Assessment of resting HR, HRV and Body Battery/recovery, in Swedish."},
-                        "yesterday_status": {"type": "STRING", "description": "Whether yesterday's session was completed or missed, without blame. In Swedish."},
-                        "todays_plan": {"type": "STRING", "description": "Today's planned workout in plain language, in Swedish."},
-                        "recommendation": {"type": "STRING", "description": "The coach's recommendation: keep, lower or raise the intensity, with a short rationale, tied to how today's session fits the plan. In Swedish."},
-                        "adjust_workout": {"type": "BOOLEAN", "description": "true if today's session should be adjusted compared with what is booked in the calendar."},
-                        "adjusted_duration_minutes": {"type": "INTEGER", "description": "New length in minutes for today's session if adjust_workout=true (0 = rest). Omitted/0 if no adjustment."},
-                        "weather_note": {"type": "STRING", "description": "Short weather comment relevant to today's session (empty string if not relevant). In Swedish."},
-                        "week_outlook": {"type": "STRING", "description": "A short 1-2 sentence outlook on the remaining planned sessions this week and any early adjustment recovery suggests. In Swedish."},
-                        "closing_question": {"type": "STRING", "description": "A clear closing question or action for the user, in Swedish."},
-                        "briefing": {"type": "STRING", "description": "Finished short briefing in markdown, ready to display directly to the user. Must cover how today's session fits the plan, how recovery looks, and the outlook for the rest of the week. In Swedish."}
-                    },
-                    "required": ["sleep_summary", "recovery_summary", "yesterday_status", "todays_plan", "recommendation", "adjust_workout", "closing_question", "briefing"]
-                }
-            }
+        # 9. Call the LLM with a structured schema
+        # All STRING fields are shown to the user as-is, so the model fills them in Swedish.
+        schema = {
+            "type": "OBJECT",
+            "properties": {
+                "sleep_summary": {"type": "STRING", "description": "Short summary of last night's sleep, in Swedish."},
+                "recovery_summary": {"type": "STRING", "description": "Assessment of resting HR, HRV and Body Battery/recovery, in Swedish."},
+                "yesterday_status": {"type": "STRING", "description": "Whether yesterday's session was completed or missed, without blame. In Swedish."},
+                "todays_plan": {"type": "STRING", "description": "Today's planned workout in plain language, in Swedish."},
+                "recommendation": {"type": "STRING", "description": "The coach's recommendation: keep, lower or raise the intensity, with a short rationale, tied to how today's session fits the plan. In Swedish."},
+                "adjust_workout": {"type": "BOOLEAN", "description": "true if today's session should be adjusted compared with what is booked in the calendar."},
+                "adjusted_duration_minutes": {"type": "INTEGER", "description": "New length in minutes for today's session if adjust_workout=true (0 = rest). Omitted/0 if no adjustment."},
+                "weather_note": {"type": "STRING", "description": "Short weather comment relevant to today's session (empty string if not relevant). In Swedish."},
+                "week_outlook": {"type": "STRING", "description": "A short 1-2 sentence outlook on the remaining planned sessions this week and any early adjustment recovery suggests. In Swedish."},
+                "closing_question": {"type": "STRING", "description": "A clear closing question or action for the user, in Swedish."},
+                "briefing": {"type": "STRING", "description": "Finished short briefing in markdown, ready to display directly to the user. Must cover how today's session fits the plan, how recovery looks, and the outlook for the rest of the week. In Swedish."}
+            },
+            "required": ["sleep_summary", "recovery_summary", "yesterday_status", "todays_plan", "recommendation", "adjust_workout", "closing_question", "briefing"]
         }
-
-        async with shared_client() as client:
-            response = await client.post(google_url, json=payload, timeout=GEMINI_TIMEOUT_SECONDS)
-            response.raise_for_status()
-            res_json = response.json()
-
-        briefing_text = res_json.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
-        if not briefing_text:
-            raise HTTPException(status_code=500, detail="Could not generate the check-in from Gemini.")
-
-        try:
-            briefing_data = json.loads(briefing_text)
-        except Exception:
-            briefing_data = {"briefing": briefing_text}
+        briefing_data = await llm_client.generate_json(
+            prompt_content, schema, temperature=0.3, max_tokens=1500, timeout=GEMINI_TIMEOUT_SECONDS
+        )
 
         # 10. Act on the recommendation: if the coach wants to adjust today's session
         #     and there is a workout event in the calendar, re-time it automatically.

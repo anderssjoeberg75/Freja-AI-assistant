@@ -5,8 +5,6 @@ import re
 import json
 import datetime
 import urllib.parse
-import httpx
-from backend.services.http_client import shared_client
 import asyncio
 from pathlib import Path
 from playwright.async_api import async_playwright
@@ -64,31 +62,12 @@ def get_domain_credentials(domain: str):
     return user, pwd
 
 async def call_gemini_learning_api(prompt: str, system_instruction: str = "") -> str:
-    """Helper to query official Gemini API for learning synthesis."""
-    api_key = get_api_key('freja_gemini_apikey') or ""
-    if not api_key:
-        raise Exception("The Gemini API key is missing from the database. Configure it in Settings.")
-        
-    from backend.services import gemini_client
-    url = gemini_client.build_generate_url(gemini_client.get_gemini_model(), api_key)
-    
-    payload = {
-        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-        "generationConfig": {
-            "temperature": 0.2,
-            "responseMimeType": "application/json"
-        }
-    }
-    if system_instruction:
-        payload["systemInstruction"] = {"parts": [{"text": system_instruction}]}
-        
-    async with shared_client() as client:
-        resp = await client.post(url, json=payload, timeout=60.0)
-        resp.raise_for_status()
-        resp_json = resp.json()
-        
-    text = resp_json.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
-    return text
+    """Queries the LLM (Ollama first, Gemini fallback) for learning synthesis, asking for
+    freeform JSON text. Kept as a thin wrapper - callers here parse the returned text
+    themselves rather than going through llm_client.generate_json's schema path."""
+    from backend.services import llm_client
+    result = await llm_client.generate_json(prompt, schema=None, system_instruction=system_instruction, temperature=0.2)
+    return json.dumps(result, ensure_ascii=False)
 
 async def learn_topic_impl(topic: str, progress_callback=None, run: "LearningRun" = None) -> dict:
     """

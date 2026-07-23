@@ -15,7 +15,7 @@ import re
 import uuid
 from backend.config import PROJECT_ROOT
 from backend.database import get_db_connection
-from backend.services import gemini_client
+from backend.services import llm_client
 
 # Ignored patterns for codebase auditing. Directory names are matched against the
 # basename of each directory (os.walk yields basenames), so entries must be plain
@@ -681,8 +681,8 @@ async def codex_git_ops_impl(args: dict) -> dict:
 
 
 async def call_gemini_api(prompt: str, system_instruction: str = "") -> str:
-    """Queries Gemini via the shared client (kept as a thin wrapper for existing callers)."""
-    return await gemini_client.generate_text(prompt, system_instruction)
+    """Queries the LLM (Ollama first, Gemini fallback) - kept as a thin wrapper for existing callers."""
+    return await llm_client.generate_text(prompt, system_instruction)
 
 
 AUDIT_MAX_CHARS = 180000

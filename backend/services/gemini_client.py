@@ -5,6 +5,8 @@ codex_service, the gemini proxy route, and other services don't each hardcode
 the endpoint URL and model name.
 """
 
+import json
+
 import httpx
 from backend.services.http_client import shared_client
 
@@ -55,3 +57,41 @@ async def generate_text(prompt: str, system_instruction: str = "",
     candidates = resp_json.get("candidates") or [{}]
     parts = candidates[0].get("content", {}).get("parts") or [{}]
     return parts[0].get("text", "")
+
+
+async def generate_json(prompt: str, schema: dict = None, system_instruction: str = "",
+                         temperature: float = 0.3, max_tokens: int = 3000, timeout: float = 60.0) -> dict:
+    """Sends a prompt to Gemini constrained to JSON output and returns the parsed object.
+    `schema` uses Gemini's responseSchema dialect (uppercase types); pass None for freeform
+    JSON (the model is only told to answer with valid JSON, not a fixed shape)."""
+    api_key = get_gemini_api_key()
+    if not api_key:
+        raise Exception("Gemini API key is missing from the database.")
+
+    generation_config = {
+        "temperature": temperature,
+        "maxOutputTokens": max_tokens,
+        "responseMimeType": "application/json",
+    }
+    if schema:
+        generation_config["responseSchema"] = schema
+
+    payload = {
+        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+        "generationConfig": generation_config,
+    }
+    if system_instruction:
+        payload["systemInstruction"] = {"parts": [{"text": system_instruction}]}
+
+    url = build_generate_url(get_gemini_model(), api_key)
+    async with shared_client() as client:
+        resp = await client.post(url, json=payload, timeout=timeout)
+        resp.raise_for_status()
+        resp_json = resp.json()
+
+    candidates = resp_json.get("candidates") or [{}]
+    parts = candidates[0].get("content", {}).get("parts") or [{}]
+    text = parts[0].get("text", "")
+    if not text:
+        raise Exception("Gemini returned an empty response.")
+    return json.loads(text.replace("```json", "").replace("```", "").strip())

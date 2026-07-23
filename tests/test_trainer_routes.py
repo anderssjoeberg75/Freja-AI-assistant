@@ -96,13 +96,18 @@ def test_trainer_plan_booking(auth_headers):
     assert response.status_code == 200
     assert response.json().get("status") == "success"
 
-def test_trainer_checkin_requires_gemini_key(auth_headers, monkeypatch):
-    # Force the "no Gemini key" branch so the endpoint fails fast (no external calls).
-    monkeypatch.setattr(trainer_module.checkin, "get_api_key", lambda name: "")
+def test_trainer_checkin_requires_llm_provider(auth_headers, monkeypatch):
+    # Force the "no provider available" branch (Ollama unreachable, no Gemini key either).
+    async def _fake_no_provider(prompt, schema=None, **kwargs):
+        raise Exception(
+            "No LLM provider available: Ollama request failed (connection refused) and no "
+            "Gemini API key is configured."
+        )
+    monkeypatch.setattr(trainer_module.checkin.llm_client, "generate_json", _fake_no_provider)
     client = TestClient(app)
 
     response = client.post("/api/trainer/checkin", json={}, headers=auth_headers)
-    assert response.status_code == 400
+    assert response.status_code == 500
     assert "Gemini" in response.json().get("detail", "")
 
 def test_trainer_checkin_success(auth_headers, monkeypatch):
@@ -131,30 +136,7 @@ def test_trainer_checkin_success(auth_headers, monkeypatch):
         "briefing": "**God morgon! ☀️** Allt ser bra ut – kör dagens 30 min lugnt. Redo?"
     }
 
-    class FakeResponse:
-        def __init__(self, payload):
-            self._payload = payload
-        def raise_for_status(self):
-            return None
-        def json(self):
-            return self._payload
-
-    class FakeAsyncClient:
-        def __init__(self, *args, **kwargs):
-            pass
-        async def __aenter__(self):
-            return self
-        async def __aexit__(self, *args):
-            return False
-        async def post(self, url, **kwargs):
-            gemini_payload = {
-                "candidates": [
-                    {"content": {"parts": [{"text": json.dumps(checkin_obj)}]}}
-                ]
-            }
-            return FakeResponse(gemini_payload)
-
-    monkeypatch.setattr(trainer_module.checkin, "shared_client", FakeAsyncClient)
+    monkeypatch.setattr(trainer_module.checkin.llm_client, "generate_json", _fake_llm_json(checkin_obj))
     client = TestClient(app)
 
     response = client.post("/api/trainer/checkin", json={"location": "Stockholm"}, headers=auth_headers)
@@ -185,7 +167,7 @@ def test_trainer_checkin_skips_sync_without_credentials(auth_headers, monkeypatc
         "todays_plan": "p", "recommendation": "rec", "adjust_workout": False,
         "closing_question": "q", "briefing": "**Morgon!**",
     }
-    monkeypatch.setattr(trainer_module.checkin, "shared_client", _make_fake_gemini_client(checkin_obj))
+    monkeypatch.setattr(trainer_module.checkin.llm_client, "generate_json", _fake_llm_json(checkin_obj))
     client = TestClient(app)
 
     response = client.post("/api/trainer/checkin", json={}, headers=auth_headers)
@@ -215,26 +197,12 @@ def test_refresh_health_sources_reports_per_provider(monkeypatch):
     }
 
 
-def _make_fake_gemini_client(payload_obj):
-    """Returns a fake httpx.AsyncClient class that always answers with payload_obj
-    wrapped in Gemini's candidates/parts envelope."""
-    class FakeResponse:
-        def raise_for_status(self):
-            return None
-        def json(self):
-            return {"candidates": [{"content": {"parts": [{"text": json.dumps(payload_obj)}]}}]}
-
-    class FakeAsyncClient:
-        def __init__(self, *args, **kwargs):
-            pass
-        async def __aenter__(self):
-            return self
-        async def __aexit__(self, *args):
-            return False
-        async def post(self, url, **kwargs):
-            return FakeResponse()
-
-    return FakeAsyncClient
+def _fake_llm_json(payload_obj):
+    """Async stand-in for llm_client.generate_json that always answers payload_obj,
+    regardless of the prompt/schema passed in."""
+    async def _fake(prompt, schema=None, **kwargs):
+        return payload_obj
+    return _fake
 
 
 def test_trainer_profile_put_and_get(auth_headers):
@@ -261,8 +229,6 @@ def test_trainer_profile_put_and_get(auth_headers):
 
 
 def test_trainer_generate_success(auth_headers, monkeypatch):
-    monkeypatch.setattr(trainer_module.generation, "get_api_key", lambda name: "MOCK_GEMINI_KEY")
-
     async def fake_weather(location="Stockholm"):
         return f"Väderprognos för {location}: idag mulet, 12°C."
     monkeypatch.setattr(trainer_module.generation, "fetch_7day_weather_forecast", fake_weather)
@@ -277,7 +243,7 @@ def test_trainer_generate_success(auth_headers, monkeypatch):
              "description": "30 min i samtalstempo.", "duration_minutes": 30}
         ]
     }
-    monkeypatch.setattr(trainer_module.generation, "shared_client", _make_fake_gemini_client(plan_obj))
+    monkeypatch.setattr(trainer_module.generation.llm_client, "generate_json", _fake_llm_json(plan_obj))
 
     client = TestClient(app)
     response = client.post(
@@ -320,21 +286,26 @@ def _insert_workout_event(summary, start_time, end_time, google_event_id):
         return cursor.lastrowid
 
 
-def test_trainer_optimize_requires_gemini_key(auth_headers, monkeypatch):
+def test_trainer_optimize_requires_llm_provider(auth_headers, monkeypatch):
     import datetime
-    monkeypatch.setattr(trainer_module.optimize, "get_api_key", lambda name: "")
+
+    async def _fake_no_provider(prompt, schema=None, **kwargs):
+        raise Exception(
+            "No LLM provider available: Ollama request failed (connection refused) and no "
+            "Gemini API key is configured."
+        )
+    monkeypatch.setattr(trainer_module.optimize.llm_client, "generate_json", _fake_no_provider)
     today = datetime.date.today().strftime('%Y-%m-%d')
     _insert_workout_event("💪 Löpning: Tempo", f"{today}T08:00", f"{today}T09:00", "evt-optim-nokey")
 
     client = TestClient(app)
     response = client.post("/api/trainer/optimize", json={}, headers=auth_headers)
-    assert response.status_code == 400
+    assert response.status_code == 500
     assert "Gemini" in response.json().get("detail", "")
 
 
 def test_trainer_optimize_reduces_upcoming_workout(auth_headers, monkeypatch):
     import datetime
-    monkeypatch.setattr(trainer_module.optimize, "get_api_key", lambda name: "MOCK_GEMINI_KEY")
 
     today = datetime.date.today().strftime('%Y-%m-%d')
     event_id = _insert_workout_event(
@@ -349,7 +320,7 @@ def test_trainer_optimize_reduces_upcoming_workout(auth_headers, monkeypatch):
              "new_title": "", "reason": "Låg HRV, sänkt belastning."}
         ]
     }
-    monkeypatch.setattr(trainer_module.optimize, "shared_client", _make_fake_gemini_client(opt_obj))
+    monkeypatch.setattr(trainer_module.optimize.llm_client, "generate_json", _fake_llm_json(opt_obj))
 
     client = TestClient(app)
     response = client.post("/api/trainer/optimize", json={}, headers=auth_headers)
@@ -369,7 +340,6 @@ def test_trainer_optimize_reduces_upcoming_workout(auth_headers, monkeypatch):
 
 def test_trainer_optimize_keeps_when_recovered(auth_headers, monkeypatch):
     import datetime
-    monkeypatch.setattr(trainer_module.optimize, "get_api_key", lambda name: "MOCK_GEMINI_KEY")
 
     today = datetime.date.today().strftime('%Y-%m-%d')
     event_id = _insert_workout_event(
@@ -384,7 +354,7 @@ def test_trainer_optimize_keeps_when_recovered(auth_headers, monkeypatch):
              "new_title": "", "reason": "God återhämtning."}
         ]
     }
-    monkeypatch.setattr(trainer_module.optimize, "shared_client", _make_fake_gemini_client(opt_obj))
+    monkeypatch.setattr(trainer_module.optimize.llm_client, "generate_json", _fake_llm_json(opt_obj))
 
     client = TestClient(app)
     response = client.post("/api/trainer/optimize", json={}, headers=auth_headers)
@@ -1241,8 +1211,6 @@ def test_generate_prompt_includes_thirty_day_history(auth_headers, monkeypatch):
     """The generated plan must be built on a month of completed training, not just 7 days."""
     captured = {}
 
-    monkeypatch.setattr(trainer_module.generation, "get_api_key", lambda name: "MOCK_GEMINI_KEY")
-
     async def fake_weather(location="Stockholm"):
         return "Väderprognos: mulet."
     monkeypatch.setattr(trainer_module.generation, "fetch_7day_weather_forecast", fake_weather)
@@ -1251,24 +1219,10 @@ def test_generate_prompt_includes_thirty_day_history(auth_headers, monkeypatch):
                 "workouts": [{"day": "Tisdag", "activity_type": "Löpning", "title": "Pass",
                               "description": "d", "duration_minutes": 25}]}
 
-    class FakeResponse:
-        def raise_for_status(self):
-            return None
-        def json(self):
-            return {"candidates": [{"content": {"parts": [{"text": json.dumps(plan_obj)}]}}]}
-
-    class CapturingClient:
-        def __init__(self, *a, **kw):
-            pass
-        async def __aenter__(self):
-            return self
-        async def __aexit__(self, *a):
-            return False
-        async def post(self, url, **kwargs):
-            captured["prompt"] = kwargs["json"]["contents"][0]["parts"][0]["text"]
-            return FakeResponse()
-
-    monkeypatch.setattr(trainer_module.generation, "shared_client", CapturingClient)
+    async def _fake_capture(prompt, schema=None, **kwargs):
+        captured["prompt"] = prompt
+        return plan_obj
+    monkeypatch.setattr(trainer_module.generation.llm_client, "generate_json", _fake_capture)
 
     client = TestClient(app)
     response = client.post(

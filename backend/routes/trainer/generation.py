@@ -4,9 +4,8 @@ import datetime
 import httpx
 import json
 from fastapi import APIRouter, HTTPException, Query, Request
-from backend.database import get_db_connection, get_api_key
-from backend.services.http_client import shared_client
-from backend.services.gemini_client import get_gemini_model, build_generate_url
+from backend.database import get_db_connection
+from backend.services import llm_client
 from backend.services.time_utils import today_local
 from .shared import (
     get_trainer_profile, fetch_7day_weather_forecast, calculate_trends, format_trends_summary,
@@ -80,11 +79,6 @@ async def generate_trainer_plan(request: Request):
                 withings_summary.append(
                     f"Date: {r[0]}, Weight: {r[1]} kg, Body fat: {r[2]}%, Bone mass: {r[3]} kg, Pulse: {r[4]} BPM, Sleep: {sleep_h}h (Score: {r[8]}), Steps: {r[6]}, Calories: {r[7]}kcal"
                 )
-
-        # 4. Fetch Gemini API key
-        api_key = get_api_key('freja_gemini_apikey') or ""
-        if not api_key:
-            raise HTTPException(status_code=400, detail="The Gemini API key is not configured on the server.")
 
         # 5. Calculate trends
         trends = calculate_trends()
@@ -182,98 +176,81 @@ Instructions for the answer:
 - Create a simple weekly plan the user can follow right away.
 """
 
-        # 7. Call Gemini
-        google_url = build_generate_url(get_gemini_model(), api_key)
-        payload = {
-            "contents": [
-                {
-                    "parts": [{"text": prompt_content}]
-                }
-            ],
-            "generationConfig": {
-                "temperature": 0.2,
-                "maxOutputTokens": 4000,
-                "responseMimeType": "application/json",
-                # Every free-text field below is rendered straight into the HUD, so the schema
-                # tells the model to fill them in Swedish. `day` must stay a Swedish weekday
-                # name: book_plan_to_calendar() maps it back to a date via `day_offsets`.
-                "responseSchema": {
-                    "type": "OBJECT",
-                    "properties": {
-                        "summary": {
-                            "type": "STRING",
-                            "description": "A summarising analysis of the user's health status and training history, written in Swedish."
-                        },
-                        "resting_hr_trend": {
-                            "type": "STRING",
-                            "description": "Analysis of the resting heart rate trend (e.g. whether it has risen and indicates fatigue, or is stable). In Swedish."
-                        },
-                        "hrv_trend": {
-                            "type": "STRING",
-                            "description": "Analysis of the HRV trend (e.g. whether it has dropped and indicates under-recovery, or is good). In Swedish."
-                        },
-                        "weekly_focus": {
-                            "type": "STRING",
-                            "description": "The overall focus of this training week based on the goal and any limitations. In Swedish."
-                        },
-                        "workouts": {
-                            "type": "ARRAY",
-                            "items": {
-                                "type": "OBJECT",
-                                "properties": {
-                                    "day": {
-                                        "type": "STRING",
-                                        "description": "The day of the session. Must be one of the Swedish weekday names: Måndag, Tisdag, Onsdag, Torsdag, Fredag, Lördag, Söndag."
+        # 7. Call the LLM (Ollama first, Gemini fallback)
+        # Every free-text field below is rendered straight into the HUD, so the schema
+        # tells the model to fill them in Swedish. `day` must stay a Swedish weekday
+        # name: book_plan_to_calendar() maps it back to a date via `day_offsets`.
+        schema = {
+            "type": "OBJECT",
+            "properties": {
+                "summary": {
+                    "type": "STRING",
+                    "description": "A summarising analysis of the user's health status and training history, written in Swedish."
+                },
+                "resting_hr_trend": {
+                    "type": "STRING",
+                    "description": "Analysis of the resting heart rate trend (e.g. whether it has risen and indicates fatigue, or is stable). In Swedish."
+                },
+                "hrv_trend": {
+                    "type": "STRING",
+                    "description": "Analysis of the HRV trend (e.g. whether it has dropped and indicates under-recovery, or is good). In Swedish."
+                },
+                "weekly_focus": {
+                    "type": "STRING",
+                    "description": "The overall focus of this training week based on the goal and any limitations. In Swedish."
+                },
+                "workouts": {
+                    "type": "ARRAY",
+                    "items": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "day": {
+                                "type": "STRING",
+                                "description": "The day of the session. Must be one of the Swedish weekday names: Måndag, Tisdag, Onsdag, Torsdag, Fredag, Lördag, Söndag."
+                            },
+                            "activity_type": {
+                                "type": "STRING",
+                                "description": "Activity type in Swedish (e.g. Löpning, Styrketräning, Cykling, Yoga, Vila)."
+                            },
+                            "title": {
+                                "type": "STRING",
+                                "description": "Short descriptive title of the session, in Swedish."
+                            },
+                            "description": {
+                                "type": "STRING",
+                                "description": "Detailed instructions for the training session, in Swedish."
+                            },
+                            "duration_minutes": {
+                                "type": "INTEGER",
+                                "description": "Estimated time in minutes (0 for rest)."
+                            },
+                            "exercises": {
+                                "type": "ARRAY",
+                                "description": "Structured strength exercises for this session (empty for pure cardio/rest). Apply progressive overload against the logged loads.",
+                                "items": {
+                                    "type": "OBJECT",
+                                    "properties": {
+                                        "name": {"type": "STRING", "description": "Exercise name in Swedish (e.g. Knäböj, Marklyft, Bänkpress)."},
+                                        "sets": {"type": "INTEGER", "description": "Number of sets."},
+                                        "reps": {"type": "INTEGER", "description": "Target reps per set."},
+                                        "target_weight": {"type": "NUMBER", "description": "Target load in kg (0 for bodyweight/unloaded)."},
+                                        "rpe": {"type": "NUMBER", "description": "Target rate of perceived exertion 1-10 (optional, 0 if not used)."}
                                     },
-                                    "activity_type": {
-                                        "type": "STRING",
-                                        "description": "Activity type in Swedish (e.g. Löpning, Styrketräning, Cykling, Yoga, Vila)."
-                                    },
-                                    "title": {
-                                        "type": "STRING",
-                                        "description": "Short descriptive title of the session, in Swedish."
-                                    },
-                                    "description": {
-                                        "type": "STRING",
-                                        "description": "Detailed instructions for the training session, in Swedish."
-                                    },
-                                    "duration_minutes": {
-                                        "type": "INTEGER",
-                                        "description": "Estimated time in minutes (0 for rest)."
-                                    },
-                                    "exercises": {
-                                        "type": "ARRAY",
-                                        "description": "Structured strength exercises for this session (empty for pure cardio/rest). Apply progressive overload against the logged loads.",
-                                        "items": {
-                                            "type": "OBJECT",
-                                            "properties": {
-                                                "name": {"type": "STRING", "description": "Exercise name in Swedish (e.g. Knäböj, Marklyft, Bänkpress)."},
-                                                "sets": {"type": "INTEGER", "description": "Number of sets."},
-                                                "reps": {"type": "INTEGER", "description": "Target reps per set."},
-                                                "target_weight": {"type": "NUMBER", "description": "Target load in kg (0 for bodyweight/unloaded)."},
-                                                "rpe": {"type": "NUMBER", "description": "Target rate of perceived exertion 1-10 (optional, 0 if not used)."}
-                                            },
-                                            "required": ["name", "sets", "reps"]
-                                        }
-                                    }
-                                },
-                                "required": ["day", "activity_type", "title", "description", "duration_minutes"]
+                                    "required": ["name", "sets", "reps"]
+                                }
                             }
-                        }
-                    },
-                    "required": ["summary", "resting_hr_trend", "hrv_trend", "weekly_focus", "workouts"]
+                        },
+                        "required": ["day", "activity_type", "title", "description", "duration_minutes"]
+                    }
                 }
-            }
+            },
+            "required": ["summary", "resting_hr_trend", "hrv_trend", "weekly_focus", "workouts"]
         }
 
-        async with shared_client() as client:
-            response = await client.post(google_url, json=payload, timeout=GEMINI_TIMEOUT_SECONDS)
-            response.raise_for_status()
-            res_json = response.json()
-
-        advice_text = res_json.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
-        if not advice_text:
-            raise HTTPException(status_code=500, detail="Could not generate a response from Gemini.")
+        result = await llm_client.generate_json(
+            prompt_content, schema, temperature=0.2, max_tokens=4000, timeout=GEMINI_TIMEOUT_SECONDS
+        )
+        advice_text = json.dumps(result, ensure_ascii=False)
 
         # 8. Save to database
         today_str = today_local().strftime('%Y-%m-%d')
@@ -418,33 +395,17 @@ def _collect_onboarding_signals(days: int = ONBOARDING_LOOKBACK_DAYS) -> dict:
     }
 
 
-async def _call_gemini_json(prompt: str, schema: dict, max_tokens: int = 3000) -> dict:
-    """Posts a JSON-schema-constrained prompt to Gemini and returns the parsed object."""
-    api_key = get_api_key('freja_gemini_apikey') or ""
-    if not api_key:
-        raise HTTPException(status_code=400, detail="The Gemini API key is not configured on the server.")
-
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {
-            "temperature": 0.3,
-            "maxOutputTokens": max_tokens,
-            "responseMimeType": "application/json",
-            "responseSchema": schema,
-        },
-    }
-    async with shared_client() as client:
-        response = await client.post(build_generate_url(get_gemini_model(), api_key), json=payload, timeout=GEMINI_TIMEOUT_SECONDS)
-        response.raise_for_status()
-        res_json = response.json()
-
-    text = res_json.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
-    if not text:
-        raise HTTPException(status_code=500, detail="Gemini returned an empty response.")
+async def _call_llm_json(prompt: str, schema: dict, max_tokens: int = 3000) -> dict:
+    """Posts a JSON-schema-constrained prompt to the LLM (Ollama first, Gemini fallback)
+    and returns the parsed object."""
     try:
-        return json.loads(text.replace("```json", "").replace("```", "").strip())
+        return await llm_client.generate_json(
+            prompt, schema, temperature=0.3, max_tokens=max_tokens, timeout=GEMINI_TIMEOUT_SECONDS
+        )
     except json.JSONDecodeError as e:
-        raise HTTPException(status_code=500, detail=f"Gemini returned malformed JSON: {e}")
+        raise HTTPException(status_code=500, detail=f"The LLM returned malformed JSON: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 _ONBOARDING_PROFILE_SCHEMA = {
@@ -553,7 +514,7 @@ Answer every free-text field in Swedish.
             "required": ["data_summary", "proposed_profile", "questions"],
         }
 
-        result = await _call_gemini_json(prompt, schema)
+        result = await _call_llm_json(prompt, schema)
         result["questions"] = (result.get("questions") or [])[:MAX_ONBOARDING_QUESTIONS]
         result["status"] = "success"
         result["signals"] = {
@@ -659,7 +620,7 @@ Answer every free-text field in Swedish.
             "required": ["profile", "summary"],
         }
 
-        result = await _call_gemini_json(prompt, schema)
+        result = await _call_llm_json(prompt, schema)
         values = _coerce_onboarding_profile(result.get("profile") or {})
         if not values:
             raise HTTPException(status_code=500, detail="The onboarding produced no usable profile fields.")

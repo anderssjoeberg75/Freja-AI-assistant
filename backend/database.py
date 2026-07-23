@@ -65,6 +65,8 @@ KEY_ALIASES = {
     'google_calendar_client_secret': 'freja_google_calendar_client_secret',
     'google_calendar_refresh_token': 'freja_google_calendar_refresh_token',
     'claude_api_key': 'freja_claude_apikey',
+    'ollama_base_url': 'freja_ollama_base_url',
+    'ollama_model': 'freja_ollama_model',
 }
 
 REVERSE_KEY_ALIASES = {v: k for k, v in KEY_ALIASES.items()}
