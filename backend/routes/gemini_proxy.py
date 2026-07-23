@@ -62,7 +62,7 @@ async def proxy_gemini_generate(
                 from backend.database import get_api_key
                 from backend.services.llm_client import check_providers, get_active_provider
 
-                provider_health = check_providers()
+                provider_health = await check_providers()
                 active_provider_mode = get_active_provider()
                 current_gemini_model = model or get_api_key("freja_gemini_model") or gemini_client.get_gemini_model()
                 current_ollama_model = get_api_key("freja_ollama_model") or "llama3"
