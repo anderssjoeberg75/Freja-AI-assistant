@@ -2363,3 +2363,26 @@ body.light-mode .hud-btn-huge:hover {
     transform: scale(1.03) !important;
 }
 
+/* Read-only LLM Provider badge for trainer check-in briefing */
+.trainer-provider-badge {
+    font-size: 10px;
+    font-family: var(--font-mono);
+    background: rgba(0, 242, 254, 0.12);
+    border: 1px solid rgba(0, 242, 254, 0.3);
+    color: var(--color-primary);
+    border-radius: 3px;
+    padding: 3px 8px;
+    white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-weight: 500;
+}
+
+body.light-mode .trainer-provider-badge {
+    background: rgba(2, 132, 199, 0.12);
+    border-color: rgba(2, 132, 199, 0.3);
+    color: #0284c7;
+}
+
+

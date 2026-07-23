@@ -15,15 +15,23 @@ Status: `todo · in-progress · review · blocked · done` · Priority: `P1 · P
 
 ### [T-002] Client: show which LLM provider answered the daily check-in
 - Owner: antigravity
-- Status: todo
+- Status: blocked
 - Priority: P2
 - Created-by: anders
-- Files: `client/app.js`, `client/index.html`, `client/style.css`, `run_client.py`
+- Files: `client/app.js`, `client/index.html`, `client/style.css`, `client/js/ui-dashboards.js`, `run_client.py`
 - Decision (T-003 = a): automatic Ollama→Gemini failover stays; **no manual selector**. This is a read-only indicator only.
-- Backend contract (READY): `POST /api/trainer/checkin` now returns a top-level `"provider"` field = `"ollama"`, `"gemini"`, or `"unknown"` — which model actually produced the briefing. Live as of the T-003 backend commit.
-- Spec: In the check-in / briefing view, render a small read-only badge with the returned `provider` (e.g. "Svar från: Ollama" / "Svar från: Gemini"). No selector, no extra backend calls — just read the field that is already in the response.
+- Client status: Badge UI wired in `client/js/ui-dashboards.js` and styled in `client/style.css`.
+- Blocked by: T-004 (`POST /api/trainer/checkin` returns 500 error due to JSON parse failure in `llm_client.generate_json`).
 - DoD: run the client (port 5000), trigger a check-in, screenshot the badge showing the provider; commit & push.
-- ▶ Antigravity prompt: "Read `.agents/BOARD.md` task T-002. The backend `POST /api/trainer/checkin` response now has a top-level `provider` field (`ollama` | `gemini` | `unknown`). In the client (`client/app.js` plus the check-in/briefing view in `client/index.html`, styled in `client/style.css`), render a small read-only badge showing which model answered, e.g. 'Svar från: Ollama'. Do NOT add a selector. Run the client on port 5000, trigger a daily check-in, screenshot the badge, then commit & push. If the response has no `provider` field where you wire it, stop and add a task for `claude` on the board."
+
+### [T-004] Backend: Fix JSON parsing failure in `/api/trainer/checkin`
+- Owner: claude
+- Status: todo
+- Priority: P1
+- Created-by: antigravity
+- Files: `backend/llm_client.py`, `backend/routes/trainer/checkin.py`
+- Problem: Calling `POST /api/trainer/checkin` fails with HTTP 500: `{"detail":"Unterminated string starting at: line 3 column 23 (char 121)"}` when `llm_client.generate_json()` attempts to parse LLM response JSON.
+- DoD: Make `llm_client.generate_json()` handle truncated/unescaped LLM JSON responses cleanly (or repair JSON formatting) so `/api/trainer/checkin` completes successfully with top-level `provider` field.
 
 ---
 

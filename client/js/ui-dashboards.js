@@ -626,6 +626,17 @@ FrejaUIController.prototype.renderTrainerCheckinBriefing = function (data) {
     // Context badges built from the top-level check-in response fields.
     const badgeStyle = "font-size: 10px; font-family: var(--font-mono); background: rgba(0,242,254,0.1); border: 1px solid rgba(0,242,254,0.2); color: var(--color-primary); border-radius: 3px; padding: 3px 8px; white-space: nowrap;";
     const badges = [];
+
+    // Read-only badge showing which LLM model answered (e.g. "Svar från: Ollama" / "Svar från: Gemini")
+    let providerName = 'Okänd';
+    if (data.provider) {
+        const p = String(data.provider).toLowerCase();
+        if (p === 'ollama') providerName = 'Ollama';
+        else if (p === 'gemini') providerName = 'Gemini';
+        else providerName = String(data.provider).charAt(0).toUpperCase() + String(data.provider).slice(1);
+    }
+    badges.push(`<span class="trainer-provider-badge">Svar från: ${providerName}</span>`);
+
     badges.push(`<span style="${badgeStyle}">${data.has_workout_today ? '📅 Pass idag' : '➖ Inget pass idag'}</span>`);
     badges.push(`<span style="${badgeStyle}">${data.workout_completed_yesterday ? '✅ Igår klart' : '⤵ Igår ej loggat'}</span>`);
     if (data.calendar_updated) {
