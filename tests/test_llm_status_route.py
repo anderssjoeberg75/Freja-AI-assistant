@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 
 from server import app
 from backend.database import get_api_key
-import backend.routes.llm as llm_route
+from backend.services import llm_client
 
 
 @pytest.fixture
@@ -15,9 +15,10 @@ def db_token():
 
 @pytest.fixture(autouse=True)
 def clear_status_cache():
-    """The route caches its probe result across requests; each test starts from empty."""
-    llm_route._status_cache["payload"] = None
-    llm_route._status_cache["expires_at"] = 0.0
+    """The probe result is cached in llm_client and shared with the chat proxy; each test
+    starts from empty so one test's probe cannot answer another's request."""
+    llm_client._status_cache["payload"] = None
+    llm_client._status_cache["expires_at"] = 0.0
     yield
 
 
@@ -26,7 +27,7 @@ def _stub_probe(monkeypatch, payload, calls):
         calls.append(1)
         return payload
 
-    monkeypatch.setattr(llm_route.llm_client, "check_providers", check_providers)
+    monkeypatch.setattr(llm_client, "check_providers", check_providers)
 
 
 PAYLOAD = {

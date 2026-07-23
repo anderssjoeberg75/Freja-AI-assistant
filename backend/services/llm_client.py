@@ -17,6 +17,7 @@ check_providers().
 import asyncio
 import contextvars
 import logging
+import time
 
 from backend.database import get_api_key
 from backend.services import ollama_client, gemini_client
@@ -176,3 +177,25 @@ async def check_providers(timeout: float = 6.0) -> dict:
         "active": active,
         "providers": {"ollama": ollama_status, "gemini": gemini_status},
     }
+
+
+# A probe costs one request to the Ollama box plus one to Google, and the callers that want
+# it sit on the request path: the chat proxy describes the setup in every system prompt, and
+# the admin portal polls on a timer. Sharing one result for a few seconds keeps a chat turn
+# from paying for two extra round-trips before generation has even started.
+STATUS_CACHE_TTL_SECONDS = 10.0
+_status_cache = {"expires_at": 0.0, "payload": None}
+
+
+async def get_provider_status(max_age: float = STATUS_CACHE_TTL_SECONDS) -> dict:
+    """check_providers() behind that shared cache. `max_age=0` forces a fresh probe (used
+    right after settings are saved, when the cached answer is known to be stale); the fresh
+    result then becomes the cached one for everyone else."""
+    now = time.monotonic()
+    if _status_cache["payload"] is not None and max_age > 0 and now < _status_cache["expires_at"]:
+        return _status_cache["payload"]
+
+    payload = await check_providers()
+    _status_cache["payload"] = payload
+    _status_cache["expires_at"] = now + STATUS_CACHE_TTL_SECONDS
+    return payload

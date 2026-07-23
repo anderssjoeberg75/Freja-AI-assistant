@@ -365,6 +365,22 @@ async def telegram_worker_loop():
  
                     system_prompt += status_directive
 
+                    # The same authoritative backend block the HUD chat gets, so Freja's account
+                    # of her own setup does not depend on which surface she is answering from.
+                    # This path calls Gemini directly (it needs Gemini's tool-calling loop), so
+                    # the engine line says Gemini rather than echoing the operator's preference.
+                    try:
+                        from backend.services import llm_client, system_context, gemini_client
+                        provider_status = await llm_client.get_provider_status()
+                        system_prompt += system_context.build_backend_context_block(
+                            provider_status, client_status, client_status.get("client_os", "Unknown")
+                        )
+                        system_prompt += system_context.build_runtime_provider_line(
+                            "gemini", gemini_client.get_gemini_model()
+                        )
+                    except Exception as ctx_err:
+                        print(f"[TELEGRAM BOT] Could not add the backend context block: {ctx_err}")
+
                     try:
                         reply_text = await query_gemini_with_tools(
                             chat_histories[chat_id],

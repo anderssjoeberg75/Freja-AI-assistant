@@ -35,24 +35,26 @@ async def proxy_gemini_generate(
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON payload")
 
-    from backend.database import get_api_key
-    from backend.services import ollama_client, gemini_client
-    from backend.services.llm_client import _dispatch, check_providers, get_provider_preference
+    from backend.services import ollama_client, gemini_client, llm_client, system_context
+    from backend.services.llm_client import _dispatch
 
-    provider_health = await check_providers()
-    provider_pref = get_provider_preference()
-    current_gemini_model = model or get_api_key("freja_gemini_model") or gemini_client.get_gemini_model()
-    current_ollama_model = get_api_key("freja_ollama_model") or "llama3"
-    ollama_url = get_api_key("freja_ollama_url") or "http://192.168.107.15:11434"
+    # Cached (see llm_client.get_provider_status): describing the setup in every system
+    # prompt must not cost a live probe of the Ollama box plus a round-trip to Google
+    # before every single chat turn.
+    provider_health = await llm_client.get_provider_status()
+    providers = provider_health.get("providers") or {}
 
-    # Inject detailed system information into the prompt instruction
+    # Base system instruction, before either provider appends its own runtime line. Kept
+    # separate so a fallback retry composes from the base instead of stacking the failed
+    # provider's line on top of the next one's.
+    base_system_instruction = None
     if "systemInstruction" in payload and "parts" in payload["systemInstruction"]:
         parts = payload["systemInstruction"]["parts"]
         if parts and isinstance(parts, list) and len(parts) > 0 and "text" in parts[0]:
             try:
                 from backend.routes.settings import get_client_status
                 client_status = get_client_status()
-                
+
                 ua = request.headers.get("user-agent", "")
                 client_os = "Unknown"
                 if "Windows" in ua:
@@ -66,49 +68,51 @@ async def proxy_gemini_generate(
                 elif "iPhone" in ua or "iPad" in ua:
                     client_os = "iOS"
 
-                client_name_info = f" (Computer Name/Hostname: '{client_status['client_hostname']}')" if client_status.get("client_hostname") and client_status["client_hostname"] != "Unknown" else ""
-
-                # Check active integrations
-                garmin_active = bool(get_api_key("freja_garmin_email"))
-                strava_active = bool(get_api_key("freja_strava_client_id"))
-                withings_active = bool(get_api_key("freja_withings_client_id"))
-                mem0_active = get_api_key("freja_use_mem0") == "true"
-                eleven_active = bool(get_api_key("freja_eleven_apikey"))
-
-                pref_description = "Auto (Gemini först, Ollama som reserv)" if provider_pref == "auto_gemini" else "Auto (Ollama först, Gemini som reserv)" if provider_pref == "auto" else "Ollama endast" if provider_pref == "ollama" else "Gemini endast"
-
-                system_info = (
-                    f"\n\n[BACKEND CONFIGURATION & REALTIME LLM ENVIRONMENT]\n"
-                    f"- Identity: You are FREJA (F.R.E.J.A.), Anders' personal AI assistant.\n"
-                    f"- Configured AI Provider Strategy: {provider_pref} ({pref_description}).\n"
-                    f"- Self-hosted Ollama Status: {'Online' if provider_health.get('ollama') else 'Offline'} (Model: {current_ollama_model} at {ollama_url}).\n"
-                    f"- Google Gemini API Status: {'Online' if provider_health.get('gemini') else 'Offline'} (Model: {current_gemini_model}).\n"
-                    f"- Integrations Status: Garmin ({'Active' if garmin_active else 'Inactive'}), Strava ({'Active' if strava_active else 'Inactive'}), Withings ({'Active' if withings_active else 'Inactive'}), Mem0 Neural Memory ({'Active' if mem0_active else 'Inactive'}), ElevenLabs Voice ({'Active' if eleven_active else 'Inactive'}).\n"
-                    f"- Web Client Host: '{client_status.get('client_hostname', 'Local Browser')}' (OS: {client_os}).\n"
-                    f"- Backend Server Host: '{client_status.get('hostname')}' (OS: {client_status.get('system')} {client_status.get('release')}).\n"
-                    f"- DIRECTIVE: When asked what AI model or provider strategy you use, explain in Swedish that you are FREJA and state Anders' configured AI Provider strategy: '{pref_description}'. State clearly which engine responded."
+                parts[0]["text"] += system_context.build_backend_context_block(
+                    provider_health, client_status, client_os
                 )
-                parts[0]["text"] += system_info
             except Exception as e:
                 import logging
                 logging.getLogger("freja").warning(f"Failed to inject system info into prompt: {e}")
+            base_system_instruction = parts[0]["text"]
 
-    if not gemini_client.get_gemini_api_key() and not provider_health.get("ollama"):
+    # A missing Gemini key is only fatal when Gemini is the one that would have to serve
+    # this request. With a reachable Ollama server (and the operator pointing at it), the
+    # chat works perfectly well without any Google credentials at all.
+    if not gemini_client.get_gemini_api_key() and not (providers.get("ollama") or {}).get("ok"):
         raise HTTPException(status_code=400, detail="Gemini API key is not configured on the server.")
+
+    def _instruction_for(provider: str, provider_model: str) -> str:
+        """The system instruction with this provider's runtime line appended. Built from
+        the base text every time, so a fallback never inherits the previous attempt's line."""
+        if base_system_instruction is None:
+            return ""
+        return base_system_instruction + system_context.build_runtime_provider_line(provider, provider_model)
 
     async def _call_gemini():
         api_key = gemini_client.get_gemini_api_key()
         if not api_key:
             raise HTTPException(status_code=400, detail="Gemini API key is not configured on the server.")
-        google_url = gemini_client.build_generate_url(model or gemini_client.get_gemini_model(), api_key)
+        gemini_model = model or gemini_client.get_gemini_model()
+        google_url = gemini_client.build_generate_url(gemini_model, api_key)
+
+        outbound = payload
+        if base_system_instruction is not None:
+            # Shallow copy: only the system instruction differs per provider, and the
+            # caller's payload must not be mutated on the way to a possible retry.
+            outbound = dict(payload)
+            outbound["systemInstruction"] = {
+                "parts": [{"text": _instruction_for("gemini", gemini_model)}]
+            }
+
         async with shared_client() as client:
-            response = await client.post(google_url, json=payload, timeout=30.0)
+            response = await client.post(google_url, json=outbound, timeout=30.0)
             response.raise_for_status()
             return response.json()
 
     async def _call_ollama():
-        sys_instruction = ""
-        if "systemInstruction" in payload and "parts" in payload["systemInstruction"]:
+        sys_instruction = _instruction_for("ollama", ollama_client.get_ollama_model())
+        if not sys_instruction and "systemInstruction" in payload and "parts" in payload["systemInstruction"]:
             sys_parts = payload["systemInstruction"]["parts"]
             if sys_parts and isinstance(sys_parts, list) and len(sys_parts) > 0:
                 sys_instruction = sys_parts[0].get("text", "")

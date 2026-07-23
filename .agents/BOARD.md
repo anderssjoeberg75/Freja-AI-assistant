@@ -24,6 +24,23 @@ Status: `todo · in-progress · review · blocked · done` · Priority: `P1 · P
 - Blocked by: T-004 (`POST /api/trainer/checkin` returns 500 error due to JSON parse failure in `llm_client.generate_json`).
 - DoD: run the client (port 5000), trigger a check-in, screenshot the badge showing the provider; commit & push.
 
+### [T-008] Ollama server: the model is running on the CPU, not the GPU
+- Owner: anders (server-side, 192.168.107.15)
+- Status: todo
+- Priority: P1
+- Created-by: claude
+- Measured 2026-07-23 against the live server: `/api/ps` reports `size_vram = 0.00 GB` for
+  `qwen2.5:14b` - 0 % GPU offload. Generation runs at **2.0 tok/s** and prompt evaluation at
+  **23 tok/s** (a 1226-token prompt takes 53 s to read). On the RTX 3060 the same work should
+  be ~30-40 tok/s and ~1000+ tok/s. Everything else about Ollama's speed is a rounding error
+  next to this.
+- Diagnose on the box: `nvidia-smi`, `ollama ps`,
+  `journalctl -u ollama -n 200 | grep -iE "cuda|gpu|library|rocm"`.
+- Also note `num_ctx = 12288` puts the model at 11.68 GB against a 12 GB card, so it may not
+  fit even once CUDA works. `OLLAMA_FLASH_ATTENTION=1` + `OLLAMA_KV_CACHE_TYPE=q8_0` roughly
+  halves the KV cache; dropping to 8192 is the blunt alternative. The claim in
+  `ollama_client.py` that 12288 keeps it at 100 % GPU (~10.8 GB) no longer holds.
+
 ### [T-006] Admin portal: verify the AI provider selector against the live backend
 - Owner: anders (manual step, no agent work needed)
 - Status: todo
@@ -50,6 +67,19 @@ Status: `todo · in-progress · review · blocked · done` · Priority: `P1 · P
 ## Done
 
 - **[T-001]** Unify LLM providers behind `llm_client` — DONE (commit `5358ffd`). Ollama-first, Gemini-fallback facade; trainer routes + learning_service + codex_service all route through it. `pytest -k "trainer or gemini or learning or codex"` → 74 passed.
+- **[T-007]** Freja's backend self-awareness + Ollama latency work — DONE (claude). New
+  `backend/services/system_context.py` builds one authoritative block (provider setting, each
+  provider's state and model, both hosts, integrations, allowed tools) used by both the HUD
+  chat and the Telegram bot; credentials are reported as configured/not configured only, since
+  the block goes to Google verbatim in Gemini mode. The engine that actually serves a reply is
+  now stated from inside the provider branch (`build_runtime_provider_line`) instead of guessed
+  before dispatch. Fixed in `gemini_proxy.py`: provider health read from the wrong key (both
+  engines always reported OFFLINE), the same expression making an Ollama-only setup fail with
+  HTTP 400, `freja_ollama_url` vs the real `freja_ollama_base_url`, and a `"llama3"` default that
+  contradicted the model actually called. Latency: `keep_alive=30m` (was Ollama's 5 min default,
+  costing a measured 10.7 s reload), a `num_predict` ceiling on text replies, and the provider
+  probe now shared through `llm_client.get_provider_status()` instead of two live round-trips
+  per chat turn. `pytest` → 340 passed, 3 skipped. Remaining latency work is T-008 (GPU).
 - **[T-005]** Admin portal: manual AI provider selector + reachability indicator — DONE (claude).
   New setting `freja_llm_provider` (`auto` | `ollama` | `gemini`) read by `llm_client`; `auto`
   keeps the T-003 failover, the pinned modes never silently answer from the other engine.

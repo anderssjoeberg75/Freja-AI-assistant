@@ -19,6 +19,18 @@ DEFAULT_OLLAMA_MODEL = "qwen2.5:14b"
 # structured response. Going to 16384 spills part of the model onto the CPU.
 OLLAMA_NUM_CTX = 12288
 
+# How long Ollama keeps the model resident after a request. Its own default is 5 minutes,
+# and Freja's traffic is bursty (a morning check-in, then a few chat turns), so most
+# requests were landing after the model had been evicted and paying to load it again -
+# measured at 10.7 s for qwen2.5:14b on the current server. Holding it for half an hour
+# spends idle memory on the box to take that off every request that follows a quiet spell.
+OLLAMA_KEEP_ALIVE = "30m"
+
+# Ceiling on a plain text reply. The JSON path has always passed max_tokens; the text path
+# was unbounded, so a model that decided to ramble set the worst-case wait with no limit.
+# ~800 tokens is a long chat answer, and the cap only truncates beyond that.
+DEFAULT_TEXT_MAX_TOKENS = 800
+
 
 def get_ollama_base_url() -> str:
     """Returns the configured Ollama base URL (settings key 'freja_ollama_base_url'),
@@ -90,7 +102,8 @@ async def check_health(timeout: float = 4.0) -> dict:
 
 
 async def generate_text(prompt: str, system_instruction: str = "",
-                         temperature: float = 0.2, timeout: float = 60.0) -> str:
+                         temperature: float = 0.2, timeout: float = 60.0,
+                         max_tokens: int = DEFAULT_TEXT_MAX_TOKENS) -> str:
     """Sends a single-turn prompt to the local Ollama server and returns the reply text."""
     messages = []
     if system_instruction:
@@ -101,7 +114,12 @@ async def generate_text(prompt: str, system_instruction: str = "",
         "model": get_ollama_model(),
         "messages": messages,
         "stream": False,
-        "options": {"temperature": temperature, "num_ctx": OLLAMA_NUM_CTX},
+        "keep_alive": OLLAMA_KEEP_ALIVE,
+        "options": {
+            "temperature": temperature,
+            "num_ctx": OLLAMA_NUM_CTX,
+            "num_predict": max_tokens,
+        },
     }
     url = f"{get_ollama_base_url()}/api/chat"
     async with shared_client() as client:
@@ -128,6 +146,7 @@ async def generate_json(prompt: str, schema: dict = None, system_instruction: st
         "messages": messages,
         "format": _to_json_schema(schema) if schema else "json",
         "stream": False,
+        "keep_alive": OLLAMA_KEEP_ALIVE,
         "options": {
             "temperature": temperature,
             "num_ctx": OLLAMA_NUM_CTX,
