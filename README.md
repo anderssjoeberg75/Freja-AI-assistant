@@ -405,9 +405,10 @@ reported only as *configured* / *not configured*.
 | `freja_ollama_keep_alive` | `30m` | How long Ollama keeps the model loaded. `-1` keeps it loaded forever. |
 
 **About `num_ctx`:** it decides how much VRAM the model needs, so it is the number that
-determines whether the model still fits on the GPU. `qwen2.5:14b` at Q4 needs about
-**11.7 GB at 12288 tokens**, which is already at the edge of a 12 GB card. If the server
-reports partial offload, lower it before anything else.
+determines whether the model still fits on the GPU. Measured on this project's server:
+`qwen2.5:14b` at Q4 with `num_ctx=12288` occupies **11.09 GB and stays at 100 % GPU
+offload** on a 12 GB card — it fits, but with little room to spare. If `/api/ps` ever shows
+`size_vram` well below `size` (partial offload), lower this before anything else.
 
 **About `keep_alive`:** Ollama's own default is 5 minutes. Freja's traffic is bursty — a
 morning check-in, then a few chat turns — so with the default, most requests arrive after
@@ -426,17 +427,20 @@ curl -s http://192.168.107.15:11434/api/ps
 ```
 
 `size_vram` is the number that matters. **`"size_vram": 0` means the model is running
-entirely on the CPU.** For reference, measured on this project's server while it was in
-that state, versus what the same RTX 3060 should deliver:
+entirely on the CPU.** Both columns below were measured on this project's server with
+`qwen2.5:14b`, before and after the GPU was restored — same model, same prompt, same
+request:
 
-| | CPU (`size_vram: 0`) | GPU (expected) |
-| --- | --- | --- |
-| Generation | 2.0 tokens/s | ~30–40 tokens/s |
-| Prompt reading | 23 tokens/s | ~1000+ tokens/s |
-| "Hej" with a 1226-token system prompt | **64 s** | ~2–3 s |
+| | CPU (`size_vram: 0`) | GPU (`size_vram: 11.09 GB`) | Factor |
+| --- | --- | --- | --- |
+| Generation | 2.0 tokens/s | **35.5 tokens/s** | 18× |
+| Prompt reading | 23 tokens/s | **1084 tokens/s** | 47× |
+| Reply behind a 1226-token system prompt | **64.5 s** | **1.9 s** | 35× |
 
 Note the middle row: on the CPU, every ~100 tokens of system prompt adds **~4 seconds** to
-every single answer, which is why the context block Freja gets is kept terse.
+every single answer. On the GPU the same 100 tokens cost under a tenth of a second, which
+is the difference between an assistant that can be told about its own configuration and one
+that cannot afford the tokens.
 
 If `size_vram` is 0, run the diagnostic on the Ollama host — it reads local state only and
 changes nothing:
@@ -451,6 +455,37 @@ causes are: the NVIDIA driver is missing or broke after a kernel update, Ollama 
 installed *before* the driver (re-run `curl -fsSL https://ollama.com/install.sh | sh` to
 make it pick up CUDA), or a leftover `OLLAMA_LLM_LIBRARY=cpu` / `CUDA_VISIBLE_DEVICES=` in
 the systemd unit.
+
+#### The failure this project actually hit
+
+`nvidia-smi` reported:
+
+```
+Failed to initialize NVML: Driver/library version mismatch
+NVML library version: 580.173
+```
+
+A newer driver (595) had been installed and then removed back to 580, but the **595 kernel
+module was still the one loaded in the running kernel** while userspace was already back on
+580.173. Ollama's NVML call failed, and it silently fell back to the CPU — no error
+anywhere except that one line. A reboot loaded the matching module and everything above
+went from 64.5 s to 1.9 s.
+
+Two things are worth checking *before* rebooting out of that state:
+
+```bash
+cat /proc/driver/nvidia/version
+```
+
+That prints the version of the module actually loaded — compare it with the NVML version in
+the error. Then make sure the kernel you are about to boot has a matching module package
+installed (`dpkg -l | grep linux-modules-nvidia`): a kernel whose module package shows `rc`
+(removed, config only) will come up with **no** NVIDIA module at all, which is worse than
+the mismatch. Install it first if needed:
+
+```bash
+apt install linux-modules-nvidia-580-open-$(uname -r)
+```
 
 ### Recommended server environment (12 GB card)
 

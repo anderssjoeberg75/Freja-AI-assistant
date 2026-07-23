@@ -26,9 +26,16 @@ Status: `todo · in-progress · review · blocked · done` · Priority: `P1 · P
 
 ### [T-008] Ollama server: the model is running on the CPU, not the GPU
 - Owner: anders (server-side, 192.168.107.15)
-- Status: todo
+- Status: done (2026-07-23)
 - Priority: P1
 - Created-by: claude
+- **RESOLVED.** Cause: a 595 driver had been installed and then removed back to 580, leaving
+  the 595 kernel module loaded while userspace was on 580.173 (`nvidia-smi` → "Driver/library
+  version mismatch"). Ollama's NVML call failed and it fell back to the CPU silently. Anders
+  rebooted; verified from here: `size_vram 11.09 GB = 100 % GPU`, generation 2.0 → **35.5
+  tok/s**, prompt reading 23 → **1084 tok/s**, the 1226-token benchmark 64.45 s → **1.85 s**.
+- Follow-up: `num_ctx=12288` fits fully after all (11.09 GB on a 12 GB card), so it does not
+  need lowering. Documented in the README with the measured before/after numbers.
 - Ready to run on that host: `bash scripts/diagnose-ollama.sh` (read-only; reports driver
   state, GPU device nodes, unit-file overrides and Ollama's own startup decision).
 - Ruled out from here: it is **not** a VRAM-fit problem. A 4.9 GB model at `num_ctx=2048`
