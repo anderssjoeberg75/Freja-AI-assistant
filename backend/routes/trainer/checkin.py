@@ -320,6 +320,9 @@ Rules for the briefing:
         briefing_data = await llm_client.generate_json(
             prompt_content, schema, temperature=0.3, max_tokens=1500, timeout=GEMINI_TIMEOUT_SECONDS
         )
+        # Which provider actually served this briefing (Ollama first, Gemini fallback),
+        # surfaced so the client can show an "active provider" indicator.
+        active_provider = llm_client.get_active_provider()
 
         # 10. Act on the recommendation: if the coach wants to adjust today's session
         #     and there is a workout event in the calendar, re-time it automatically.
@@ -357,6 +360,7 @@ Rules for the briefing:
             "status": "success",
             "date": today_str,
             "checkin": briefing_data,
+            "provider": active_provider,
             "has_workout_today": bool(workout_events),
             "workout_completed_yesterday": bool(strava_rows),
             "adherence": adherence,
