@@ -93,6 +93,9 @@ async def proxy_gemini_generate(
                 import logging
                 logging.getLogger("freja").warning(f"Failed to inject system info into prompt: {e}")
 
+    if not gemini_client.get_gemini_api_key() and not provider_health.get("ollama"):
+        raise HTTPException(status_code=400, detail="Gemini API key is not configured on the server.")
+
     async def _call_gemini():
         api_key = gemini_client.get_gemini_api_key()
         if not api_key:
