@@ -1384,6 +1384,47 @@ FrejaUIController.prototype.bindEvents = function () {
         }
     });
 
+    // GitHub Update & Restart button
+    const btnUpdateGithub = document.getElementById('btn-update-github');
+    if (btnUpdateGithub) {
+        btnUpdateGithub.addEventListener('click', async () => {
+            soundSynth.playClick();
+            if (!confirm("Hämta senaste koden från GitHub (git pull) och starta om Freja?")) {
+                return;
+            }
+
+            self.writeLog("HÄMTAR SENASTE KOD FRÅN GITHUB & STARTAR OM...", "sys");
+            soundSynth.playNotify();
+
+            try {
+                const token = localStorage.getItem('freja_access_token') || "";
+                const headers = { 'Content-Type': 'application/json' };
+                if (token) headers['X-Freja-Token'] = token;
+
+                const res = await fetch('/api/system/update', {
+                    method: 'POST',
+                    headers: headers
+                });
+
+                const data = await res.json();
+                if (res.ok && data.status === 'success') {
+                    self.writeLog("UPPDATERING LADDADES NER. VÄNTAR PÅ OMSTART...", "sys");
+                    soundSynth.playNotify();
+                    self.pollClientRestart();
+                } else {
+                    self.writeLog(`FEL VID UPPDATERING: ${data.message || res.statusText}`, "err");
+                    soundSynth.playError();
+                    alert("Fel vid uppdatering: " + (data.message || res.statusText));
+                }
+            } catch (err) {
+                console.error(err);
+                self.writeLog("NÄTVERKSFEL VID UPPDATERING FRÅN GITHUB", "err");
+                soundSynth.playError();
+                alert("Kunde inte kontakta servern för uppdatering.");
+            }
+        });
+    }
+
     // Open Accent Themes selector modal
     const btnThemeToggle = document.getElementById('btn-theme-toggle');
     const modalTheme = document.getElementById('modal-theme');
@@ -1955,4 +1996,30 @@ FrejaUIController.prototype.bindEvents = function () {
 
     // The PT panel's own chat box was removed - its wiring lived here. Training questions
     // go to the main chat, which now has the live program in its system prompt.
+};
+
+FrejaUIController.prototype.pollClientRestart = function() {
+    let attempts = 0;
+    const self = this;
+    const interval = setInterval(async () => {
+        attempts++;
+        try {
+            const token = localStorage.getItem('freja_access_token') || "";
+            const headers = {};
+            if (token) headers['X-Freja-Token'] = token;
+
+            const res = await fetch('/api/keys', { headers: headers });
+            if (res.ok || res.status === 401) {
+                clearInterval(interval);
+                self.writeLog("SERVERN OMSTARTAD. LADDAR OM KLIENTEN...", "sys");
+                setTimeout(() => location.reload(), 1000);
+            }
+        } catch (e) {
+            if (attempts > 35) {
+                clearInterval(interval);
+                self.writeLog("KUNDE INTE BEKRÄFTA OMSTART AUTOMATISKT. LADDA OM MANUELLT.", "warn");
+                alert("Kunde inte bekräfta omstart automatiskt. Ladda om sidan manuellt.");
+            }
+        }
+    }, 1500);
 };
