@@ -190,10 +190,20 @@ def init_db():
         ("training_readiness_feedback", "TEXT"),
     ])
 
-    # Backfill the detail-fetch marker added to garmin_activities (Issue #182).
+    # Backfill the detail-fetch marker + raw type key added to garmin_activities (#182/#183).
     _ensure_columns(cursor, "garmin_activities", [
         ("detail_fetched_at", "TEXT"),
+        ("raw_type_key", "TEXT"),
     ])
+
+    # Backfill source/activity_id added to trainer_strength_logs for Garmin auto-import
+    # (Issue #183). Existing rows have no source recorded - default them to 'manual' so
+    # nothing already logged is mistaken for a Garmin import.
+    _ensure_columns(cursor, "trainer_strength_logs", [
+        ("source", "TEXT"),
+        ("activity_id", "TEXT"),
+    ])
+    cursor.execute("UPDATE trainer_strength_logs SET source = 'manual' WHERE source IS NULL")
 
     # Backfill the baselines_updated_at column added to trainer_profile for the
     # weekly baseline auto-update (Issue #35).

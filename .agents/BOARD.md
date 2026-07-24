@@ -252,22 +252,39 @@ T-014/T-016/T-018/T-019/T-020 each add prompt content) → T-010.**
 
 ### [T-017] Auto-import Garmin strength sets into the PT strength log
 - Owner: claude
-- Status: todo
+- Status: done (2026-07-24)
 - Priority: P2
 - Created-by: anders (GitHub issue #183)
-- Files: `backend/models.py` (`TrainerStrengthLog`), `backend/routes/trainer.py` (~891, `get_recent_strength_logs`), `backend/services/garmin_exercises.py` (new)
-- Depends-on: T-016
-- Spec: `get_activity_exercise_sets(activity_id)` gives set-by-set data for strength
-  activities. Add `source` (`manual`/`garmin`) + `activity_id` columns to
-  `trainer_strength_logs` via `_ensure_columns()`; import only ever creates `source='garmin'`
-  rows, never overwrites manual ones; re-import replaces rows for that `activity_id`.
-  `backend/services/garmin_exercises.py`: bidirectional Swedish↔Garmin exercise-name table
-  (shared with #176 step 3, which needs the reverse direction) + prettifying fallback for
-  unmapped names, logged so the table can grow. Group active sets by exercise (skip `REST`
-  sets); `sets` = active-set count, `reps` = modal/median with per-set detail in `notes`
-  (e.g. `"5/5/5/3/3 @ 100kg"`), `weight` = top working weight in kg, `rpe` = NULL.
-  `get_recent_strength_logs()` dedupes manual vs Garmin for the same `(date, exercise_name)`,
-  preferring Garmin.
+- Files: `backend/models.py`, `backend/database.py`, `backend/routes/garmin.py`, `backend/routes/trainer/shared.py`, `backend/routes/trainer/profile.py`, `backend/services/garmin_exercises.py` (new), `tests/test_garmin_routes.py`, `tests/test_trainer_routes.py`
+- **DONE.** `source`/`activity_id` columns added to `trainer_strength_logs`; existing rows
+  backfilled to `source='manual'`, and the manual-entry endpoint now writes it explicitly
+  going forward. `backend/services/garmin_exercises.py`: bidirectional
+  `GARMIN_TO_SWEDISH`/`SWEDISH_TO_GARMIN` table (the second built from the first, so T-010's
+  reverse direction can never drift from this one) plus a prettifying fallback for unmapped
+  names, logged so the table can grow from what actually shows up.
+  New `raw_type_key` column on `garmin_activities` (untranslated Garmin `typeKey`, alongside
+  the Swedish-mapped `type`) so the strength-type filter doesn't have to reverse the display
+  label. `_import_garmin_strength_sets()` groups active sets by exercise (skips `REST`),
+  computing `sets` = active-set count, `reps` = modal rep count with the full per-set
+  breakdown in `notes`, `weight` = top working weight in kg, `rpe = NULL`; re-import deletes
+  and replaces only that `activity_id`'s own `source='garmin'` rows, never touching manual
+  ones. Wired into T-016's `fetch_activity_details()` for
+  `{fitness_equipment, strength_training, indoor_cardio}` activities, in its own nested
+  try/except so a failure there doesn't un-stamp the (already-succeeded) detail marker or
+  count the whole activity as failed. `get_recent_strength_logs()` now dedupes on
+  `(date, exercise_name)`, preferring the Garmin row.
+  Field-name caveat: `get_activity_exercise_sets` has no typed model in the installed
+  client — the exact key names (`exerciseSets`, `exerciseName`, `weight` in grams,
+  `setType`) are the issue's best-effort description of an undocumented endpoint, not
+  independently verified against a live account. Documented in
+  `_import_garmin_strength_sets`'s docstring; a shape mismatch degrades to "no exercises
+  imported this run" rather than failing anything.
+  8 new tests: two-exercise import with set counts; re-import idempotency; a manual row
+  survives; an unmapped name is prettified not dropped; a non-strength activity never calls
+  the sets endpoint; a strength activity does, end-to-end through the detail pass; the
+  dedup preference in `get_recent_strength_logs`. `pytest` → 382 passed, 3 skipped.
+- Handoff: **T-027 (PT-panel source badge) is now unblocked** — `source` is live on
+  `GET /api/trainer/strength/log`.
 - Handoff: T-027 (PT-panel source badge) is blocked on the `source` column existing.
 
 ### [T-018] Capture time-in-HR-zones per session
@@ -464,11 +481,12 @@ T-014/T-016/T-018/T-019/T-020 each add prompt content) → T-010.**
 
 ### [T-027] Client: PT-panel strength-log source badge (manual vs Garmin)
 - Owner: antigravity
-- Status: blocked
+- Status: todo — UNBLOCKED 2026-07-24, ready for Antigravity to run
 - Priority: P2
 - Created-by: claude (split from GitHub issue #183)
 - Files: `client/**` (PT strength-log panel)
-- Blocked by: T-017 (`source` column on `trainer_strength_logs` exposed via the strength-log API)
+- Was blocked by: T-017, now `done` — `source` (`"manual"`/`"garmin"`) is live on
+  `GET /api/trainer/strength/log`.
 - Handoff-notes: Rows now carry `source: "manual" | "garmin"`. Users should be able to tell
   which rows were auto-imported from the watch vs typed by hand.
 - ▶ Antigravity prompt: "In the PT strength-log panel, add a small badge/icon on each row

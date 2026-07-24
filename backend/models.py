@@ -95,6 +95,10 @@ class GarminActivity(Base):
     training_load = Column(Float)
     aerobic_te = Column(Float)
     anaerobic_te = Column(Float)
+    # Untranslated Garmin activityType.typeKey (e.g. 'fitness_equipment'), kept alongside the
+    # Swedish-mapped `type` above so downstream consumers (Issue #183's strength-type filter)
+    # don't have to reverse-map the display label back to Garmin's taxonomy.
+    raw_type_key = Column(String)
     # Nullable marker (Issue #182): NULL means detail has not been fetched yet. A completed
     # activity is immutable, so detail only needs fetching once per activity_id, ever - the
     # detail pass selects rows where this is NULL, and a failed fetch simply leaves it NULL
@@ -240,3 +244,8 @@ class TrainerStrengthLog(Base):
     notes = Column(String)
     plan_id = Column(Integer)      # source plan, nullable
     created_at = Column(String)
+    # Issue #183: auto-imported Garmin sets vs hand-typed rows. Import only ever writes
+    # source='garmin' rows and never overwrites a manual one; existing rows default to
+    # 'manual' via _ensure_columns so nothing already logged changes meaning.
+    source = Column(String, default='manual')
+    activity_id = Column(String)   # the Garmin activity this row was imported from, nullable

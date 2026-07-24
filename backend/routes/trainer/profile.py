@@ -195,8 +195,8 @@ async def add_strength_log(request: Request):
             cursor = conn.cursor()
             cursor.execute(
                 '''INSERT INTO trainer_strength_logs
-                   (date, exercise_name, sets, reps, weight, rpe, notes, plan_id, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                   (date, exercise_name, sets, reps, weight, rpe, notes, plan_id, created_at, source)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual')''',
                 (date_str, name, sets, reps, weight, rpe, notes, plan_id, now_str)
             )
             conn.commit()

@@ -1446,6 +1446,217 @@ def test_fetch_activity_details_since_date_filter_excludes_older_activities():
     assert result["fetched"] == 1
 
 
+def test_strength_sets_import_two_exercises_excludes_rest():
+    """A two-exercise strength activity must produce two trainer_strength_logs rows with
+    correct set counts, with REST sets excluded (#183)."""
+    from backend.database import get_db_connection
+    from backend.routes.garmin import _import_garmin_strength_sets
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM trainer_strength_logs WHERE activity_id = ?", ('t183-act1',))
+        conn.commit()
+
+    payload = {
+        'exerciseSets': [
+            {'exerciseName': 'BARBELL_BACK_SQUAT', 'repetitionCount': 5, 'weight': 100000, 'setType': 'ACTIVE'},
+            {'exerciseName': 'BARBELL_BACK_SQUAT', 'repetitionCount': 5, 'weight': 100000, 'setType': 'ACTIVE'},
+            {'exerciseName': None, 'setType': 'REST'},
+            {'exerciseName': 'BENCH_PRESS', 'repetitionCount': 8, 'weight': 60000, 'setType': 'ACTIVE'},
+        ]
+    }
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        imported = _import_garmin_strength_sets(cursor, 't183-act1', '2026-03-01', payload)
+        conn.commit()
+
+    assert imported == 2
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT exercise_name, sets, reps, weight, source, activity_id FROM trainer_strength_logs "
+            "WHERE activity_id = ? ORDER BY exercise_name",
+            ('t183-act1',)
+        )
+        rows = {r[0]: r for r in cursor.fetchall()}
+
+    assert rows['Knäböj'] == ('Knäböj', 2, 5, 100.0, 'garmin', 't183-act1')
+    assert rows['Bänkpress'] == ('Bänkpress', 1, 8, 60.0, 'garmin', 't183-act1')
+
+
+def test_strength_sets_reimport_is_idempotent():
+    """Re-importing the same activity must replace its rows, not duplicate them (#183)."""
+    from backend.database import get_db_connection
+    from backend.routes.garmin import _import_garmin_strength_sets
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM trainer_strength_logs WHERE activity_id = ?", ('t183-act2',))
+        conn.commit()
+
+    payload = {'exerciseSets': [
+        {'exerciseName': 'DEADLIFT', 'repetitionCount': 5, 'weight': 120000, 'setType': 'ACTIVE'}
+    ]}
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        _import_garmin_strength_sets(cursor, 't183-act2', '2026-03-02', payload)
+        _import_garmin_strength_sets(cursor, 't183-act2', '2026-03-02', payload)
+        conn.commit()
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT COUNT(*) FROM trainer_strength_logs WHERE activity_id = ?", ('t183-act2',)
+        )
+        count = cursor.fetchone()[0]
+
+    assert count == 1
+
+
+def test_strength_sets_import_does_not_touch_manual_rows():
+    """A manual row must survive a Garmin import for a different activity on the same
+    date (#183)."""
+    import datetime
+    from backend.database import get_db_connection
+    from backend.routes.garmin import _import_garmin_strength_sets
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "DELETE FROM trainer_strength_logs WHERE date = ? AND exercise_name = ?",
+            ('2026-03-03', 'Knäböj (manuell)')
+        )
+        cursor.execute(
+            "INSERT INTO trainer_strength_logs (date, exercise_name, sets, reps, weight, created_at, source) "
+            "VALUES (?, ?, ?, ?, ?, ?, 'manual')",
+            ('2026-03-03', 'Knäböj (manuell)', 3, 5, 90.0, datetime.datetime.now().isoformat())
+        )
+        conn.commit()
+
+    payload = {'exerciseSets': [
+        {'exerciseName': 'BENCH_PRESS', 'repetitionCount': 5, 'weight': 60000, 'setType': 'ACTIVE'}
+    ]}
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        _import_garmin_strength_sets(cursor, 't183-act3', '2026-03-03', payload)
+        conn.commit()
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT sets, source FROM trainer_strength_logs WHERE date = ? AND exercise_name = ?",
+            ('2026-03-03', 'Knäböj (manuell)')
+        )
+        manual_row = cursor.fetchone()
+
+    assert manual_row == (3, 'manual')
+
+
+def test_strength_sets_unmapped_exercise_name_is_prettified_not_dropped():
+    """An unmapped Garmin exercise name must still be stored, prettified rather than
+    lost (#183)."""
+    from backend.database import get_db_connection
+    from backend.routes.garmin import _import_garmin_strength_sets
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM trainer_strength_logs WHERE activity_id = ?", ('t183-act4',))
+        conn.commit()
+
+    payload = {'exerciseSets': [
+        {'exerciseName': 'CABLE_FLY', 'repetitionCount': 12, 'weight': 15000, 'setType': 'ACTIVE'}
+    ]}
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        _import_garmin_strength_sets(cursor, 't183-act4', '2026-03-04', payload)
+        conn.commit()
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT exercise_name FROM trainer_strength_logs WHERE activity_id = ?", ('t183-act4',)
+        )
+        name = cursor.fetchone()[0]
+
+    assert name == 'Cable fly'
+
+
+def test_non_strength_activity_does_not_fetch_exercise_sets():
+    """A run must not trigger get_activity_exercise_sets - no point calling it (#183)."""
+    from backend.database import get_db_connection
+    from backend.routes.garmin import fetch_activity_details
+
+    _clear_garmin_activities_and_detail()
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO garmin_activities (activity_id, date, start_time_local, type, raw_type_key, duration_minutes) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            ('t183-run', '2026-03-05', '2026-03-05 07:00:00', 'Löpning', 'running', 30.0)
+        )
+        conn.commit()
+
+    exercise_set_calls = []
+
+    class FakeClient:
+        def get_activity(self, activity_id):
+            return {'summaryDTO': {}}
+        def get_activity_exercise_sets(self, activity_id):
+            exercise_set_calls.append(activity_id)
+            return {'exerciseSets': []}
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        fetch_activity_details(FakeClient(), cursor)
+        conn.commit()
+
+    assert exercise_set_calls == []
+
+
+def test_strength_activity_triggers_exercise_sets_fetch_via_detail_pass():
+    """A strength-type activity must trigger get_activity_exercise_sets in the same detail
+    pass, and the resulting sets must land in trainer_strength_logs (#183)."""
+    from backend.database import get_db_connection
+    from backend.routes.garmin import fetch_activity_details
+
+    _clear_garmin_activities_and_detail()
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM trainer_strength_logs WHERE activity_id = ?", ('t183-strength',))
+        cursor.execute(
+            "INSERT INTO garmin_activities (activity_id, date, start_time_local, type, raw_type_key, duration_minutes) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            ('t183-strength', '2026-03-06', '2026-03-06 18:00:00', 'Styrketräning', 'fitness_equipment', 50.0)
+        )
+        conn.commit()
+
+    class FakeClient:
+        def get_activity(self, activity_id):
+            return {'summaryDTO': {}}
+        def get_activity_exercise_sets(self, activity_id):
+            return {'exerciseSets': [
+                {'exerciseName': 'SQUAT', 'repetitionCount': 5, 'weight': 80000, 'setType': 'ACTIVE'}
+            ]}
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        fetch_activity_details(FakeClient(), cursor)
+        conn.commit()
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT exercise_name, weight FROM trainer_strength_logs WHERE activity_id = ?",
+            ('t183-strength',)
+        )
+        row = cursor.fetchone()
+
+    assert row == ('Knäböj', 80.0)
+
+
 def test_backfill_detail_endpoint_requires_credentials(auth_headers):
     from backend.database import set_api_key
     set_api_key('freja_garmin_email', '')

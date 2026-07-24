@@ -1265,3 +1265,36 @@ def test_onboarding_profile_coercion_rejects_junk():
     assert "baseline_resting_hr" not in coerced
     assert coerced["baseline_hrv"] == 46.3
     assert coerced["location"] == "Stockholm"
+
+
+def test_recent_strength_logs_prefers_garmin_over_manual_duplicate():
+    """The same session logged both manually and imported from Garmin must appear once in
+    get_recent_strength_logs, preferring the Garmin row as the more accurate record (#183)."""
+    import datetime
+    from backend.routes.trainer.shared import get_recent_strength_logs
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "DELETE FROM trainer_strength_logs WHERE date = ? AND exercise_name = ?",
+            ('2026-04-01', 'Marklyft')
+        )
+        now_str = datetime.datetime.now().isoformat()
+        cursor.execute(
+            "INSERT INTO trainer_strength_logs (date, exercise_name, sets, reps, weight, created_at, source) "
+            "VALUES (?, ?, ?, ?, ?, ?, 'manual')",
+            ('2026-04-01', 'Marklyft', 3, 5, 100.0, now_str)
+        )
+        cursor.execute(
+            "INSERT INTO trainer_strength_logs (date, exercise_name, sets, reps, weight, created_at, source, activity_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, 'garmin', ?)",
+            ('2026-04-01', 'Marklyft', 4, 5, 105.0, now_str, 't183-dedup')
+        )
+        conn.commit()
+
+    logs = get_recent_strength_logs(limit=100)
+    matching = [l for l in logs if l['date'] == '2026-04-01' and l['exercise_name'] == 'Marklyft']
+
+    assert len(matching) == 1
+    assert matching[0]['source'] == 'garmin'
+    assert matching[0]['sets'] == 4

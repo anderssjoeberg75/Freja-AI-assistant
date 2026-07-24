@@ -349,23 +349,43 @@ MAX_STRENGTH_LOGS = 200  # Hard cap on rows a single list request may return
 
 
 def get_recent_strength_logs(limit: int = 40) -> list:
-    """Returns the most recent logged strength sets, newest first, as dicts."""
+    """Returns the most recent logged strength sets, newest first, as dicts.
+
+    Deduped on (date, exercise_name): if the same session was both logged by hand and
+    auto-imported from Garmin (Issue #183), the Garmin row wins as the more accurate record
+    and the manual duplicate is dropped, so the coach doesn't see the session twice."""
     limit = max(1, min(int(limit or 40), MAX_STRENGTH_LOGS))
     with get_db_connection() as conn:
         conn.row_factory = _dict_row
         cursor = conn.cursor()
         try:
+            # Over-fetch before deduping, since a duplicate pair collapses to one row;
+            # MAX_STRENGTH_LOGS caps how far this can grow on a single call.
+            fetch_limit = min(limit * 2, MAX_STRENGTH_LOGS)
             cursor.execute(
-                '''SELECT id, date, exercise_name, sets, reps, weight, rpe, notes, plan_id, created_at
+                '''SELECT id, date, exercise_name, sets, reps, weight, rpe, notes, plan_id,
+                          created_at, source, activity_id
                    FROM trainer_strength_logs
                    ORDER BY date DESC, id DESC
                    LIMIT ?''',
-                (limit,)
+                (fetch_limit,)
             )
-            return [dict(r) for r in cursor.fetchall()]
+            rows = [dict(r) for r in cursor.fetchall()]
         except Exception as e:
             print(f"[TRAINER STRENGTH] Error reading strength logs: {e}")
             return []
+
+    by_key: dict = {}
+    ordered_keys = []
+    for row in rows:
+        key = (row.get("date"), (row.get("exercise_name") or "").strip().lower())
+        existing = by_key.get(key)
+        if existing is None:
+            by_key[key] = row
+            ordered_keys.append(key)
+        elif existing.get("source") != "garmin" and row.get("source") == "garmin":
+            by_key[key] = row
+    return [by_key[k] for k in ordered_keys][:limit]
 
 
 def format_recent_strength_logs(limit: int = 40) -> str:

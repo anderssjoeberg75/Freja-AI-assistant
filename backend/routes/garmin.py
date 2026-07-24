@@ -148,12 +148,14 @@ def _upsert_garmin_activities(cursor, activities):
         start_time_local = act.get('startTimeLocal') or ''
         if activity_id is None or not start_time_local:
             continue
-        act_type = _map_garmin_type((act.get('activityType', {}) or {}).get('typeKey'))
+        raw_type_key = (act.get('activityType', {}) or {}).get('typeKey')
+        act_type = _map_garmin_type(raw_type_key)
         cursor.execute('''
             INSERT INTO garmin_activities (
                 activity_id, date, start_time_local, type, name, duration_minutes,
-                distance_m, avg_hr, max_hr, calories, training_load, aerobic_te, anaerobic_te
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                distance_m, avg_hr, max_hr, calories, training_load, aerobic_te, anaerobic_te,
+                raw_type_key
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(activity_id) DO UPDATE SET
                 date = excluded.date,
                 start_time_local = excluded.start_time_local,
@@ -166,14 +168,15 @@ def _upsert_garmin_activities(cursor, activities):
                 calories = excluded.calories,
                 training_load = excluded.training_load,
                 aerobic_te = excluded.aerobic_te,
-                anaerobic_te = excluded.anaerobic_te
+                anaerobic_te = excluded.anaerobic_te,
+                raw_type_key = excluded.raw_type_key
         ''', (
             str(activity_id), start_time_local[:10], start_time_local, act_type,
             act.get('activityName'),
             round((act.get('duration') or 0) / 60.0, 1),
             act.get('distance'), act.get('averageHR'), act.get('maxHR'), act.get('calories'),
             act.get('activityTrainingLoad'), act.get('aerobicTrainingEffect'),
-            act.get('anaerobicTrainingEffect'),
+            act.get('anaerobicTrainingEffect'), raw_type_key,
         ))
 
 
@@ -182,6 +185,69 @@ DETAIL_FETCH_CAP = 10   # activities per sync run (Issue #182)
 # this date. A fresh install does not silently vacuum a multi-year history the moment this
 # ships - that's what POST /api/garmin/activities/backfill-detail is for.
 DETAIL_FETCH_SHIP_DATE = "2026-07-24"
+
+# Garmin activity types that can carry a strength-set breakdown (Issue #183) - no point
+# calling get_activity_exercise_sets for a run.
+STRENGTH_ACTIVITY_TYPE_KEYS = {'fitness_equipment', 'strength_training', 'indoor_cardio'}
+
+
+def _import_garmin_strength_sets(cursor, activity_id, activity_date, exercise_sets_payload):
+    """Groups active sets by exercise and (re-)imports them into trainer_strength_logs for
+    this activity_id (Issue #183). Re-import replaces only this activity's own `source =
+    'garmin'` rows - manual rows on the same day are never touched. Returns the count of
+    exercises imported.
+
+    Field-name note: `get_activity_exercise_sets` has no typed model in the installed
+    client, so the exact key names here (`exerciseSets`, `exerciseName`, `weight` in grams,
+    `setType`) are the issue's best-effort description of an undocumented endpoint, not
+    independently verified against a live account. Wrapped in the caller's per-activity
+    try/except, so a shape mismatch degrades to "no exercises imported this run" rather than
+    failing the whole detail pass."""
+    from backend.services.garmin_exercises import garmin_to_swedish
+
+    sets = (exercise_sets_payload or {}).get('exerciseSets') or []
+    by_exercise: dict = {}
+    for s in sets:
+        if not isinstance(s, dict) or (s.get('setType') or '').upper() == 'REST':
+            continue
+        raw_name = s.get('exerciseName') or s.get('category') or ''
+        entry = by_exercise.setdefault(raw_name, {'reps': [], 'weights_kg': []})
+        reps = s.get('repetitionCount')
+        if isinstance(reps, (int, float)):
+            entry['reps'].append(int(reps))
+        weight_g = s.get('weight')
+        if isinstance(weight_g, (int, float)) and weight_g > 0:
+            entry['weights_kg'].append(weight_g / 1000.0)
+
+    if not by_exercise:
+        return 0
+
+    cursor.execute(
+        "DELETE FROM trainer_strength_logs WHERE activity_id = ? AND source = 'garmin'",
+        (str(activity_id),)
+    )
+    now_str = datetime.datetime.now().isoformat()
+    imported = 0
+    for raw_name, data in by_exercise.items():
+        if not data['reps'] and not data['weights_kg']:
+            continue
+        swedish_name = garmin_to_swedish(raw_name)
+        set_count = len(data['reps']) or len(data['weights_kg'])
+        # Modal rep count is more representative of "what was actually done" than an
+        # average across sets that may include a lighter warm-up set; the full per-set
+        # breakdown goes into notes instead of being lost to that single number.
+        modal_reps = max(set(data['reps']), key=data['reps'].count) if data['reps'] else None
+        top_weight = round(max(data['weights_kg']), 1) if data['weights_kg'] else None
+        reps_str = "/".join(str(r) for r in data['reps']) if data['reps'] else None
+        notes = f"{reps_str} @ {top_weight}kg" if reps_str and top_weight is not None else reps_str
+        cursor.execute(
+            '''INSERT INTO trainer_strength_logs
+               (date, exercise_name, sets, reps, weight, rpe, notes, plan_id, created_at, source, activity_id)
+               VALUES (?, ?, ?, ?, ?, NULL, ?, NULL, ?, 'garmin', ?)''',
+            (activity_date, swedish_name, set_count, modal_reps, top_weight, notes, now_str, str(activity_id))
+        )
+        imported += 1
+    return imported
 
 
 def fetch_activity_details(client, cursor, limit=DETAIL_FETCH_CAP, since_date=None):
@@ -194,20 +260,22 @@ def fetch_activity_details(client, cursor, limit=DETAIL_FETCH_CAP, since_date=No
     run retries it, and one malformed activity cannot abort the pass for the others.
     `since_date` (`'YYYY-MM-DD'`) narrows the automatic per-sync pass to recent activities;
     the manual backfill endpoint omits it to reach the full history.
+    Strength-type activities (Issue #183) also get their exercise sets imported into
+    `trainer_strength_logs` in the same pass, sharing the same once-ever marker.
     Returns `{"fetched": N, "failed": N, "remaining": N}` - `remaining` lets the caller log
     a deferred count rather than a capped pass silently reading as complete."""
-    query = "SELECT activity_id FROM garmin_activities WHERE detail_fetched_at IS NULL"
+    query = "SELECT activity_id, date, raw_type_key FROM garmin_activities WHERE detail_fetched_at IS NULL"
     params = []
     if since_date:
         query += " AND date >= ?"
         params.append(since_date)
     query += " ORDER BY date ASC"
     cursor.execute(query, params)
-    pending = [row[0] for row in cursor.fetchall()]
+    pending = cursor.fetchall()
 
     fetched, failed = 0, 0
     now_str = datetime.datetime.now().isoformat()
-    for activity_id in pending[:limit]:
+    for activity_id, activity_date, raw_type_key in pending[:limit]:
         try:
             detail = client.get_activity(activity_id) or {}
             summary = detail.get('summaryDTO') or {}
@@ -252,6 +320,20 @@ def fetch_activity_details(client, cursor, limit=DETAIL_FETCH_CAP, since_date=No
                 "UPDATE garmin_activities SET detail_fetched_at = ? WHERE activity_id = ?",
                 (now_str, str(activity_id))
             )
+
+            # Own try/except: the activity summary above already succeeded and its marker is
+            # stamped, so a failure here (an endpoint this codebase cannot verify live - see
+            # _import_garmin_strength_sets' docstring) must not un-stamp it or count this
+            # activity as failed; it just means these sets are not retried automatically -
+            # POST /api/garmin/activities/backfill-detail still can be, once the shape is
+            # confirmed and the parser fixed if needed.
+            if (raw_type_key or '') in STRENGTH_ACTIVITY_TYPE_KEYS:
+                try:
+                    exercise_sets = client.get_activity_exercise_sets(activity_id)
+                    _import_garmin_strength_sets(cursor, activity_id, activity_date, exercise_sets)
+                except Exception as strength_err:
+                    print(f"[Garmin Sync] Error importing strength sets for {activity_id}: {strength_err}")
+
             fetched += 1
         except Exception as detail_err:
             print(f"[Garmin Sync] Error fetching activity detail for {activity_id}: {detail_err}")
