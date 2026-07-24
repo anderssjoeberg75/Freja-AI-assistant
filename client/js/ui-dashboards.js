@@ -492,7 +492,13 @@ FrejaUIController.prototype.loadWeeklyWorkoutsUI = async function () {
                 </div>
                 <div style="font-weight: bold; font-size: 12px; color: var(--color-text-bright); font-family: var(--font-display);">${evt.summary}</div>
                 ${descHtml}
+                <div class="workout-laps-slot" data-activity-id="${evt.activity_id || ''}"></div>
             `;
+
+            const lapsSlot = card.querySelector('.workout-laps-slot');
+            if (evt.activity_id && lapsSlot) {
+                this.loadActivityLaps(evt.activity_id, lapsSlot);
+            }
             
             weeklyWorkoutsList.appendChild(card);
         });
@@ -500,6 +506,92 @@ FrejaUIController.prototype.loadWeeklyWorkoutsUI = async function () {
     } catch (e) {
         console.error("[TRAINER] Weekly workouts load error:", e);
         weeklyWorkoutsList.innerHTML = '<div style="color: #ff3b30; text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[ERROR FETCHING WEEKLY WORKOUTS]</div>';
+    }
+};
+
+FrejaUIController.prototype.renderActivityLapsTable = function (laps) {
+    if (!laps || !Array.isArray(laps) || laps.length === 0) {
+        return ''; // Hide table if no laps
+    }
+
+    const formatPace = (speedMs) => {
+        if (!speedMs || speedMs <= 0) return '–';
+        const totalSecs = Math.round(1000 / speedMs);
+        const mins = Math.floor(totalSecs / 60);
+        const secs = totalSecs % 60;
+        return `${mins}:${secs < 10 ? '0' : ''}${secs} /km`;
+    };
+
+    const formatDuration = (secs) => {
+        if (!secs || secs <= 0) return '–';
+        const mins = Math.floor(secs / 60);
+        const s = Math.round(secs % 60);
+        return `${mins}:${s < 10 ? '0' : ''}${s}`;
+    };
+
+    const formatDistance = (m) => {
+        if (!m || m <= 0) return '–';
+        if (m >= 1000) return `${(m / 1000).toFixed(2)} km`;
+        return `${Math.round(m)} m`;
+    };
+
+    const rowsHtml = laps.map(lap => {
+        const intensity = (lap.intensity_type || 'ACTIVE').toUpperCase();
+        let intensityColor = 'var(--color-primary)';
+        if (intensity === 'REST') intensityColor = 'var(--color-text-muted)';
+        else if (intensity === 'WARMUP' || intensity === 'COOLDOWN') intensityColor = '#ffb020';
+
+        return `
+            <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.05); font-size: 11px; font-family: var(--font-mono);">
+                <td style="padding: 4px 8px; text-align: center; color: var(--color-primary); font-weight: bold;">#${lap.lap_index}</td>
+                <td style="padding: 4px 8px; text-align: right; color: var(--color-text-bright);">${formatDistance(lap.distance_m)}</td>
+                <td style="padding: 4px 8px; text-align: right; color: var(--color-text-bright);">${formatDuration(lap.duration_s)}</td>
+                <td style="padding: 4px 8px; text-align: right; color: var(--color-text-bright);">${formatPace(lap.avg_speed)}</td>
+                <td style="padding: 4px 8px; text-align: right; color: var(--color-text-bright);">${lap.avg_hr ? lap.avg_hr + ' bpm' : '–'}</td>
+                <td style="padding: 4px 8px; text-align: center;">
+                    <span style="font-size: 9px; padding: 1px 5px; border-radius: 3px; background: rgba(255,255,255,0.05); border: 1px solid ${intensityColor}; color: ${intensityColor};">${intensity}</span>
+                </td>
+            </tr>
+        `;
+    }).join('');
+
+    return `
+        <div class="activity-laps-container" style="margin-top: 10px; background: rgba(0, 0, 0, 0.3); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px;">
+            <div style="font-family: var(--font-display); font-size: 10px; color: var(--color-primary); letter-spacing: 0.5px; margin-bottom: 8px; display: flex; align-items: center; gap: 5px;">
+                <i class="fa-solid fa-list-ol"></i> LAP SPLITS / INTERVALLER (${laps.length} varv)
+            </div>
+            <table style="width: 100%; border-collapse: collapse;">
+                <thead>
+                    <tr style="border-bottom: 1px solid var(--color-border); font-family: var(--font-display); font-size: 9px; color: var(--color-text-muted); text-transform: uppercase;">
+                        <th style="padding: 4px 8px; text-align: center;">Lap #</th>
+                        <th style="padding: 4px 8px; text-align: right;">Distance</th>
+                        <th style="padding: 4px 8px; text-align: right;">Duration</th>
+                        <th style="padding: 4px 8px; text-align: right;">Pace</th>
+                        <th style="padding: 4px 8px; text-align: right;">Avg HR</th>
+                        <th style="padding: 4px 8px; text-align: center;">Intensity</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${rowsHtml}
+                </tbody>
+            </table>
+        </div>
+    `;
+};
+
+FrejaUIController.prototype.loadActivityLaps = async function (activityId, targetContainer) {
+    if (!activityId || !targetContainer) return;
+    try {
+        const res = await fetch(`/api/garmin/activities/${activityId}/laps`);
+        if (!res.ok) {
+            targetContainer.innerHTML = '';
+            return;
+        }
+        const laps = await res.json();
+        targetContainer.innerHTML = this.renderActivityLapsTable(laps);
+    } catch (e) {
+        console.warn(`[LAPS] Error loading laps for activity ${activityId}:`, e);
+        targetContainer.innerHTML = '';
     }
 };
 
