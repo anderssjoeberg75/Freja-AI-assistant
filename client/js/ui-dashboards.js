@@ -168,6 +168,7 @@ FrejaUIController.prototype.loadTrainerDashboardUI = async function () {
         const plans = await res.json();
         if (plans.length === 0) {
             trainerList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[NO PREVIOUS PLANS FOUND]</div>';
+            this.restoreCachedTrainerCheckinBriefing();
             return;
         }
 
@@ -248,9 +249,25 @@ FrejaUIController.prototype.loadTrainerDashboardUI = async function () {
 
             trainerList.appendChild(item);
         });
+
+        this.restoreCachedTrainerCheckinBriefing();
     } catch (e) {
         console.error("[TRAINER] UI load error:", e);
         trainerList.innerHTML = '<div style="color: #ff3b30; text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[ERROR FETCHING HISTORY]</div>';
+        this.restoreCachedTrainerCheckinBriefing();
+    }
+};
+
+FrejaUIController.prototype.restoreCachedTrainerCheckinBriefing = function () {
+    try {
+        const raw = localStorage.getItem('freja_latest_checkin_data');
+        if (!raw) return;
+        const data = JSON.parse(raw);
+        if (data && typeof data === 'object') {
+            this.renderTrainerCheckinBriefing(data);
+        }
+    } catch (e) {
+        console.warn("[TRAINER] Could not restore cached check-in briefing:", e);
     }
 };
 
@@ -700,6 +717,12 @@ FrejaUIController.prototype.renderTrainerCheckinError = function (message) {
 // feedback is what the user sees first after a check-in.
 FrejaUIController.prototype.renderTrainerCheckinBriefing = function (data) {
     if (!data) return;
+
+    try {
+        localStorage.setItem('freja_latest_checkin_data', JSON.stringify(data));
+    } catch (err) {
+        console.warn("[TRAINER] Could not cache latest check-in briefing in localStorage:", err);
+    }
 
     const c = data.checkin || {};
     // The backend fills 'briefing' with a finished markdown text; fall back to
