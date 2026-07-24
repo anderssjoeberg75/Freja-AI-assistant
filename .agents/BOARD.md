@@ -539,7 +539,7 @@ T-014/T-016/T-018/T-019/T-020 each add prompt content) → T-010.**
 
 ### [T-027] Client: PT-panel strength-log source badge (manual vs Garmin)
 - Owner: antigravity
-- Status: todo — UNBLOCKED 2026-07-24, ready for Antigravity to run
+- Status: done (2026-07-24)
 - Priority: P2
 - Created-by: claude (split from GitHub issue #183)
 - Files: `client/**` (PT strength-log panel)

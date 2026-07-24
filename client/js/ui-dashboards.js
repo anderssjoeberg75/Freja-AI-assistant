@@ -787,10 +787,16 @@ FrejaUIController.prototype.loadStrengthLogsUI = async function () {
 
             const load = log.weight ? `${log.weight} kg` : 'kroppsvikt';
             const rpe = log.rpe ? `, RPE ${log.rpe}` : '';
+            const isGarmin = (log.source || '').toLowerCase() === 'garmin';
+            const sourceBadge = isGarmin
+                ? `<span title="Importerat från Garmin" style="font-size: 9px; color: var(--color-primary); background: rgba(0, 242, 254, 0.12); border: 1px solid rgba(0, 242, 254, 0.3); border-radius: 3px; padding: 1px 4px; margin-left: 6px; display: inline-flex; align-items: center; gap: 3px;"><i class="fa-solid fa-stopwatch"></i> Garmin</span>`
+                : `<span title="Manuell registrering" style="font-size: 9px; color: var(--color-text-muted); background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 3px; padding: 1px 4px; margin-left: 6px; display: inline-flex; align-items: center; gap: 3px;"><i class="fa-solid fa-keyboard"></i> Manuell</span>`;
+
             row.innerHTML = `
-                <span style="color: var(--color-text-bright);">
+                <span style="color: var(--color-text-bright); display: flex; align-items: center; flex-wrap: wrap; gap: 2px;">
                     <span style="color: var(--color-primary);">${log.date}</span>
-                    ${log.exercise_name}: ${log.sets || 0}×${log.reps || 0} @ ${load}${rpe}
+                    <strong style="margin-left: 4px;">${this.escapeHTML(log.exercise_name)}</strong>: ${log.sets || 0}×${log.reps || 0} @ ${load}${rpe}
+                    ${sourceBadge}
                 </span>
                 <button class="strength-delete-btn" data-id="${log.id}" title="Delete" style="background: transparent; border: none; color: #ff3b30; cursor: pointer; padding: 2px 4px;">
                     <i class="fa-solid fa-trash-can"></i>
