@@ -152,6 +152,7 @@ FrejaUIController.prototype.loadTrainerDashboardUI = async function () {
     // Injury/pain log and the trend & adherence charts.
     this.loadInjuryLogUI();
     this.loadTrainerTrendsUI();
+    this.loadGarminBenchmarksUI();
     // Populate weekly workouts list
     this.loadWeeklyWorkoutsUI();
 
@@ -1005,6 +1006,132 @@ FrejaUIController.prototype.loadInjuryLogUI = async function () {
     } catch (e) {
         console.error('[TRAINER] Injury log load error:', e);
         list.innerHTML = '<div style="color: #ff3b30; font-family: var(--font-mono); font-size: 11px; padding: 6px;">[ERROR LOADING INJURY LOG]</div>';
+    }
+};
+
+FrejaUIController.prototype.loadGarminBenchmarksUI = async function () {
+    const container = document.getElementById('trainer-benchmarks-container');
+    if (!container) return;
+
+    try {
+        const res = await fetch('/api/garmin/benchmarks');
+        if (!res.ok) {
+            container.style.display = 'none';
+            return;
+        }
+        const data = await res.json();
+        if (!data || typeof data !== 'object' || Object.keys(data).length === 0) {
+            container.style.display = 'none';
+            return;
+        }
+
+        const items = [];
+
+        // Threshold (combine pace and HR if present)
+        const paceObj = data.lactate_threshold_pace;
+        const hrObj = data.lactate_threshold_hr;
+        if (paceObj || hrObj) {
+            const paceStr = paceObj && paceObj.value ? `${paceObj.value} ${paceObj.unit || 'min/km'}` : null;
+            const hrStr = hrObj && hrObj.value ? `${hrObj.value} ${hrObj.unit || 'bpm'}` : null;
+            const combined = [paceStr, hrStr].filter(Boolean).join(' · ');
+            if (combined) {
+                items.push(`
+                    <div style="background: rgba(0, 242, 254, 0.05); border: 1px solid rgba(0, 242, 254, 0.2); border-radius: 4px; padding: 6px 10px; display: flex; flex-direction: column; gap: 2px;">
+                        <span style="font-size: 9px; color: var(--color-primary); font-family: var(--font-display); letter-spacing: 0.5px;">THRESHOLD</span>
+                        <span style="font-size: 13px; font-weight: bold; color: var(--color-text-bright); font-family: var(--font-mono);">${this.escapeHTML(combined)}</span>
+                    </div>
+                `);
+            }
+        }
+
+        // Endurance score
+        if (data.endurance_score && data.endurance_score.value) {
+            const obj = data.endurance_score;
+            items.push(`
+                <div style="background: rgba(0, 242, 254, 0.05); border: 1px solid rgba(0, 242, 254, 0.2); border-radius: 4px; padding: 6px 10px; display: flex; flex-direction: column; gap: 2px;">
+                    <span style="font-size: 9px; color: var(--color-primary); font-family: var(--font-display); letter-spacing: 0.5px;">ENDURANCE SCORE</span>
+                    <span style="font-size: 13px; font-weight: bold; color: var(--color-text-bright); font-family: var(--font-mono);">${this.escapeHTML(String(obj.value))} ${this.escapeHTML(obj.unit || '')}</span>
+                </div>
+            `);
+        }
+
+        // Hill score
+        if (data.hill_score && data.hill_score.value) {
+            const obj = data.hill_score;
+            items.push(`
+                <div style="background: rgba(0, 242, 254, 0.05); border: 1px solid rgba(0, 242, 254, 0.2); border-radius: 4px; padding: 6px 10px; display: flex; flex-direction: column; gap: 2px;">
+                    <span style="font-size: 9px; color: var(--color-primary); font-family: var(--font-display); letter-spacing: 0.5px;">HILL SCORE</span>
+                    <span style="font-size: 13px; font-weight: bold; color: var(--color-text-bright); font-family: var(--font-mono);">${this.escapeHTML(String(obj.value))} ${this.escapeHTML(obj.unit || '')}</span>
+                </div>
+            `);
+        }
+
+        // Fitness age
+        if (data.fitness_age && data.fitness_age.value) {
+            const obj = data.fitness_age;
+            items.push(`
+                <div style="background: rgba(0, 242, 254, 0.05); border: 1px solid rgba(0, 242, 254, 0.2); border-radius: 4px; padding: 6px 10px; display: flex; flex-direction: column; gap: 2px;">
+                    <span style="font-size: 9px; color: var(--color-primary); font-family: var(--font-display); letter-spacing: 0.5px;">FITNESS AGE</span>
+                    <span style="font-size: 13px; font-weight: bold; color: var(--color-text-bright); font-family: var(--font-mono);">${this.escapeHTML(String(obj.value))} ${this.escapeHTML(obj.unit || 'år')}</span>
+                </div>
+            `);
+        }
+
+        // Render generic JSON keys (race_predictions_json, personal_records_json, running_tolerance_latest_json, etc.)
+        const jsonBlocks = [];
+        const jsonKeyTitles = {
+            'race_predictions_json': 'RACE PREDICTIONS',
+            'personal_records_json': 'PERSONAL RECORDS',
+            'running_tolerance_latest_json': 'RUNNING TOLERANCE'
+        };
+
+        for (const [key, obj] of Object.entries(data)) {
+            if (key.endsWith('_json') && obj && obj.value) {
+                const title = jsonKeyTitles[key] || key.replace('_json', '').toUpperCase().replace(/_/g, ' ');
+                let parsed = null;
+                try {
+                    parsed = typeof obj.value === 'string' ? JSON.parse(obj.value) : obj.value;
+                } catch (e) {
+                    parsed = obj.value;
+                }
+
+                let contentHtml = '';
+                if (typeof parsed === 'object' && parsed !== null) {
+                    const kvList = Array.isArray(parsed)
+                        ? parsed.map(item => `<span style="background: rgba(255,255,255,0.05); padding: 2px 6px; border-radius: 3px; border: 1px solid rgba(255,255,255,0.1);">${this.escapeHTML(typeof item === 'object' ? JSON.stringify(item) : String(item))}</span>`).join(' ')
+                        : Object.entries(parsed).map(([k, v]) => `<span style="background: rgba(255,255,255,0.05); padding: 2px 6px; border-radius: 3px; border: 1px solid rgba(255,255,255,0.1);"><strong>${this.escapeHTML(k)}:</strong> ${this.escapeHTML(typeof v === 'object' ? JSON.stringify(v) : String(v))}</span>`).join(' ');
+                    contentHtml = `<div style="display: flex; gap: 6px; flex-wrap: wrap; font-size: 10px; font-family: var(--font-mono);">${kvList}</div>`;
+                } else {
+                    contentHtml = `<span style="font-size: 11px; font-family: var(--font-mono); color: var(--color-text-bright);">${this.escapeHTML(String(parsed))}</span>`;
+                }
+
+                jsonBlocks.push(`
+                    <div style="background: rgba(0, 0, 0, 0.2); border: 1px solid var(--color-border); border-radius: 4px; padding: 8px 10px; margin-top: 8px;">
+                        <div style="font-size: 9px; color: var(--color-primary); font-family: var(--font-display); letter-spacing: 0.5px; margin-bottom: 6px;">${title}</div>
+                        ${contentHtml}
+                    </div>
+                `);
+            }
+        }
+
+        if (items.length === 0 && jsonBlocks.length === 0) {
+            container.style.display = 'none';
+            return;
+        }
+
+        container.style.display = 'block';
+        container.innerHTML = `
+            <div class="trainer-card-box" style="padding: 12px; background: rgba(0, 242, 254, 0.02); border: 1px solid rgba(0, 242, 254, 0.15); border-radius: 6px;">
+                <div style="font-size: 10px; color: var(--color-primary); font-family: var(--font-display); letter-spacing: 0.5px; margin-bottom: 10px; font-weight: bold;">
+                    <i class="fa-solid fa-gauge-high"></i> GARMIN BENCHMARKS & REKORD
+                </div>
+                ${items.length > 0 ? `<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px;">${items.join('')}</div>` : ''}
+                ${jsonBlocks.join('')}
+            </div>
+        `;
+    } catch (e) {
+        console.warn('[BENCHMARKS] Error loading Garmin benchmarks:', e);
+        container.style.display = 'none';
     }
 };
 
