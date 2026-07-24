@@ -614,6 +614,37 @@ def build_training_load_summary(days: int = TRAINING_LOAD_DAYS) -> dict:
     avg_weekly_minutes = round(sum(weekly_minutes) / len(weekly_minutes), 1) if weekly_minutes else 0.0
     longest_session = max((s["minutes"] for s in sessions), default=0.0)
 
+    # Garmin's own training load (#179): CTL/ATL/ACWR from the most recent day that has a
+    # reading, rather than the minute-based proxy above. TSB ("form") is derived here rather
+    # than read from a stored column, so it can never drift from chronic/acute.
+    latest_load = None
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                '''SELECT date, training_load_acute, training_load_chronic, acwr, acwr_status,
+                          load_aerobic_low, load_aerobic_high, load_anaerobic
+                   FROM garmin_health
+                   WHERE training_load_acute IS NOT NULL OR training_load_chronic IS NOT NULL
+                   ORDER BY date DESC LIMIT 1'''
+            )
+            row = cursor.fetchone()
+            if row:
+                d, acute, chronic, acwr_val, acwr_status, aero_low, aero_high, anaerobic = row
+                latest_load = {
+                    "date": d,
+                    "ctl": chronic,
+                    "atl": acute,
+                    "tsb": round(chronic - acute, 1) if chronic is not None and acute is not None else None,
+                    "acwr": acwr_val,
+                    "acwr_status": acwr_status,
+                    "load_aerobic_low": aero_low,
+                    "load_aerobic_high": aero_high,
+                    "load_anaerobic": anaerobic,
+                }
+        except Exception as e:
+            print(f"[TRAINER LOAD] Error reading Garmin training load: {e}")
+
     return {
         "window_days": days,
         "session_count": len(sessions),
@@ -626,6 +657,7 @@ def build_training_load_summary(days: int = TRAINING_LOAD_DAYS) -> dict:
         "max_session_minutes": round(longest_session * (1 + MAX_SESSION_STEP_PCT / 100.0)) if longest_session else None,
         "max_weekly_minutes": round(avg_weekly_minutes * (1 + MAX_WEEKLY_STEP_PCT / 100.0)) if avg_weekly_minutes else None,
         "recent_sessions": sessions[-20:],
+        "latest_load": latest_load,
     }
 
 
@@ -654,6 +686,20 @@ def _format_progression_rules(load: dict) -> str:
         "- If a requested goal would require breaking these ceilings, say so plainly in the summary "
         "and lay out the build-up over several weeks instead of jumping straight to the target.",
     ]
+
+    # ACWR guardrail (#179): Garmin's own injury-risk ratio, alongside the minute-based
+    # ceilings above rather than replacing them - the percentage caps still protect against
+    # a bad ACWR reading, and ACWR still protects against a volume jump the minute caps alone
+    # would allow if intensity (not just duration) is what spiked.
+    latest_load = load.get("latest_load")
+    if latest_load and latest_load.get("acwr") is not None:
+        rules.append(
+            f"- Garmin's acute:chronic workload ratio (ACWR) is {latest_load['acwr']} "
+            f"({latest_load.get('acwr_status') or 'no status given'}). A ratio above ~1.5 is "
+            "the classic overreaching/injury-risk signal - if it is elevated, favor the "
+            "conservative end of the ceilings above rather than the aggressive end, "
+            "regardless of how much minute-budget is technically available."
+        )
     return "\n".join(rules)
 
 
@@ -681,6 +727,28 @@ def format_training_load_summary(load: dict) -> str:
             f"longest {t['longest_minutes']} min"
             + (f" / {t['longest_distance_km']} km" if t["longest_distance_km"] else "")
         )
+
+    # Garmin's own training load (#179) - a real measure of accumulated stress from heart
+    # rate/pace/EPOC, alongside the minute-based volume figures above.
+    latest_load = load.get("latest_load")
+    if latest_load:
+        load_bits = []
+        if latest_load.get("ctl") is not None and latest_load.get("atl") is not None:
+            load_bits.append(
+                f"fitness (CTL) {latest_load['ctl']}, fatigue (ATL) {latest_load['atl']}, "
+                f"form (TSB) {latest_load['tsb']}"
+            )
+        if latest_load.get("acwr") is not None:
+            status = f" ({latest_load['acwr_status']})" if latest_load.get("acwr_status") else ""
+            load_bits.append(f"ACWR {latest_load['acwr']}{status}")
+        if any(latest_load.get(k) is not None for k in ("load_aerobic_low", "load_aerobic_high", "load_anaerobic")):
+            load_bits.append(
+                f"monthly load vs target - aerobic low {latest_load.get('load_aerobic_low')}, "
+                f"aerobic high {latest_load.get('load_aerobic_high')}, "
+                f"anaerobic {latest_load.get('load_anaerobic')}"
+            )
+        if load_bits:
+            lines.append(f"Garmin training load (as of {latest_load['date']}): " + "; ".join(load_bits) + ".")
     return "\n".join(lines)
 
 

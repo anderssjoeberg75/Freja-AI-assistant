@@ -178,6 +178,13 @@ def init_db():
         ("vo2max", "REAL"),
         ("intensity_minutes", "INTEGER"),
         ("sleep_score", "INTEGER"),
+        ("training_load_acute", "REAL"),
+        ("training_load_chronic", "REAL"),
+        ("acwr", "REAL"),
+        ("acwr_status", "TEXT"),
+        ("load_aerobic_low", "REAL"),
+        ("load_aerobic_high", "REAL"),
+        ("load_anaerobic", "REAL"),
     ])
 
     # Backfill the baselines_updated_at column added to trainer_profile for the

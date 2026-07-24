@@ -141,19 +141,26 @@ T-014/T-016/T-018/T-019/T-020 each add prompt content) → T-010.**
 
 ### [T-013] Capture Garmin's own training load (CTL/ATL/TSB/ACWR)
 - Owner: claude
-- Status: todo
+- Status: done (2026-07-24)
 - Priority: P2
 - Created-by: anders (GitHub issue #179)
-- Files: `backend/routes/garmin.py` (~249), `backend/database.py`, `backend/routes/trainer.py` (`build_training_load_summary`, `_format_progression_rules`)
-- Spec: Already fetched via `get_training_status` and mostly discarded. `_ensure_columns`
-  migration for `training_load_acute/chronic`, `acwr`, `acwr_status`,
-  `load_aerobic_low/high`, `load_anaerobic` on `garmin_health`; TSB stays derived
-  (`chronic - acute`), never stored. Parse the device-keyed `acuteTrainingLoadDTO` /
-  `metricsTrainingLoadBalanceDTOMap` (latest `calendarDate` wins on multi-device). Add the
-  new columns to the per-day reset block. Feed into `build_training_load_summary()` and
-  `_format_progression_rules()` alongside the existing minute ceilings — see T-023 for the
-  prompt-budget rule this must follow. Note for #189: this is a Tier-A/B field, decide
-  which there first.
+- Files: `backend/models.py`, `backend/database.py`, `backend/routes/garmin.py`, `backend/routes/trainer/shared.py`, `backend/services/tool_registry/health_data.py`, `tests/test_garmin_routes.py`
+- **DONE.** 7 new `garmin_health` columns (`training_load_acute/chronic`, `acwr`,
+  `acwr_status`, `load_aerobic_low/high`, `load_anaerobic`); TSB is never stored, only
+  computed on read (`chronic - acute`) wherever it's surfaced, so it can't drift. New
+  `_latest_device_entry()` helper picks the device with the freshest `calendarDate` out of
+  the device-keyed `acuteTrainingLoadDTO`/`metricsTrainingLoadBalanceDTOMap` maps —
+  deterministic when more than one device has reported. Parsed inside the existing
+  `get_training_status()` try block (no extra request). Surfaced in `GET /api/garmin/data`
+  (incl. derived `tsb`), `get_garmin_health`'s `latest_metrics`, `build_training_load_summary()`
+  (new `latest_load` key), `_format_progression_rules()` (an ACWR guardrail line alongside
+  the existing minute ceilings — advisory only, doesn't replace them), and
+  `format_training_load_summary()`. Note for T-023: CTL/ATL/ACWR+status and today's planned
+  session are Tier A; load-balance vs targets is Tier B (resident only when off-target) —
+  the prompt text already reads naturally either way since it's a single conditional line.
+  3 new tests (realistic device-keyed payload parses; no-DTO payload stores `None` ×7
+  without failing the day; two devices resolve deterministically). `pytest` → 359 passed,
+  3 skipped.
 
 ### [T-014] Store Garmin Training Readiness score, lead the daily check-in with it
 - Owner: claude

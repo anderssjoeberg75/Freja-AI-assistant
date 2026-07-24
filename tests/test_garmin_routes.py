@@ -759,6 +759,190 @@ def test_bulk_metric_failure_degrades_to_none_without_failing_the_sync(monkeypat
     assert row == (7000, None)
 
 
+def _training_load_fake_garmin(ts_payload):
+    """A FakeGarmin whose only interesting call is get_training_status; every other metric
+    call fails so the test only exercises CTL/ATL/ACWR parsing (#179)."""
+    class FakeGarmin:
+        def __init__(self, *a, **k):
+            pass
+        def login(self, **k):
+            return True
+        def get_activities_by_date(self, *a, **k):
+            return []
+        def get_stats(self, d):
+            raise RuntimeError("no stats")
+        def get_body_battery(self, *a, **k):
+            raise RuntimeError("no bb")
+        def get_daily_steps(self, *a, **k):
+            raise RuntimeError("no steps")
+        def get_sleep_data(self, d):
+            raise RuntimeError("no sleep")
+        def get_heart_rates(self, d):
+            raise RuntimeError("no hr")
+        def get_hrv_data(self, d):
+            raise RuntimeError("no hrv")
+        def get_max_metrics(self, d):
+            raise RuntimeError("no vo2max")
+        def get_training_status(self, d):
+            return ts_payload
+        def get_training_readiness(self, d):
+            raise RuntimeError("no readiness")
+    return FakeGarmin
+
+
+def test_training_load_parses_device_keyed_payload(monkeypatch):
+    """CTL/ATL/ACWR/load-balance parse from the same get_training_status response already
+    fetched for training_status/recovery_time - no extra request (#179)."""
+    import datetime
+    import sys
+    import types
+    from backend.database import get_db_connection
+    from backend.routes.garmin import run_garmin_sync_task_blocking
+
+    today = datetime.date.today()
+    target_date = today.strftime('%Y-%m-%d')
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM garmin_health WHERE date = ?", (target_date,))
+        conn.commit()
+
+    ts_payload = {
+        'trainingStatus': 'PRODUCTIVE',
+        'recoveryTimeInHours': 12,
+        'mostRecentTrainingStatus': {
+            'latestTrainingStatusData': {
+                'device1': {
+                    'calendarDate': target_date,
+                    'acuteTrainingLoadDTO': {
+                        'dailyTrainingLoadAcute': 420.5,
+                        'dailyTrainingLoadChronic': 380.2,
+                        'dailyAcuteChronicWorkloadRatio': 1.11,
+                        'acwrStatus': 'OPTIMAL',
+                    },
+                },
+            },
+        },
+        'mostRecentTrainingLoadBalance': {
+            'metricsTrainingLoadBalanceDTOMap': {
+                'device1': {
+                    'monthlyLoadAerobicLow': 300.0,
+                    'monthlyLoadAerobicHigh': 100.0,
+                    'monthlyLoadAnaerobic': 50.0,
+                },
+            },
+        },
+    }
+
+    module = types.ModuleType('garminconnect')
+    module.Garmin = _training_load_fake_garmin(ts_payload)
+    monkeypatch.setitem(sys.modules, 'garminconnect', module)
+
+    run_garmin_sync_task_blocking('a@b.c', 'pw', 1)
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT training_load_acute, training_load_chronic, acwr, acwr_status, "
+            "load_aerobic_low, load_aerobic_high, load_anaerobic FROM garmin_health WHERE date = ?",
+            (target_date,)
+        )
+        row = cursor.fetchone()
+
+    assert row == (420.5, 380.2, 1.11, 'OPTIMAL', 300.0, 100.0, 50.0)
+
+
+def test_training_load_missing_dto_stores_none_without_failing(monkeypatch):
+    """A get_training_status response with neither DTO block must store None for all seven
+    training-load columns without failing the day (#179)."""
+    import datetime
+    import sys
+    import types
+    from backend.database import get_db_connection
+    from backend.routes.garmin import run_garmin_sync_task_blocking
+
+    today = datetime.date.today()
+    target_date = today.strftime('%Y-%m-%d')
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM garmin_health WHERE date = ?", (target_date,))
+        conn.commit()
+
+    ts_payload = {'trainingStatus': 'MAINTAINING'}  # no load DTOs at all
+
+    module = types.ModuleType('garminconnect')
+    module.Garmin = _training_load_fake_garmin(ts_payload)
+    monkeypatch.setitem(sys.modules, 'garminconnect', module)
+
+    run_garmin_sync_task_blocking('a@b.c', 'pw', 1)  # must not raise
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT training_load_acute, training_load_chronic, acwr, acwr_status, "
+            "load_aerobic_low, load_aerobic_high, load_anaerobic FROM garmin_health WHERE date = ?",
+            (target_date,)
+        )
+        row = cursor.fetchone()
+
+    assert row == (None, None, None, None, None, None, None)
+
+
+def test_training_load_multiple_devices_picks_latest_calendar_date(monkeypatch):
+    """Two devices in the map must resolve deterministically - the one with the most
+    recent calendarDate wins (#179)."""
+    import datetime
+    import sys
+    import types
+    from backend.database import get_db_connection
+    from backend.routes.garmin import run_garmin_sync_task_blocking
+
+    today = datetime.date.today()
+    target_date = today.strftime('%Y-%m-%d')
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM garmin_health WHERE date = ?", (target_date,))
+        conn.commit()
+
+    ts_payload = {
+        'trainingStatus': 'PRODUCTIVE',
+        'mostRecentTrainingStatus': {
+            'latestTrainingStatusData': {
+                'old_device': {
+                    'calendarDate': '2020-01-01',
+                    'acuteTrainingLoadDTO': {
+                        'dailyTrainingLoadAcute': 1.0, 'dailyTrainingLoadChronic': 1.0,
+                    },
+                },
+                'new_device': {
+                    'calendarDate': '2099-01-01',
+                    'acuteTrainingLoadDTO': {
+                        'dailyTrainingLoadAcute': 999.0, 'dailyTrainingLoadChronic': 888.0,
+                    },
+                },
+            },
+        },
+    }
+
+    module = types.ModuleType('garminconnect')
+    module.Garmin = _training_load_fake_garmin(ts_payload)
+    monkeypatch.setitem(sys.modules, 'garminconnect', module)
+
+    run_garmin_sync_task_blocking('a@b.c', 'pw', 1)
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT training_load_acute, training_load_chronic FROM garmin_health WHERE date = ?",
+            (target_date,)
+        )
+        row = cursor.fetchone()
+
+    assert row == (999.0, 888.0)
+
+
 def test_unparseable_last_sync_does_not_shrink_the_window(auth_headers, monkeypatch):
     """A corrupt timestamp must not narrow every future sync to a single day."""
     from backend.database import set_api_key

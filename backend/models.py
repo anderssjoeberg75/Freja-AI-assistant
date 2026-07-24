@@ -59,6 +59,15 @@ class GarminHealth(Base):
     vo2max = Column(Float)                 # latest VO2max estimate
     intensity_minutes = Column(Integer)    # daily intensity minutes (vigorous weighted x2, Garmin style)
     sleep_score = Column(Integer)          # Garmin overall sleep score (0-100)
+    # Garmin's own training load (see #179). TSB ("form") is deliberately NOT stored - it is
+    # always chronic - acute, computed on read, so it can never drift out of sync with them.
+    training_load_acute = Column(Float)    # ATL - acute/short-term load ("fatigue")
+    training_load_chronic = Column(Float)  # CTL - chronic/long-term load ("fitness")
+    acwr = Column(Float)                   # acute:chronic workload ratio - injury-risk signal
+    acwr_status = Column(String)           # Garmin's own classification of the ratio
+    load_aerobic_low = Column(Float)       # monthly low-aerobic load vs Garmin's target band
+    load_aerobic_high = Column(Float)      # monthly high-aerobic load vs Garmin's target band
+    load_anaerobic = Column(Float)         # monthly anaerobic load vs Garmin's target band
 
 class GarminActivity(Base):
     """One Garmin Connect activity, keyed on Garmin's own activity_id so a re-synced window

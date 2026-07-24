@@ -164,7 +164,15 @@ async def exec_garmin_health(args):
             "latest_metrics": {
                 "training_status": data[0].get('training_status') if data else None,
                 "recovery_time_hours": data[0].get('recovery_time') if data else None,
-                "vo2max": latest_vo2max
+                "vo2max": latest_vo2max,
+                # Garmin's own training load (#179): CTL/ATL/TSB/ACWR, already resident on
+                # each daily_logs row - surfaced here too so the coach doesn't have to dig
+                # through the log list for the single most recent reading.
+                "training_load_chronic_ctl": data[0].get('training_load_chronic') if data else None,
+                "training_load_acute_atl": data[0].get('training_load_acute') if data else None,
+                "tsb": data[0].get('tsb') if data else None,
+                "acwr": data[0].get('acwr') if data else None,
+                "acwr_status": data[0].get('acwr_status') if data else None,
             },
             "averages": {
                 "avg_daily_steps": avg_steps,

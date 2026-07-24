@@ -94,6 +94,22 @@ def _index_daily_response(rows, date_keys=('date', 'calendarDate')):
     return indexed
 
 
+def _latest_device_entry(device_map):
+    """Picks the freshest entry from a device-keyed dict (Issue #179).
+
+    Garmin's training-status payload nests `acuteTrainingLoadDTO`/`metricsTrainingLoadBalanceDTOMap`
+    one level down, keyed by device id rather than date - one entry per device that has
+    reported. When more than one device has reported, the one with the most recent
+    `calendarDate` wins, so the result is deterministic rather than dependent on dict
+    ordering."""
+    if not isinstance(device_map, dict) or not device_map:
+        return None
+    entries = [v for v in device_map.values() if isinstance(v, dict)]
+    if not entries:
+        return None
+    return max(entries, key=lambda e: e.get('calendarDate') or '')
+
+
 def _upsert_garmin_activities(cursor, activities):
     """Upserts every fetched activity into garmin_activities, keyed on Garmin's activity_id.
 
@@ -141,7 +157,7 @@ async def get_garmin_data(days: int = Query(7, description="Number of days to re
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                SELECT date, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status, stress_avg, stress_max, sleep_deep_hours, sleep_light_hours, sleep_rem_hours, sleep_awake_hours, vo2max, intensity_minutes, sleep_score
+                SELECT date, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status, stress_avg, stress_max, sleep_deep_hours, sleep_light_hours, sleep_rem_hours, sleep_awake_hours, vo2max, intensity_minutes, sleep_score, training_load_acute, training_load_chronic, acwr, acwr_status, load_aerobic_low, load_aerobic_high, load_anaerobic
                 FROM garmin_health
                 ORDER BY date DESC
                 LIMIT ?
@@ -150,6 +166,7 @@ async def get_garmin_data(days: int = Query(7, description="Number of days to re
 
         results = []
         for row in rows:
+            training_load_acute, training_load_chronic = row[20], row[21]
             results.append({
                 'date': row[0],
                 'steps': row[1],
@@ -170,7 +187,17 @@ async def get_garmin_data(days: int = Query(7, description="Number of days to re
                 'sleep_awake_hours': row[16],
                 'vo2max': row[17],
                 'intensity_minutes': row[18],
-                'sleep_score': row[19]
+                'sleep_score': row[19],
+                'training_load_acute': training_load_acute,
+                'training_load_chronic': training_load_chronic,
+                # TSB ("form"): derived, never stored, so it cannot drift from its inputs (#179).
+                'tsb': round(training_load_chronic - training_load_acute, 1)
+                       if training_load_chronic is not None and training_load_acute is not None else None,
+                'acwr': row[22],
+                'acwr_status': row[23],
+                'load_aerobic_low': row[24],
+                'load_aerobic_high': row[25],
+                'load_anaerobic': row[26],
             })
         return results
     except Exception as e:
@@ -325,6 +352,13 @@ def run_garmin_sync_task_blocking(email, password, days, end_date=None):
                 vo2max = None
                 intensity_minutes = None
                 sleep_score = None
+                training_load_acute = None
+                training_load_chronic = None
+                acwr = None
+                acwr_status = None
+                load_aerobic_low = None
+                load_aerobic_high = None
+                load_anaerobic = None
                 # workout_type/workout_duration are the one exception: they are derived from
                 # the `activities` list fetched once above, not from a per-day call, so "no
                 # workout that day" is a real answer and 0 minutes is the truthful value.
@@ -445,6 +479,26 @@ def run_garmin_sync_task_blocking(email, password, days, end_date=None):
                                 }
                                 training_status = status_mapping.get(raw_status.upper(), raw_status.capitalize())
                             recovery_time = ts_data.get('recoveryTimeInHours')
+
+                            # Garmin's own training load (#179) - already present in the same
+                            # get_training_status response we already call; no extra request.
+                            most_recent_status = ts_data.get('mostRecentTrainingStatus') or {}
+                            device_status_map = most_recent_status.get('latestTrainingStatusData') or {}
+                            status_entry = _latest_device_entry(device_status_map)
+                            if status_entry:
+                                acute_dto = status_entry.get('acuteTrainingLoadDTO') or {}
+                                training_load_acute = acute_dto.get('dailyTrainingLoadAcute')
+                                training_load_chronic = acute_dto.get('dailyTrainingLoadChronic')
+                                acwr = acute_dto.get('dailyAcuteChronicWorkloadRatio')
+                                acwr_status = acute_dto.get('acwrStatus')
+
+                            most_recent_balance = ts_data.get('mostRecentTrainingLoadBalance') or {}
+                            device_balance_map = most_recent_balance.get('metricsTrainingLoadBalanceDTOMap') or {}
+                            balance_entry = _latest_device_entry(device_balance_map)
+                            if balance_entry:
+                                load_aerobic_low = balance_entry.get('monthlyLoadAerobicLow')
+                                load_aerobic_high = balance_entry.get('monthlyLoadAerobicHigh')
+                                load_anaerobic = balance_entry.get('monthlyLoadAnaerobic')
                 except Exception as ts_err:
                     print(f"Error fetching training status for {date_str}: {ts_err}")
                     
@@ -465,14 +519,15 @@ def run_garmin_sync_task_blocking(email, password, days, end_date=None):
                     steps, sleep_hours, resting_hr, active_calories, body_battery, hrv,
                     recovery_time, training_status, stress_avg, stress_max, sleep_deep_hours,
                     sleep_light_hours, sleep_rem_hours, sleep_awake_hours, vo2max,
-                    intensity_minutes, sleep_score,
+                    intensity_minutes, sleep_score, training_load_acute, training_load_chronic,
+                    acwr, load_aerobic_low, load_aerobic_high, load_anaerobic,
                 )
                 if any(v is not None for v in day_fields):
                     any_day_succeeded = True
 
                 cursor.execute('''
-                    INSERT INTO garmin_health (date, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status, stress_avg, stress_max, sleep_deep_hours, sleep_light_hours, sleep_rem_hours, sleep_awake_hours, vo2max, intensity_minutes, sleep_score)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO garmin_health (date, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status, stress_avg, stress_max, sleep_deep_hours, sleep_light_hours, sleep_rem_hours, sleep_awake_hours, vo2max, intensity_minutes, sleep_score, training_load_acute, training_load_chronic, acwr, acwr_status, load_aerobic_low, load_aerobic_high, load_anaerobic)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(date) DO UPDATE SET
                         steps = COALESCE(excluded.steps, garmin_health.steps),
                         sleep_hours = COALESCE(excluded.sleep_hours, garmin_health.sleep_hours),
@@ -492,8 +547,15 @@ def run_garmin_sync_task_blocking(email, password, days, end_date=None):
                         sleep_awake_hours = COALESCE(excluded.sleep_awake_hours, garmin_health.sleep_awake_hours),
                         vo2max = COALESCE(excluded.vo2max, garmin_health.vo2max),
                         intensity_minutes = COALESCE(excluded.intensity_minutes, garmin_health.intensity_minutes),
-                        sleep_score = COALESCE(excluded.sleep_score, garmin_health.sleep_score)
-                ''', (date_str, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status, stress_avg, stress_max, sleep_deep_hours, sleep_light_hours, sleep_rem_hours, sleep_awake_hours, vo2max, intensity_minutes, sleep_score))
+                        sleep_score = COALESCE(excluded.sleep_score, garmin_health.sleep_score),
+                        training_load_acute = COALESCE(excluded.training_load_acute, garmin_health.training_load_acute),
+                        training_load_chronic = COALESCE(excluded.training_load_chronic, garmin_health.training_load_chronic),
+                        acwr = COALESCE(excluded.acwr, garmin_health.acwr),
+                        acwr_status = COALESCE(excluded.acwr_status, garmin_health.acwr_status),
+                        load_aerobic_low = COALESCE(excluded.load_aerobic_low, garmin_health.load_aerobic_low),
+                        load_aerobic_high = COALESCE(excluded.load_aerobic_high, garmin_health.load_aerobic_high),
+                        load_anaerobic = COALESCE(excluded.load_anaerobic, garmin_health.load_anaerobic)
+                ''', (date_str, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status, stress_avg, stress_max, sleep_deep_hours, sleep_light_hours, sleep_rem_hours, sleep_awake_hours, vo2max, intensity_minutes, sleep_score, training_load_acute, training_load_chronic, acwr, acwr_status, load_aerobic_low, load_aerobic_high, load_anaerobic))
 
             conn.commit()
 
