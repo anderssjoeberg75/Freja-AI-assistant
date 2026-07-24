@@ -1403,13 +1403,29 @@ FrejaUIController.prototype.loadTrainerTrendsUI = async function () {
         const barPct = planned ? Math.min(100, Math.round((completed / planned) * 100)) : 0;
         const barColor = barPct >= 80 ? '#30d158' : (barPct >= 50 ? '#ffb020' : '#ff3b30');
         const missed = (adherence.missed_dates || []).slice(-6);
+        const isUnreliable = adherence.reliable === false;
+        const reasonText = adherence.reason || 'Kan inte avgöra följsamhet just nu — se synkstatus';
 
-        const adherenceCard = planned === 0
-            ? `<div class="trend-metric-card" style="padding: 10px;">
+        let adherenceCard = '';
+        if (planned === 0) {
+            adherenceCard = `<div class="trend-metric-card" style="padding: 10px;">
                    <div style="font-size: 9px; color: var(--color-text-muted); font-family: var(--font-display); letter-spacing: 0.5px;">ADHERENCE (PLANNED VS COMPLETED)</div>
                    <div style="font-size: 11px; color: var(--color-text-muted); font-family: var(--font-mono); padding: 8px 0;">[NO BOOKED SESSIONS IN THIS WINDOW]</div>
-               </div>`
-            : `<div class="trend-metric-card" style="padding: 10px; display: flex; flex-direction: column; gap: 8px;">
+               </div>`;
+        } else if (isUnreliable) {
+            adherenceCard = `<div class="trend-metric-card" style="padding: 10px; display: flex; flex-direction: column; gap: 8px; border: 1px solid rgba(255, 176, 32, 0.3); background: rgba(255, 176, 32, 0.05);">
+                   <div style="display: flex; justify-content: space-between; align-items: baseline;">
+                       <span style="font-size: 9px; color: var(--color-text-muted); font-family: var(--font-display); letter-spacing: 0.5px;">ADHERENCE (PLANNED VS COMPLETED)</span>
+                       <span style="font-size: 9px; font-family: var(--font-mono); color: #ffb020; font-weight: bold; background: rgba(255, 176, 32, 0.15); padding: 1px 6px; border-radius: 3px; border: 1px solid rgba(255, 176, 32, 0.4);">OSÄKER DATA</span>
+                   </div>
+                   <div style="font-family: var(--font-mono); font-size: 11px; color: #ffb020; display: flex; align-items: center; gap: 6px; padding: 4px 0;">
+                       <i class="fa-solid fa-triangle-exclamation" style="font-size: 14px;"></i>
+                       <span>${this.escapeHTML(reasonText)}</span>
+                   </div>
+                   ${missed.length ? `<div style="font-size: 9px; color: var(--color-text-muted); font-family: var(--font-mono);">Planerade pass: ${planned} (${missed.length} obekräftade)</div>` : ''}
+               </div>`;
+        } else {
+            adherenceCard = `<div class="trend-metric-card" style="padding: 10px; display: flex; flex-direction: column; gap: 8px;">
                    <div style="display: flex; justify-content: space-between; align-items: baseline;">
                        <span style="font-size: 9px; color: var(--color-text-muted); font-family: var(--font-display); letter-spacing: 0.5px;">ADHERENCE (PLANNED VS COMPLETED)</span>
                        <span style="font-size: 10px; font-family: var(--font-mono); color: ${barColor};">${pct !== null && pct !== undefined ? pct + '%' : '-'}</span>
@@ -1422,6 +1438,7 @@ FrejaUIController.prototype.loadTrainerTrendsUI = async function () {
                    </div>
                    ${missed.length ? `<div style="font-size: 9px; color: var(--color-text-muted); font-family: var(--font-mono);">Missed: ${missed.join(', ')}</div>` : ''}
                </div>`;
+        }
 
         const hrZonesCard = this.buildWeeklyHRZoneCard(zonesData);
 

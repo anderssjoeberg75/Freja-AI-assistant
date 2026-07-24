@@ -612,7 +612,7 @@ T-014/T-016/T-018/T-019/T-020 each add prompt content) → T-010.**
 
 ### [T-031] Client: PT-panel adherence warning instead of a 0% bar
 - Owner: antigravity
-- Status: todo — UNBLOCKED 2026-07-24, ready for Antigravity to run
+- Status: done (2026-07-24)
 - Priority: P1
 - Created-by: claude (split from GitHub issue #187)
 - Files: `client/**` (PT panel adherence widget)
