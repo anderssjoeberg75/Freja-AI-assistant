@@ -1475,6 +1475,7 @@ FrejaUIController.prototype.renderTrainerPlanDetails = function (planId, adviceT
 };
 
 FrejaUIController.prototype.loadGarminDashboardUI = async function () {
+    this.updateGarminStatusUI();
     const garminList = document.getElementById('garmin-list');
     if (!garminList) return;
 
@@ -1962,7 +1963,7 @@ FrejaUIController.prototype.pollSyncStatus = async function (provider) {
                     if (provider === 'withings') self.loadWithingsDashboardUI();
                     if (provider === 'google_calendar') self.loadGoogleCalendarDashboardUI();
 
-                } else if (state === 'error') {
+                } else if (state === 'auth_required' || state === 'rate_limited' || state === 'error') {
                     clearInterval(self[`syncInterval_${provider}`]);
                     self[`syncInterval_${provider}`] = null;
 
@@ -1980,14 +1981,132 @@ FrejaUIController.prototype.pollSyncStatus = async function (provider) {
                         capItem.classList.remove('syncing-blink');
                     }
 
-                    self.writeLog(`${provider.toUpperCase()} SYNC ERROR: ${error}`, "err");
+                    if (state === 'auth_required') {
+                        self.writeLog(`GARMIN AUTH EXPIRED: Garmin-inloggningen har gått ut — logga in igen`, "err");
+                    } else if (state === 'rate_limited') {
+                        self.writeLog(`GARMIN RATE LIMITED: Garmin begränsar just nu — försök igen om en stund`, "warn");
+                    } else {
+                        self.writeLog(`${provider.toUpperCase()} SYNC ERROR: ${error}`, "err");
+                    }
                     soundSynth.playError();
+
+                    if (provider === 'garmin') self.updateGarminStatusUI();
                 }
             }
         } catch (err) {
             console.error(`Error polling sync status for ${provider}:`, err);
         }
     }, 2000);
+};
+
+FrejaUIController.prototype.updateGarminStatusUI = async function () {
+    const banner = document.getElementById('garmin-status-banner');
+    if (!banner) return;
+
+    try {
+        const [credRes, syncRes] = await Promise.all([
+            fetch('/api/garmin/credentials').catch(() => null),
+            fetch('/api/sync/status').catch(() => null)
+        ]);
+
+        let staleWarning = false;
+        let tokenAgeDays = null;
+        if (credRes && credRes.ok) {
+            const credData = await credRes.json();
+            staleWarning = credData.token_stale_warning || false;
+            tokenAgeDays = credData.token_age_days;
+        }
+
+        let syncState = 'idle';
+        let syncError = '';
+        if (syncRes && syncRes.ok) {
+            const syncData = await syncRes.json();
+            syncState = (syncData.states && syncData.states.garmin) || 'idle';
+            syncError = (syncData.errors && syncData.errors.garmin) || '';
+        }
+
+        let bannerHtml = '';
+
+        // 1. Token-age warning banner (Issue #181)
+        if (staleWarning) {
+            bannerHtml += `
+                <div id="garmin-token-age-banner" style="background: rgba(255, 176, 32, 0.12); border: 1px solid #ffb020; color: #ffb020; padding: 8px 12px; border-radius: 4px; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11px;">
+                    <div>
+                        <i class="fa-solid fa-triangle-exclamation"></i> <strong>Varning for gammal session:</strong> Garmin-token är ${tokenAgeDays || ''} dagar gammal (närmar sig 6 månader).
+                    </div>
+                    <button id="btn-garmin-reauth-banner" class="hud-btn btn-secondary" style="height: 26px; font-size: 10px; padding: 0 8px; border-color: #ffb020; color: #ffb020; flex-shrink: 0;"><i class="fa-solid fa-key"></i> Logga in igen</button>
+                </div>
+            `;
+        }
+
+        // 2. Classified sync status messages
+        if (syncState === 'auth_required') {
+            bannerHtml += `
+                <div id="garmin-auth-required-banner" style="background: rgba(255, 59, 48, 0.15); border: 1px solid #ff3b30; color: #ff6b6b; padding: 10px 12px; border-radius: 4px; display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 11px;">
+                    <div>
+                        <i class="fa-solid fa-lock" style="margin-right: 6px;"></i> <strong>Garmin-inloggningen har gått ut — logga in igen</strong>
+                    </div>
+                    <button id="btn-garmin-reauth" class="hud-btn btn-primary" style="height: 28px; font-size: 11px; padding: 0 12px; background: #ff3b30; border-color: #ff3b30; color: #fff; flex-shrink: 0;">
+                        <i class="fa-solid fa-right-to-bracket"></i> Logga in igen
+                    </button>
+                </div>
+            `;
+        } else if (syncState === 'rate_limited') {
+            bannerHtml += `
+                <div id="garmin-rate-limited-banner" style="background: rgba(255, 176, 32, 0.15); border: 1px solid #ffb020; color: #ffc107; padding: 10px 12px; border-radius: 4px; display: flex; align-items: center; gap: 8px; font-size: 11px;">
+                    <i class="fa-solid fa-gauge-high"></i> <strong>Garmin begränsar just nu — försök igen om en stund</strong>
+                </div>
+            `;
+        } else if (syncState === 'error' && syncError) {
+            bannerHtml += `
+                <div id="garmin-generic-error-banner" style="background: rgba(255, 59, 48, 0.1); border: 1px solid rgba(255, 59, 48, 0.3); color: #ff6b6b; padding: 8px 12px; border-radius: 4px; display: flex; align-items: center; gap: 8px; font-size: 11px;">
+                    <i class="fa-solid fa-circle-exclamation"></i> Garmin synkfel: ${this.escapeHTML(syncError)}
+                </div>
+            `;
+        }
+
+        if (bannerHtml) {
+            banner.innerHTML = bannerHtml;
+            banner.style.display = 'block';
+
+            const self = this;
+            const wireReauthBtn = (btnId) => {
+                const btn = document.getElementById(btnId);
+                if (btn) {
+                    btn.addEventListener('click', async () => {
+                        soundSynth.playClick();
+                        btn.disabled = true;
+                        btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Loggar in...`;
+                        try {
+                            const reauthRes = await fetch('/api/garmin/reauth', { method: 'POST' });
+                            const reauthData = await reauthRes.json();
+                            if (reauthRes.ok) {
+                                self.writeLog("GARMIN RE-AUTH SUCCESSFUL", "sys");
+                                soundSynth.playNotify();
+                                self.updateGarminStatusUI();
+                                self.loadGarminDashboardUI();
+                            } else {
+                                throw new Error(reauthData.detail || "Re-auth failed");
+                            }
+                        } catch (err) {
+                            self.writeLog(`GARMIN RE-AUTH FAILED: ${err.message}`, "err");
+                            soundSynth.playError();
+                            alert(`Inloggning misslyckades: ${err.message}`);
+                        } finally {
+                            btn.disabled = false;
+                        }
+                    });
+                }
+            };
+            wireReauthBtn('btn-garmin-reauth');
+            wireReauthBtn('btn-garmin-reauth-banner');
+        } else {
+            banner.style.display = 'none';
+            banner.innerHTML = '';
+        }
+    } catch (e) {
+        console.error("[GARMIN] Status UI update error:", e);
+    }
 };
 
 FrejaUIController.prototype.loadCredentialsUI = async function () {

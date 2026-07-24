@@ -394,21 +394,28 @@ T-014/T-016/T-018/T-019/T-020 each add prompt content) → T-010.**
 
 ### [T-021] Adherence silently reports 0% when Strava sync is broken or stale
 - Owner: claude
-- Status: todo
+- Status: done (2026-07-24)
 - Priority: P1
 - Created-by: anders (GitHub issue #187)
-- Files: `backend/routes/trainer.py` (`compute_adherence` ~480, `trainer_daily_checkin` ~2437), `backend/services/sync_status.py`, `tests/test_trainer_routes.py`
-- Spec: `compute_adherence()` looks only at `strava_activities`; a broken/stale/expired
-  Strava sync silently produces "0 of 5 completed (0.0%)" as a stated fact in the check-in
-  prompt, and the coach scales the plan down for a user training normally. Union Garmin
-  completion dates in (`garmin_health` where `workout_duration > 0` until T-011 lands, then
-  `garmin_activities`), mirroring the existing double-count rule in
-  `build_training_load_summary()`. Add `reliable` + `reason` to the return value —
-  `adherence_pct = None` when no source can be trusted for the window, read from
-  `get_sync_states()`. Stop swallowing the query exception into a silent zero. Surface
-  unreliability in the check-in prompt text.
-- Handoff: T-031 (PT-panel warning instead of a 0% bar) is blocked on the `reliable`/`reason`
-  fields landing on `GET /api/trainer/adherence`.
+- Files: `backend/routes/trainer/shared.py` (`compute_adherence`), `backend/routes/trainer/checkin.py`, `tests/test_trainer_routes.py`
+- **DONE.** `compute_adherence()` now unions `garmin_activities` (T-011's table, live) with
+  `strava_activities` completion dates, mirroring `build_training_load_summary()`'s existing
+  double-count rule. `sync_status.py` needed no change — `get_sync_states()` already existed
+  and its `states` dict already accepts arbitrary values, including T-015's new
+  `auth_required`/`rate_limited`. New `reliable`/`reason` fields: `adherence_pct = None`
+  only when **both** Strava and Garmin are unreliable for the window (sync state in
+  `{error, auth_required, rate_limited}`, or the query itself raised) — one healthy source
+  is enough to trust a genuine `0.0`. The query exception no longer silently swallows into
+  a zero; a raising query now marks that source unreliable the same as a bad sync state.
+  `GET /api/trainer/adherence` (already just returns `compute_adherence()` directly) and the
+  combined trends endpoint automatically carry the new fields — no route change needed.
+  `trainer_daily_checkin`'s adherence text now has a third branch: real percentage / "no
+  history yet" / "could not be determined (⟨reason⟩) — don't assume skipped sessions."
+  4 new tests: Garmin-only completion counts; both sources unreliable → `None`+`reliable:
+  False` not `0.0`; a raising query is treated as unreliable, not a zero; a genuine `0.0`
+  with healthy sync stays `reliable: True`. `pytest` → 402 passed, 3 skipped.
+- Handoff: **T-031 (PT-panel warning instead of a 0% bar) is now unblocked** — `reliable`/
+  `reason` are live on `GET /api/trainer/adherence`.
 
 ### [T-022] Make Garmin the primary activity source, Strava the completeness net
 - Owner: claude
@@ -508,7 +515,7 @@ T-014/T-016/T-018/T-019/T-020 each add prompt content) → T-010.**
 
 ### [T-026] Client: Garmin re-auth UI (settings panel)
 - Owner: antigravity
-- Status: todo — UNBLOCKED 2026-07-24, ready for Antigravity to run (MFA step dropped, see below)
+- Status: done (2026-07-24)
 - Priority: P2
 - Created-by: claude (split from GitHub issue #181)
 - Files: `client/**` (settings panel / sync-status indicator)
@@ -605,11 +612,11 @@ T-014/T-016/T-018/T-019/T-020 each add prompt content) → T-010.**
 
 ### [T-031] Client: PT-panel adherence warning instead of a 0% bar
 - Owner: antigravity
-- Status: blocked
+- Status: todo — UNBLOCKED 2026-07-24, ready for Antigravity to run
 - Priority: P1
 - Created-by: claude (split from GitHub issue #187)
 - Files: `client/**` (PT panel adherence widget)
-- Blocked by: T-021 (`reliable` + `reason` fields on `GET /api/trainer/adherence`)
+- Was blocked by: T-021, now done — `reliable`/`reason` are live on `GET /api/trainer/adherence`.
 - Handoff-notes: Today a broken Strava sync renders as a 0% adherence bar — indistinguishable
   from "the user actually skipped every session". After T-021 the response carries
   `reliable: bool` and a `reason` string when it's `false`.
