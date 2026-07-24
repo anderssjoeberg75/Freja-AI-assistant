@@ -131,15 +131,21 @@ async def trainer_daily_checkin(request: Request):
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                SELECT date, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status, sleep_deep_hours, sleep_light_hours, sleep_rem_hours, sleep_awake_hours, sleep_score
+                SELECT date, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status, sleep_deep_hours, sleep_light_hours, sleep_rem_hours, sleep_awake_hours, sleep_score, training_readiness, training_readiness_level, training_readiness_feedback
                 FROM garmin_health
                 ORDER BY date DESC
                 LIMIT 1
             ''')
             g = cursor.fetchone()
         if g:
+            # Training Readiness (#180) leads the snapshot - it's the calibrated answer to
+            # exactly the question this check-in exists to ask ("how hard should the user go
+            # today"), combining sleep/HRV/load/stress from the user's own baselines.
+            readiness_prefix = ""
+            if g[16] is not None:
+                readiness_prefix = f"Training Readiness: {g[16]}/100 ({g[17]})" + (f" - \"{g[18]}\". " if g[18] else ". ")
             garmin_snapshot = (
-                f"Date: {g[0]}, Steps: {g[1]}, Sleep: {g[2]}h (Deep: {g[11]}h, REM: {g[13]}h, Light: {g[12]}h, Awake: {g[14]}h, Score: {g[15]}), Resting HR: {g[3]}, Calories: {g[4]}kcal, "
+                f"{readiness_prefix}Date: {g[0]}, Steps: {g[1]}, Sleep: {g[2]}h (Deep: {g[11]}h, REM: {g[13]}h, Light: {g[12]}h, Awake: {g[14]}h, Score: {g[15]}), Resting HR: {g[3]}, Calories: {g[4]}kcal, "
                 f"Workout: {g[5]} ({g[6]} min), Body Battery: {g[7]}, HRV: {g[8]}ms, "
                 f"Recovery time: {g[9]}h, Status: {g[10]}"
             )

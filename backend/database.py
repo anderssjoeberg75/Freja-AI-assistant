@@ -185,6 +185,9 @@ def init_db():
         ("load_aerobic_low", "REAL"),
         ("load_aerobic_high", "REAL"),
         ("load_anaerobic", "REAL"),
+        ("training_readiness", "INTEGER"),
+        ("training_readiness_level", "TEXT"),
+        ("training_readiness_feedback", "TEXT"),
     ])
 
     # Backfill the baselines_updated_at column added to trainer_profile for the

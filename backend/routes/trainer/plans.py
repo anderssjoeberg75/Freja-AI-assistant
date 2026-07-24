@@ -232,6 +232,29 @@ def build_chat_context_block() -> str:
 
     lines = [f"Dagens datum: {today_str} ({SWEDISH_WEEKDAYS[today.weekday()]})."]
 
+    # Garmin Training Readiness (#180) - what a coach checks before saying anything else,
+    # so it leads the block. Read directly rather than through build_training_load_summary,
+    # since readiness is a daily reading, not a training-load aggregate.
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                '''SELECT training_readiness, training_readiness_level, training_readiness_feedback
+                   FROM garmin_health
+                   WHERE training_readiness IS NOT NULL
+                   ORDER BY date DESC LIMIT 1'''
+            )
+            readiness_row = cursor.fetchone()
+        except Exception as e:
+            print(f"[TRAINER CONTEXT] Could not read training readiness: {e}")
+            readiness_row = None
+    if readiness_row:
+        r_score, r_level, r_feedback = readiness_row
+        lines.append(
+            f"Garmin Training Readiness idag: {r_score}/100 ({r_level})."
+            + (f" \"{r_feedback}\"" if r_feedback else "")
+        )
+
     if profile:
         prof_bits = []
         for label, key in (("Mål", "goals"), ("Nivå", "fitness_level"), ("Tillgänglighet", "availability"),

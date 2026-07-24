@@ -943,6 +943,132 @@ def test_training_load_multiple_devices_picks_latest_calendar_date(monkeypatch):
     assert row == (999.0, 888.0)
 
 
+def test_training_readiness_parses_and_is_unconditional(monkeypatch):
+    """The readiness score/level/feedback must be stored even on a day where
+    get_training_status already supplied recovery_time - previously the readiness call was
+    gated behind `if recovery_time is None`, so the score was never stored on those days
+    (#180). Also covers the list-shaped payload some accounts return."""
+    import datetime
+    import sys
+    import types
+    from backend.database import get_db_connection
+    from backend.routes.garmin import run_garmin_sync_task_blocking
+
+    today = datetime.date.today()
+    target_date = today.strftime('%Y-%m-%d')
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM garmin_health WHERE date = ?", (target_date,))
+        conn.commit()
+
+    class FakeGarmin:
+        def __init__(self, *a, **k):
+            pass
+        def login(self, **k):
+            return True
+        def get_activities_by_date(self, *a, **k):
+            return []
+        def get_stats(self, d):
+            raise RuntimeError("no stats")
+        def get_body_battery(self, *a, **k):
+            raise RuntimeError("no bb")
+        def get_daily_steps(self, *a, **k):
+            raise RuntimeError("no steps")
+        def get_sleep_data(self, d):
+            raise RuntimeError("no sleep")
+        def get_heart_rates(self, d):
+            raise RuntimeError("no hr")
+        def get_hrv_data(self, d):
+            raise RuntimeError("no hrv")
+        def get_max_metrics(self, d):
+            raise RuntimeError("no vo2max")
+        def get_training_status(self, d):
+            # Already supplies recovery_time - the old code gated the readiness call behind
+            # this being absent.
+            return {'trainingStatus': 'PRODUCTIVE', 'recoveryTimeInHours': 18}
+        def get_training_readiness(self, d):
+            return [{'score': 72, 'level': 'HIGH', 'feedbackLong': 'Redo för ett hårt pass.'}]
+
+    module = types.ModuleType('garminconnect')
+    module.Garmin = FakeGarmin
+    monkeypatch.setitem(sys.modules, 'garminconnect', module)
+
+    run_garmin_sync_task_blocking('a@b.c', 'pw', 1)
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT training_readiness, training_readiness_level, training_readiness_feedback, recovery_time "
+            "FROM garmin_health WHERE date = ?",
+            (target_date,)
+        )
+        row = cursor.fetchone()
+
+    # Readiness stored despite recovery_time already being set from training_status.
+    assert row == (72, 'HIGH', 'Redo för ett hårt pass.', 18)
+
+
+def test_training_readiness_missing_stores_none_without_failing(monkeypatch):
+    """A day with no readiness record must store None and must not fail the sync (#180)."""
+    import datetime
+    import sys
+    import types
+    from backend.database import get_db_connection
+    from backend.routes.garmin import run_garmin_sync_task_blocking
+
+    today = datetime.date.today()
+    target_date = today.strftime('%Y-%m-%d')
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM garmin_health WHERE date = ?", (target_date,))
+        conn.commit()
+
+    class FakeGarmin:
+        def __init__(self, *a, **k):
+            pass
+        def login(self, **k):
+            return True
+        def get_activities_by_date(self, *a, **k):
+            return []
+        def get_stats(self, d):
+            return {'activeCalories': 400}
+        def get_body_battery(self, *a, **k):
+            raise RuntimeError("no bb")
+        def get_daily_steps(self, *a, **k):
+            raise RuntimeError("no steps")
+        def get_sleep_data(self, d):
+            raise RuntimeError("no sleep")
+        def get_heart_rates(self, d):
+            raise RuntimeError("no hr")
+        def get_hrv_data(self, d):
+            raise RuntimeError("no hrv")
+        def get_max_metrics(self, d):
+            raise RuntimeError("no vo2max")
+        def get_training_status(self, d):
+            raise RuntimeError("no training status")
+        def get_training_readiness(self, d):
+            raise RuntimeError("Garmin unavailable for readiness")
+
+    module = types.ModuleType('garminconnect')
+    module.Garmin = FakeGarmin
+    monkeypatch.setitem(sys.modules, 'garminconnect', module)
+
+    run_garmin_sync_task_blocking('a@b.c', 'pw', 1)  # must not raise
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT training_readiness, training_readiness_level, training_readiness_feedback "
+            "FROM garmin_health WHERE date = ?",
+            (target_date,)
+        )
+        row = cursor.fetchone()
+
+    assert row == (None, None, None)
+
+
 def test_unparseable_last_sync_does_not_shrink_the_window(auth_headers, monkeypatch):
     """A corrupt timestamp must not narrow every future sync to a single day."""
     from backend.database import set_api_key

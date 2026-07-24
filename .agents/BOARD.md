@@ -164,17 +164,27 @@ T-014/T-016/T-018/T-019/T-020 each add prompt content) → T-010.**
 
 ### [T-014] Store Garmin Training Readiness score, lead the daily check-in with it
 - Owner: claude
-- Status: todo
+- Status: done (2026-07-24)
 - Priority: P2
 - Created-by: anders (GitHub issue #180)
-- Files: `backend/routes/garmin.py` (~104-273), `backend/database.py`, `backend/routes/trainer.py` (`trainer_daily_checkin`), `backend/services/tool_registry.py`
-- Spec: Un-gate `get_training_readiness` from behind `if recovery_time is None:` — call it
-  unconditionally, keep the recovery-time fallback. `_ensure_columns`:
-  `training_readiness` (INT), `training_readiness_level`, `training_readiness_feedback` on
-  `garmin_health`. Add to the per-day reset block. Expose in `/api/garmin/data`,
-  `get_garmin_health`, and lead `trainer_daily_checkin`'s output with the score + Garmin's
-  feedback phrase. Evaluate `get_morning_training_readiness()` as the more stable source.
-  Handoff: T-025 (HUD readiness card) is blocked on the `/api/garmin/data` field landing.
+- Files: `backend/models.py`, `backend/database.py`, `backend/routes/garmin.py`, `backend/routes/trainer/checkin.py`, `backend/routes/trainer/plans.py`, `backend/services/tool_registry/health_data.py`, `tests/test_garmin_routes.py`
+- **DONE.** `get_training_readiness` is now called unconditionally every day (previously
+  gated behind `if recovery_time is None:`, so the score itself was never stored at all -
+  only ever scavenged as a `recovery_time` fallback). The `recovery_time` fallback behavior
+  is unchanged, it just no longer decides whether the call happens. 3 new columns
+  (`training_readiness`, `training_readiness_level`, `training_readiness_feedback`) added to
+  the per-day reset block, `GET /api/garmin/data`, `get_garmin_health`'s `latest_metrics`,
+  `build_chat_context_block()` (leads the block, per #189 Tier A), and
+  `trainer_daily_checkin`'s Garmin snapshot (leads it, as the issue asked). Did **not**
+  switch to `get_morning_training_readiness()` — evaluating it needs a live account reading
+  taken at different times of day, which isn't available here; the current
+  `get_training_readiness(date_str)` call is kept and this is left as a documented
+  open follow-up rather than a blind swap. 2 new tests (score/level/feedback stored even
+  when `get_training_status` already supplied `recovery_time` — the un-gating itself, plus
+  the list-shaped payload; a day with no readiness record stores `None` ×3 without failing).
+  `pytest` → 361 passed, 3 skipped.
+- Handoff: **T-025 (HUD readiness card) is now unblocked** — `training_readiness`/`_level`/
+  `_feedback` are live on `GET /api/garmin/data`.
 
 ### [T-015] Garmin auth: classify token expiry, add re-auth, support MFA
 - Owner: claude
@@ -386,11 +396,12 @@ T-014/T-016/T-018/T-019/T-020 each add prompt content) → T-010.**
 
 ### [T-025] Client: HUD readiness card (Garmin Training Readiness)
 - Owner: antigravity
-- Status: blocked
+- Status: todo — UNBLOCKED 2026-07-24, ready for Antigravity to run
 - Priority: P2
 - Created-by: claude (split from GitHub issue #180)
 - Files: `client/js/ui-dashboards.js`, `client/style.css`
-- Blocked by: T-014 (`training_readiness`/`_level`/`_feedback` must be in `GET /api/garmin/data`)
+- Was blocked by: T-014, now `done` — `training_readiness`/`_level`/`_feedback` are live on
+  `GET /api/garmin/data`.
 - Handoff-notes: Score is 0-100, `level` is one of `LOW/MODERATE/HIGH/PRIME`, plus a Garmin
   feedback phrase. Should sit alongside the existing body-battery card in the HUD.
 - ▶ Antigravity prompt: "Add a Training Readiness card to the HUD dashboard

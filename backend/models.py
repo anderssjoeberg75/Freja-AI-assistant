@@ -68,6 +68,11 @@ class GarminHealth(Base):
     load_aerobic_low = Column(Float)       # monthly low-aerobic load vs Garmin's target band
     load_aerobic_high = Column(Float)      # monthly high-aerobic load vs Garmin's target band
     load_anaerobic = Column(Float)         # monthly anaerobic load vs Garmin's target band
+    # Garmin's daily Training Readiness score (see #180) - answers "how hard should the
+    # user go today", calibrated from the user's own multi-week baselines.
+    training_readiness = Column(Integer)          # 0-100 overall readiness
+    training_readiness_level = Column(String)     # Garmin's bucket: LOW/MODERATE/HIGH/PRIME/...
+    training_readiness_feedback = Column(String)   # Garmin's own phrase (feedbackLong)
 
 class GarminActivity(Base):
     """One Garmin Connect activity, keyed on Garmin's own activity_id so a re-synced window

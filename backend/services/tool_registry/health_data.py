@@ -173,6 +173,10 @@ async def exec_garmin_health(args):
                 "tsb": data[0].get('tsb') if data else None,
                 "acwr": data[0].get('acwr') if data else None,
                 "acwr_status": data[0].get('acwr_status') if data else None,
+                # Training Readiness (#180): the single number a coach checks first thing.
+                "training_readiness": data[0].get('training_readiness') if data else None,
+                "training_readiness_level": data[0].get('training_readiness_level') if data else None,
+                "training_readiness_feedback": data[0].get('training_readiness_feedback') if data else None,
             },
             "averages": {
                 "avg_daily_steps": avg_steps,

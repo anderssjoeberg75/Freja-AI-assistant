@@ -157,7 +157,7 @@ async def get_garmin_data(days: int = Query(7, description="Number of days to re
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                SELECT date, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status, stress_avg, stress_max, sleep_deep_hours, sleep_light_hours, sleep_rem_hours, sleep_awake_hours, vo2max, intensity_minutes, sleep_score, training_load_acute, training_load_chronic, acwr, acwr_status, load_aerobic_low, load_aerobic_high, load_anaerobic
+                SELECT date, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status, stress_avg, stress_max, sleep_deep_hours, sleep_light_hours, sleep_rem_hours, sleep_awake_hours, vo2max, intensity_minutes, sleep_score, training_load_acute, training_load_chronic, acwr, acwr_status, load_aerobic_low, load_aerobic_high, load_anaerobic, training_readiness, training_readiness_level, training_readiness_feedback
                 FROM garmin_health
                 ORDER BY date DESC
                 LIMIT ?
@@ -198,6 +198,9 @@ async def get_garmin_data(days: int = Query(7, description="Number of days to re
                 'load_aerobic_low': row[24],
                 'load_aerobic_high': row[25],
                 'load_anaerobic': row[26],
+                'training_readiness': row[27],
+                'training_readiness_level': row[28],
+                'training_readiness_feedback': row[29],
             })
         return results
     except Exception as e:
@@ -359,6 +362,9 @@ def run_garmin_sync_task_blocking(email, password, days, end_date=None):
                 load_aerobic_low = None
                 load_aerobic_high = None
                 load_anaerobic = None
+                training_readiness = None
+                training_readiness_level = None
+                training_readiness_feedback = None
                 # workout_type/workout_duration are the one exception: they are derived from
                 # the `activities` list fetched once above, not from a per-day call, so "no
                 # workout that day" is a real answer and 0 minutes is the truthful value.
@@ -502,32 +508,41 @@ def run_garmin_sync_task_blocking(email, password, days, end_date=None):
                 except Exception as ts_err:
                     print(f"Error fetching training status for {date_str}: {ts_err}")
                     
-                if recovery_time is None:
-                    try:
-                        tr_data = client.get_training_readiness(date_str)
-                        if tr_data:
-                            if isinstance(tr_data, list) and len(tr_data) > 0:
-                                tr_data = tr_data[0]
-                            if isinstance(tr_data, dict):
+                # Called unconditionally now (#180) - previously gated behind
+                # `if recovery_time is None`, so the readiness score itself was never stored
+                # on days get_training_status already supplied a recovery_time, and coverage
+                # was arbitrary. The recovery_time fallback below is preserved unchanged; it
+                # just no longer decides whether the call happens at all.
+                try:
+                    tr_data = client.get_training_readiness(date_str)
+                    if tr_data:
+                        if isinstance(tr_data, list) and len(tr_data) > 0:
+                            tr_data = tr_data[0]
+                        if isinstance(tr_data, dict):
+                            if recovery_time is None:
                                 recovery_time = tr_data.get('recoveryTime') or tr_data.get('recoveryTimeInHours')
                                 if not recovery_time and 'trainingReadinessDTO' in tr_data:
                                     recovery_time = tr_data['trainingReadinessDTO'].get('recoveryTime')
-                    except Exception as tr_err:
-                        print(f"Error fetching training readiness for {date_str}: {tr_err}")
+                            score_val = tr_data.get('score')
+                            training_readiness = int(score_val) if isinstance(score_val, (int, float)) else None
+                            training_readiness_level = tr_data.get('level')
+                            training_readiness_feedback = tr_data.get('feedbackLong') or tr_data.get('feedbackShort')
+                except Exception as tr_err:
+                    print(f"Error fetching training readiness for {date_str}: {tr_err}")
                         
                 day_fields = (
                     steps, sleep_hours, resting_hr, active_calories, body_battery, hrv,
                     recovery_time, training_status, stress_avg, stress_max, sleep_deep_hours,
                     sleep_light_hours, sleep_rem_hours, sleep_awake_hours, vo2max,
                     intensity_minutes, sleep_score, training_load_acute, training_load_chronic,
-                    acwr, load_aerobic_low, load_aerobic_high, load_anaerobic,
+                    acwr, load_aerobic_low, load_aerobic_high, load_anaerobic, training_readiness,
                 )
                 if any(v is not None for v in day_fields):
                     any_day_succeeded = True
 
                 cursor.execute('''
-                    INSERT INTO garmin_health (date, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status, stress_avg, stress_max, sleep_deep_hours, sleep_light_hours, sleep_rem_hours, sleep_awake_hours, vo2max, intensity_minutes, sleep_score, training_load_acute, training_load_chronic, acwr, acwr_status, load_aerobic_low, load_aerobic_high, load_anaerobic)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO garmin_health (date, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status, stress_avg, stress_max, sleep_deep_hours, sleep_light_hours, sleep_rem_hours, sleep_awake_hours, vo2max, intensity_minutes, sleep_score, training_load_acute, training_load_chronic, acwr, acwr_status, load_aerobic_low, load_aerobic_high, load_anaerobic, training_readiness, training_readiness_level, training_readiness_feedback)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(date) DO UPDATE SET
                         steps = COALESCE(excluded.steps, garmin_health.steps),
                         sleep_hours = COALESCE(excluded.sleep_hours, garmin_health.sleep_hours),
@@ -554,8 +569,11 @@ def run_garmin_sync_task_blocking(email, password, days, end_date=None):
                         acwr_status = COALESCE(excluded.acwr_status, garmin_health.acwr_status),
                         load_aerobic_low = COALESCE(excluded.load_aerobic_low, garmin_health.load_aerobic_low),
                         load_aerobic_high = COALESCE(excluded.load_aerobic_high, garmin_health.load_aerobic_high),
-                        load_anaerobic = COALESCE(excluded.load_anaerobic, garmin_health.load_anaerobic)
-                ''', (date_str, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status, stress_avg, stress_max, sleep_deep_hours, sleep_light_hours, sleep_rem_hours, sleep_awake_hours, vo2max, intensity_minutes, sleep_score, training_load_acute, training_load_chronic, acwr, acwr_status, load_aerobic_low, load_aerobic_high, load_anaerobic))
+                        load_anaerobic = COALESCE(excluded.load_anaerobic, garmin_health.load_anaerobic),
+                        training_readiness = COALESCE(excluded.training_readiness, garmin_health.training_readiness),
+                        training_readiness_level = COALESCE(excluded.training_readiness_level, garmin_health.training_readiness_level),
+                        training_readiness_feedback = COALESCE(excluded.training_readiness_feedback, garmin_health.training_readiness_feedback)
+                ''', (date_str, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status, stress_avg, stress_max, sleep_deep_hours, sleep_light_hours, sleep_rem_hours, sleep_awake_hours, vo2max, intensity_minutes, sleep_score, training_load_acute, training_load_chronic, acwr, acwr_status, load_aerobic_low, load_aerobic_high, load_anaerobic, training_readiness, training_readiness_level, training_readiness_feedback))
 
             conn.commit()
 
