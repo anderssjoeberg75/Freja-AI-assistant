@@ -1,6 +1,7 @@
 """Garmin Connect API routes using FastAPI."""
 
 import datetime
+import json
 import os
 import asyncio
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -682,6 +683,152 @@ async def get_garmin_activity_laps(activity_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# Slow-moving account facts (Issue #186) - none of these change fast enough to justify a
+# daily request, so the refresh below self-limits to this cadence, mirroring
+# recompute_health_baselines()'s pattern.
+BENCHMARK_REFRESH_DAYS = 7
+BENCHMARKS_UPDATED_AT_KEY = "garmin_benchmarks_updated_at"
+
+
+def _store_benchmark(cursor, key, value, unit=None, as_of_date=None):
+    if value is None:
+        return
+    cursor.execute('''
+        INSERT INTO garmin_benchmarks (key, value, unit, as_of_date, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(key) DO UPDATE SET
+            value = excluded.value,
+            unit = excluded.unit,
+            as_of_date = excluded.as_of_date,
+            updated_at = excluded.updated_at
+    ''', (key, str(value), unit, as_of_date, datetime.datetime.now().isoformat()))
+
+
+def refresh_garmin_benchmarks(client, force=False):
+    """Refreshes slow-moving Garmin account-level benchmarks (Issue #186): threshold pace/
+    HR, race predictions, PRs, running tolerance, and the endurance/hill/fitness-age trend
+    scores. Self-limited to `BENCHMARK_REFRESH_DAYS`, like `recompute_health_baselines()`.
+
+    Each benchmark has its own try/except - several are device- or sport-dependent
+    (`get_cycling_ftp` needs a power meter, the trend scores need enough recent activity),
+    so a missing one is a normal outcome, never surfaced as a failed sync.
+
+    Field-name caveat: none of these endpoints have a typed model in the installed client.
+    `lactate_threshold`'s `speed`/`heartRate` keys are confirmed from the library's own
+    source (it merges two near-identical dicts using exactly those names). The others'
+    exact field names are not independently verified against a live account, so
+    race-predictions/personal-records/running-tolerance are stored as raw JSON rather than
+    decomposed into individual fields that might be guessed wrong; endurance/hill score and
+    fitness age try the most likely key names with a documented fallback.
+    Returns `{"status": "success"|"skipped", "fetched": [...]}`."""
+    if not force:
+        last = get_api_key(BENCHMARKS_UPDATED_AT_KEY)
+        if last:
+            try:
+                last_dt = datetime.datetime.strptime(last[:19], "%Y-%m-%d %H:%M:%S")
+                if (datetime.datetime.now() - last_dt).days < BENCHMARK_REFRESH_DAYS:
+                    return {"status": "skipped", "reason": "refreshed_recently", "fetched": []}
+            except (ValueError, TypeError):
+                pass  # Unparseable timestamp - treat as stale and refresh.
+
+    today_str = today_local().strftime('%Y-%m-%d')
+    fetched = []
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+
+        try:
+            lt = client.get_lactate_threshold(latest=True) or {}
+            speed_hr = lt.get('speed_and_heart_rate') or {}
+            speed = speed_hr.get('speed')
+            hr = speed_hr.get('heartRate')
+            as_of = speed_hr.get('calendarDate') or today_str
+            if isinstance(speed, (int, float)) and speed > 0:
+                pace_sec = 1000.0 / speed
+                pace_str = f"{int(pace_sec // 60)}:{int(round(pace_sec % 60)):02d}"
+                _store_benchmark(cursor, 'lactate_threshold_pace', pace_str, 'min/km', as_of)
+                fetched.append('lactate_threshold_pace')
+            if isinstance(hr, (int, float)):
+                _store_benchmark(cursor, 'lactate_threshold_hr', int(hr), 'bpm', as_of)
+                fetched.append('lactate_threshold_hr')
+        except Exception as e:
+            print(f"[Garmin Benchmarks] Lactate threshold unavailable: {e}")
+
+        try:
+            rp = client.get_race_predictions()
+            if rp:
+                _store_benchmark(cursor, 'race_predictions_json', json.dumps(rp), None, today_str)
+                fetched.append('race_predictions_json')
+        except Exception as e:
+            print(f"[Garmin Benchmarks] Race predictions unavailable: {e}")
+
+        try:
+            pr = client.get_personal_record()
+            if pr:
+                _store_benchmark(cursor, 'personal_records_json', json.dumps(pr), None, today_str)
+                fetched.append('personal_records_json')
+        except Exception as e:
+            print(f"[Garmin Benchmarks] Personal records unavailable: {e}")
+
+        try:
+            window_start = (today_local() - datetime.timedelta(days=90)).strftime('%Y-%m-%d')
+            rt = client.get_running_tolerance(window_start, today_str, aggregation='weekly')
+            latest_entry = rt[-1] if isinstance(rt, list) and rt else (rt if rt else None)
+            if latest_entry:
+                _store_benchmark(cursor, 'running_tolerance_latest_json', json.dumps(latest_entry), None, today_str)
+                fetched.append('running_tolerance_latest_json')
+        except Exception as e:
+            print(f"[Garmin Benchmarks] Running tolerance unavailable: {e}")
+
+        try:
+            es = client.get_endurance_score(today_str) or {}
+            score = es.get('overallScore') or es.get('score')
+            if isinstance(score, (int, float)):
+                _store_benchmark(cursor, 'endurance_score', int(score), None, today_str)
+                fetched.append('endurance_score')
+        except Exception as e:
+            print(f"[Garmin Benchmarks] Endurance score unavailable: {e}")
+
+        try:
+            hs = client.get_hill_score(today_str) or {}
+            score = hs.get('overallScore') or hs.get('score')
+            if isinstance(score, (int, float)):
+                _store_benchmark(cursor, 'hill_score', int(score), None, today_str)
+                fetched.append('hill_score')
+        except Exception as e:
+            print(f"[Garmin Benchmarks] Hill score unavailable: {e}")
+
+        try:
+            fa = client.get_fitnessage_data(today_str) or {}
+            fitness_age = fa.get('fitnessAge') or fa.get('fitness_age')
+            if isinstance(fitness_age, (int, float)):
+                _store_benchmark(cursor, 'fitness_age', round(float(fitness_age), 1), 'years', today_str)
+                fetched.append('fitness_age')
+        except Exception as e:
+            print(f"[Garmin Benchmarks] Fitness age unavailable: {e}")
+
+        conn.commit()
+
+    set_api_key(BENCHMARKS_UPDATED_AT_KEY, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    return {"status": "success", "fetched": fetched}
+
+
+@router.get("/api/garmin/benchmarks")
+async def get_garmin_benchmarks():
+    """All stored Garmin account-level benchmarks, for the PT panel's benchmarks card."""
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT key, value, unit, as_of_date, updated_at FROM garmin_benchmarks ORDER BY key")
+            rows = cursor.fetchall()
+        return {
+            row[0]: {"value": row[1], "unit": row[2], "as_of_date": row[3], "updated_at": row[4]}
+            for row in rows
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 def run_garmin_sync_task_blocking(email, password, days, end_date=None):
     """Syncs `days` days of Garmin data ending on `end_date` (default: today).
 
@@ -1080,6 +1227,16 @@ def _run_activity_detail_pass_blocking(email, password):
     return result
 
 
+def _run_benchmarks_refresh_blocking(email, password):
+    """Blocking helper: logs in and runs the self-limited benchmarks refresh (Issue #186)."""
+    from garminconnect import Garmin
+    token_dir = _garmin_token_dir()
+    os.makedirs(token_dir, exist_ok=True)
+    client = Garmin(email, password)
+    client.login(tokenstore=token_dir)
+    return refresh_garmin_benchmarks(client)
+
+
 async def run_garmin_sync_flow(email, password, days):
     """Asynchronous orchestrator for Garmin Connect synchronization.
     Runs the blocking sync in a thread executor, then executes optimization in the main event loop.
@@ -1110,6 +1267,16 @@ async def run_garmin_sync_flow(email, password, days):
                 print(f"[GARMIN SYNC] Activity detail pass: {detail_result}")
         except Exception as detail_pass_err:
             print(f"[GARMIN SYNC] Activity detail pass was skipped: {detail_pass_err}")
+
+        # Refresh slow-moving account benchmarks (threshold, race predictions, PRs, trend
+        # scores - Issue #186). Self-limited to a weekly cadence inside the function itself,
+        # so this is cheap to call every sync; own try/except for the same reason as above.
+        try:
+            benchmarks_result = await asyncio.to_thread(_run_benchmarks_refresh_blocking, email, password)
+            if benchmarks_result.get("fetched"):
+                print(f"[GARMIN SYNC] Benchmarks refreshed: {benchmarks_result['fetched']}")
+        except Exception as benchmarks_err:
+            print(f"[GARMIN SYNC] Benchmarks refresh was skipped: {benchmarks_err}")
 
         # Refresh the PT health baselines from the freshly-synced data. This is a
         # cheap SQLite pass that self-limits to a weekly cadence (Issue #35), so it is

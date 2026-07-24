@@ -172,6 +172,18 @@ class GarminActivityLap(Base):
         UniqueConstraint('activity_id', 'lap_index', name='uq_garmin_activity_laps_activity_lap'),
     )
 
+class GarminBenchmark(Base):
+    """Slow-moving account-level Garmin facts (Issue #186) - threshold pace/HR, race
+    predictions, PRs, trend scores. Key/value rather than a wide table, so adding a new
+    benchmark needs no migration and one this user's account/device doesn't provide is
+    simply absent rather than a column of NULLs."""
+    __tablename__ = 'garmin_benchmarks'
+    key = Column(String, primary_key=True)
+    value = Column(String)   # stringified scalar, or a JSON blob for composite data
+    unit = Column(String)
+    as_of_date = Column(String)
+    updated_at = Column(String)
+
 class StravaActivity(Base):
     __tablename__ = 'strava_activities'
     id = Column(Integer, primary_key=True, autoincrement=True)

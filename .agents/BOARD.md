@@ -353,22 +353,44 @@ T-014/T-016/T-018/T-019/T-020 each add prompt content) → T-010.**
 
 ### [T-020] Pull Garmin performance benchmarks (threshold, race predictions, PRs)
 - Owner: claude
-- Status: todo
+- Status: mostly done (2026-07-24) — `get_activity_types` deferred, see below
 - Priority: P3
 - Created-by: anders (GitHub issue #186)
-- Files: `backend/routes/garmin.py` (`run_garmin_sync_flow`), `backend/database.py`, `backend/routes/trainer.py` (plan-generation prompt)
-- Spec: Account-level, not per-activity — independent of T-016. `garmin_benchmarks`
-  key/value table (`key`, `value`, `unit`, `as_of_date`, `updated_at`) rather than a wide
-  table. `refresh_garmin_benchmarks()` self-limited to weekly cadence (mirror
-  `recompute_health_baselines()`). Individual `try/except` per benchmark — a missing one
-  (no power meter, no compatible watch) is normal, not an error. Start with
-  `get_lactate_threshold`, `get_race_predictions`, `get_personal_record`,
-  `get_running_tolerance`; then `get_endurance_score`/`get_hill_score`/`get_fitnessage_data`;
-  then cached `get_activity_types()` to replace the hardcoded `type_mapping` in
-  `backend/routes/garmin.py` ~214. Expose via `GET /api/garmin/benchmarks`,
-  `get_garmin_health`, and the plan prompt — use threshold pace/HR to state prescriptions as
-  numbers instead of vague terms.
-- Handoff: T-030 (PT-panel benchmarks card) is blocked on `GET /api/garmin/benchmarks`.
+- Files: `backend/models.py`, `backend/routes/garmin.py`, `backend/routes/trainer/shared.py`, `tests/test_garmin_routes.py`
+- **DONE except `get_activity_types`.** New `garmin_benchmarks` key/value table.
+  `refresh_garmin_benchmarks()` self-limited to `BENCHMARK_REFRESH_DAYS = 7` via a
+  `garmin_benchmarks_updated_at` api_key timestamp (same pattern as
+  `recompute_health_baselines`'s `baselines_updated_at`, just stored in `api_keys` instead
+  of a `trainer_profile` column since this isn't profile data). Each of the 7 benchmarks
+  (`get_lactate_threshold`, `get_race_predictions`, `get_personal_record`,
+  `get_running_tolerance`, `get_endurance_score`, `get_hill_score`, `get_fitnessage_data`)
+  has its own `try/except`; a missing one is a normal outcome. Wired into
+  `run_garmin_sync_flow` in its own try/except, re-logging in fresh like the detail pass
+  and benchmarks-refresh helpers before it.
+  Field-name honesty: only `get_lactate_threshold`'s `speed`/`heartRate` keys are confirmed
+  (straight from the library's own source, which merges two near-identical dicts using
+  exactly those names) — pace is derived from `speed` (m/s) as `1000/speed`. The other six
+  have no typed model and are not independently verified; `race_predictions`/
+  `personal_record`/`running_tolerance` are stored as raw JSON rather than decomposed
+  fields that might be guessed wrong, while `endurance_score`/`hill_score`/`fitness_age` try
+  the most likely key names (`overallScore`/`score`, `fitnessAge`) with a documented
+  fallback in `refresh_garmin_benchmarks`'s docstring.
+  Exposed via `GET /api/garmin/benchmarks` and folded into
+  `format_training_load_summary()` (threshold pace/HR, endurance score, fitness age — only
+  the four with direct coaching consequences, explicitly telling the model to state
+  prescriptions using the threshold numbers) so it reaches the plan-generation prompt via
+  the same path T-013/T-018 already use.
+  **`get_activity_types()` deferred** — replacing the hardcoded `GARMIN_TYPE_MAPPING`
+  fallback would need a nontrivial refactor of a currently-static dict for a fairly marginal
+  payoff (only affects unmapped-type labels), and it was explicitly the lowest-priority
+  bullet in the issue's own Work-to-do list. `get_goals`/`get_gear_stats` also skipped per
+  the issue's own "genuinely optional" framing.
+  5 new tests: threshold speed→pace conversion; a missing benchmark doesn't fail the
+  others; the weekly self-limit prevents a second fetch; a stored benchmark survives a
+  refresh that fails entirely; the benchmarks endpoint returns stored values.
+  `pytest` → 398 passed, 3 skipped.
+- Handoff: **T-030 (PT-panel benchmarks card) is now unblocked** — `GET /api/garmin/benchmarks`
+  is live.
 
 ### [T-021] Adherence silently reports 0% when Strava sync is broken or stale
 - Owner: claude
@@ -558,19 +580,28 @@ T-014/T-016/T-018/T-019/T-020 each add prompt content) → T-010.**
 
 ### [T-030] Client: PT-panel Garmin benchmarks card
 - Owner: antigravity
-- Status: blocked
+- Status: todo — UNBLOCKED 2026-07-24, ready for Antigravity to run
 - Priority: P3
 - Created-by: claude (split from GitHub issue #186)
 - Files: `client/**` (PT panel)
-- Blocked by: T-020 (`GET /api/garmin/benchmarks`)
-- Handoff-notes: Key/value benchmarks (threshold pace/HR, race predictions, PRs, endurance/
-  hill score, fitness age). Not every user will have every benchmark — render only the ones
-  present.
+- Was blocked by: T-020, now done — `GET /api/garmin/benchmarks` is live.
+- Handoff-notes: Response shape is `{key: {value, unit, as_of_date, updated_at}}`, not a
+  flat value. Simple scalar keys: `lactate_threshold_pace` (e.g. `"4:46"`, unit `min/km`),
+  `lactate_threshold_hr` (bpm), `endurance_score`, `hill_score`, `fitness_age`. Three keys —
+  `race_predictions_json`, `personal_records_json`, `running_tolerance_latest_json` — hold a
+  **raw JSON string** in `value` (Garmin's own undocumented shape, not decomposed
+  server-side yet); render those as a collapsible/raw block rather than assuming named
+  sub-fields. Not every user will have every key — render only what's present.
 - ▶ Antigravity prompt: "Add a benchmarks card to the PT panel, fed by `GET
-  /api/garmin/benchmarks`. Render only the key/value pairs the account actually has (skip
-  absent ones silently, no placeholder for missing data). Group loosely: pace/HR
-  (threshold, race predictions, PRs) vs trend scores (endurance, hill, fitness age).
-  Browser-verify against the running backend, screenshot, commit and push."
+  /api/garmin/benchmarks` (returns `{key: {value, unit, as_of_date, updated_at}}`). Render
+  the scalar keys directly: `lactate_threshold_pace` + `lactate_threshold_hr` together as
+  'Threshold', plus `endurance_score`, `hill_score`, `fitness_age` as trend numbers. For the
+  three `*_json` keys (`race_predictions_json`, `personal_records_json`,
+  `running_tolerance_latest_json`), `value` is a JSON string - parse it and render whatever
+  fields it contains generically (e.g. a small key/value list) rather than assuming a fixed
+  shape, since that part of Garmin's API isn't independently documented. Skip absent keys
+  silently, no placeholder for missing data. Browser-verify against the running backend,
+  screenshot, commit and push."
 
 ### [T-031] Client: PT-panel adherence warning instead of a 0% bar
 - Owner: antigravity

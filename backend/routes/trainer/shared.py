@@ -829,6 +829,38 @@ def format_training_load_summary(load: dict) -> str:
                 f"Last week's HR-zone split was {latest_week['easy_pct']}% easy / "
                 f"{latest_week['hard_pct']}% hard - outside the 80/20 target."
             )
+
+    # Garmin performance benchmarks (#186) - threshold pace/HR lets the plan state
+    # prescriptions as numbers ("4:35/km") instead of vague terms ("tröskelfart"). Only the
+    # benchmarks with direct coaching consequences; the rest is a tool call away.
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                "SELECT key, value, unit FROM garmin_benchmarks WHERE key IN "
+                "('lactate_threshold_pace', 'lactate_threshold_hr', 'endurance_score', 'fitness_age')"
+            )
+            benchmarks = {row[0]: (row[1], row[2]) for row in cursor.fetchall()}
+        except Exception as e:
+            print(f"[TRAINER LOAD] Error reading Garmin benchmarks: {e}")
+            benchmarks = {}
+    if benchmarks:
+        bits = []
+        pace = benchmarks.get('lactate_threshold_pace', (None, None))[0]
+        hr = benchmarks.get('lactate_threshold_hr', (None, None))[0]
+        threshold_parts = [p for p in (f"{pace} min/km" if pace else None, f"{hr} bpm" if hr else None) if p]
+        if threshold_parts:
+            bits.append("threshold " + " / ".join(threshold_parts))
+        if 'endurance_score' in benchmarks:
+            bits.append(f"endurance score {benchmarks['endurance_score'][0]}")
+        if 'fitness_age' in benchmarks:
+            bits.append(f"fitness age {benchmarks['fitness_age'][0]}")
+        if bits:
+            lines.append(
+                "Garmin performance benchmarks: " + "; ".join(bits) +
+                ". State prescriptions using the threshold pace/HR where relevant, "
+                "instead of only vague effort terms."
+            )
     return "\n".join(lines)
 
 

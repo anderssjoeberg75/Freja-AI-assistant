@@ -1954,6 +1954,166 @@ def test_laps_endpoint_returns_laps_in_order(auth_headers):
     assert [l['lap_index'] for l in laps] == [0, 1]
 
 
+def _clear_garmin_benchmarks():
+    from backend.database import get_db_connection
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM garmin_benchmarks")
+        conn.commit()
+
+
+class _BenchmarksFakeClient:
+    """A FakeGarmin exposing only the benchmark-related methods, each independently
+    overridable by subclassing/monkeypatching per test."""
+    def get_lactate_threshold(self, **k):
+        return {'speed_and_heart_rate': {'speed': 3.5, 'heartRate': 172, 'calendarDate': '2026-06-01'}}
+    def get_race_predictions(self):
+        return {'time5K': 1200}
+    def get_personal_record(self):
+        return [{'typeId': 1, 'value': 1150}]
+    def get_running_tolerance(self, *a, **k):
+        return [{'weeklyValue': 40}]
+    def get_endurance_score(self, *a, **k):
+        return {'overallScore': 65}
+    def get_hill_score(self, *a, **k):
+        return {'overallScore': 55}
+    def get_fitnessage_data(self, *a, **k):
+        return {'fitnessAge': 28.5}
+
+
+def test_benchmarks_refresh_stores_lactate_threshold_pace_and_hr():
+    """Lactate threshold's speed (m/s) must convert to a min/km pace string, and HR is
+    stored directly (#186)."""
+    from backend.database import get_db_connection
+    from backend.database import set_api_key
+    from backend.routes.garmin import refresh_garmin_benchmarks
+
+    _clear_garmin_benchmarks()
+    set_api_key("garmin_benchmarks_updated_at", "")
+
+    result = refresh_garmin_benchmarks(_BenchmarksFakeClient())
+    assert result["status"] == "success"
+    assert 'lactate_threshold_pace' in result["fetched"]
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT value, unit FROM garmin_benchmarks WHERE key = 'lactate_threshold_pace'")
+        pace_row = cursor.fetchone()
+        cursor.execute("SELECT value, unit FROM garmin_benchmarks WHERE key = 'lactate_threshold_hr'")
+        hr_row = cursor.fetchone()
+
+    # 1000m / 3.5 m/s = 285.71s = 4:46 min/km
+    assert pace_row == ('4:46', 'min/km')
+    assert hr_row == ('172', 'bpm')
+
+
+def test_benchmarks_missing_one_does_not_fail_the_others():
+    """A benchmark the account doesn't provide (raises) must be skipped without failing
+    the refresh or the other benchmarks (#186)."""
+    from backend.database import get_db_connection, set_api_key
+    from backend.routes.garmin import refresh_garmin_benchmarks
+
+    _clear_garmin_benchmarks()
+    set_api_key("garmin_benchmarks_updated_at", "")
+
+    class PartialClient(_BenchmarksFakeClient):
+        def get_hill_score(self, *a, **k):
+            raise RuntimeError("no hill score for this account")
+
+    result = refresh_garmin_benchmarks(PartialClient())
+
+    assert result["status"] == "success"
+    assert 'hill_score' not in result["fetched"]
+    assert 'endurance_score' in result["fetched"]  # unaffected by the hill-score failure
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM garmin_benchmarks WHERE key = 'hill_score'")
+        count = cursor.fetchone()[0]
+    assert count == 0
+
+
+def test_benchmarks_weekly_self_limit_prevents_second_fetch():
+    """A refresh within BENCHMARK_REFRESH_DAYS of the last one must be skipped (#186)."""
+    from backend.database import set_api_key
+    from backend.routes.garmin import refresh_garmin_benchmarks
+
+    _clear_garmin_benchmarks()
+    set_api_key("garmin_benchmarks_updated_at", "")
+
+    calls = {"count": 0}
+
+    class CountingClient(_BenchmarksFakeClient):
+        def get_lactate_threshold(self, **k):
+            calls["count"] += 1
+            return super().get_lactate_threshold(**k)
+
+    first = refresh_garmin_benchmarks(CountingClient())
+    second = refresh_garmin_benchmarks(CountingClient())
+
+    assert first["status"] == "success"
+    assert second["status"] == "skipped"
+    assert calls["count"] == 1
+
+
+def test_benchmarks_survive_a_refresh_that_fails_entirely():
+    """A stored benchmark must survive a later refresh whose login/fetch fails outright,
+    not be wiped (#186)."""
+    from backend.database import get_db_connection, set_api_key
+    from backend.routes.garmin import refresh_garmin_benchmarks
+
+    _clear_garmin_benchmarks()
+    set_api_key("garmin_benchmarks_updated_at", "")
+    refresh_garmin_benchmarks(_BenchmarksFakeClient())
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT value FROM garmin_benchmarks WHERE key = 'lactate_threshold_hr'")
+        before = cursor.fetchone()[0]
+
+    class FailingClient:
+        def get_lactate_threshold(self, **k):
+            raise RuntimeError("Garmin unavailable")
+        def get_race_predictions(self):
+            raise RuntimeError("Garmin unavailable")
+        def get_personal_record(self):
+            raise RuntimeError("Garmin unavailable")
+        def get_running_tolerance(self, *a, **k):
+            raise RuntimeError("Garmin unavailable")
+        def get_endurance_score(self, *a, **k):
+            raise RuntimeError("Garmin unavailable")
+        def get_hill_score(self, *a, **k):
+            raise RuntimeError("Garmin unavailable")
+        def get_fitnessage_data(self, *a, **k):
+            raise RuntimeError("Garmin unavailable")
+
+    # force=True bypasses the weekly self-limit so this actually attempts (and fails) a refresh.
+    refresh_garmin_benchmarks(FailingClient(), force=True)
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT value FROM garmin_benchmarks WHERE key = 'lactate_threshold_hr'")
+        after = cursor.fetchone()[0]
+
+    assert after == before == '172'
+
+
+def test_garmin_benchmarks_endpoint_returns_stored_values(auth_headers):
+    from backend.database import set_api_key
+    from backend.routes.garmin import refresh_garmin_benchmarks
+
+    _clear_garmin_benchmarks()
+    set_api_key("garmin_benchmarks_updated_at", "")
+    refresh_garmin_benchmarks(_BenchmarksFakeClient())
+
+    client = TestClient(app)
+    response = client.get("/api/garmin/benchmarks", headers=auth_headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert data['lactate_threshold_hr']['value'] == '172'
+    assert data['lactate_threshold_hr']['unit'] == 'bpm'
+
+
 def test_backfill_detail_endpoint_requires_credentials(auth_headers):
     from backend.database import set_api_key
     set_api_key('freja_garmin_email', '')
