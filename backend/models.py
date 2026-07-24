@@ -184,6 +184,24 @@ class GarminBenchmark(Base):
     as_of_date = Column(String)
     updated_at = Column(String)
 
+class GarminPushedWorkout(Base):
+    """Tracks which plan sessions have been pushed to the Garmin watch (Issue #176).
+
+    Garmin's own workoutId/scheduleId are the real objects on the account; keyed on
+    (plan_id, workout_date) so re-booking or re-pushing a plan updates the existing Garmin
+    workout in place instead of silently duplicating it on the watch."""
+    __tablename__ = 'garmin_pushed_workouts'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    plan_id = Column(Integer, index=True)
+    workout_date = Column(String, index=True)   # YYYY-MM-DD, the session's date
+    garmin_workout_id = Column(String)
+    garmin_schedule_id = Column(String)
+    pushed_at = Column(String)
+
+    __table_args__ = (
+        UniqueConstraint('plan_id', 'workout_date', name='uq_garmin_pushed_workouts_plan_date'),
+    )
+
 class StravaActivity(Base):
     __tablename__ = 'strava_activities'
     id = Column(Integer, primary_key=True, autoincrement=True)

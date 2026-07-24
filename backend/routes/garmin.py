@@ -829,6 +829,176 @@ async def get_garmin_benchmarks():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def push_single_workout_to_garmin(cursor, client, plan_id, workout, date_str, duration_minutes):
+    """Uploads and schedules one plan session to Garmin (Issue #176), tracking it in
+    `garmin_pushed_workouts` keyed on `(plan_id, date_str)` so a re-push updates the
+    existing Garmin workout in place instead of duplicating it on the watch. A workout
+    already pushed under a *different* Garmin workout_id (the plan changed since the last
+    push) has its stale Garmin-side workout deleted after the new one is scheduled.
+    Raises on failure - callers decide how to report/log it."""
+    from backend.services.garmin_workout import build_garmin_workout
+
+    cursor.execute(
+        "SELECT garmin_workout_id FROM garmin_pushed_workouts WHERE plan_id = ? AND workout_date = ?",
+        (plan_id, date_str)
+    )
+    existing = cursor.fetchone()
+
+    workout_json = build_garmin_workout(workout, duration_minutes)
+    uploaded = client.upload_workout(workout_json)
+    workout_id = uploaded.get("workoutId") if isinstance(uploaded, dict) else None
+    if not workout_id:
+        raise RuntimeError(f"Garmin did not return a workoutId: {uploaded}")
+
+    scheduled = client.schedule_workout(workout_id, date_str)
+    schedule_id = scheduled.get("workoutScheduleId") if isinstance(scheduled, dict) else None
+
+    cursor.execute('''
+        INSERT INTO garmin_pushed_workouts (plan_id, workout_date, garmin_workout_id, garmin_schedule_id, pushed_at)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(plan_id, workout_date) DO UPDATE SET
+            garmin_workout_id = excluded.garmin_workout_id,
+            garmin_schedule_id = excluded.garmin_schedule_id,
+            pushed_at = excluded.pushed_at
+    ''', (plan_id, date_str, str(workout_id), str(schedule_id) if schedule_id else None,
+          datetime.datetime.now().isoformat()))
+
+    if existing and existing[0] and str(existing[0]) != str(workout_id):
+        try:
+            client.delete_workout(existing[0])
+        except Exception as cleanup_err:
+            print(f"[Garmin Workout Push] Could not clean up stale workout {existing[0]}: {cleanup_err}")
+
+    return {"workout_id": workout_id, "schedule_id": schedule_id}
+
+
+@router.post("/api/garmin/workouts/push")
+async def post_garmin_workouts_push(request: Request):
+    """Pushes a plan's sessions to the Garmin watch (Issue #176, step 1): builds a simple
+    time-based workout per session via `plan_occurrences()`, uploads and schedules each on
+    its date. This writes real workouts to the user's Garmin account."""
+    email = get_api_key('freja_garmin_email') or ""
+    password = get_api_key('freja_garmin_password') or ""
+    if not email or not password:
+        raise HTTPException(
+            status_code=400,
+            detail="Garmin Connect credentials are missing. Enter the email and password in Settings."
+        )
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    plan_id = body.get("plan_id")
+    if not plan_id:
+        raise HTTPException(status_code=400, detail="plan_id is required.")
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT advice_text FROM trainer_plans WHERE id = ?", (plan_id,))
+        row = cursor.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail=f"No plan with id {plan_id} was found.")
+    try:
+        plan_data = json.loads(str(row[0] or "").replace("```json", "").replace("```", "").strip())
+    except Exception:
+        raise HTTPException(status_code=400, detail="The plan's advice_text could not be parsed.")
+
+    start_date_str = body.get("start_date")
+    if start_date_str:
+        try:
+            start_date = datetime.datetime.strptime(start_date_str, "%Y-%m-%d").date()
+        except ValueError:
+            raise HTTPException(status_code=400, detail="start_date must be YYYY-MM-DD.")
+    else:
+        today = today_local()
+        start_date = today - datetime.timedelta(days=today.weekday())  # this week's Monday
+
+    from backend.services.plan_export import plan_occurrences
+    occurrences = plan_occurrences(plan_data, start_date)
+    if not occurrences:
+        return {"status": "success", "pushed": [], "pushed_count": 0, "failed_count": 0,
+                "message": "No sessions to push (rest days only, or an empty plan)."}
+
+    try:
+        from garminconnect import Garmin
+        token_dir = _garmin_token_dir()
+        os.makedirs(token_dir, exist_ok=True)
+        client = Garmin(email, password)
+        client.login(tokenstore=token_dir)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Garmin login failed: {e}")
+
+    results = []
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        for occ in occurrences:
+            date_str = occ["date"].strftime("%Y-%m-%d")
+            try:
+                pushed = push_single_workout_to_garmin(
+                    cursor, client, plan_id, occ["workout"], date_str, occ["duration"]
+                )
+                results.append({"date": date_str, "status": "pushed", **pushed})
+            except Exception as e:
+                print(f"[Garmin Workout Push] Failed for {date_str}: {e}")
+                results.append({"date": date_str, "status": "failed", "reason": str(e)})
+        conn.commit()
+
+    return {
+        "status": "success",
+        "pushed": results,
+        "pushed_count": sum(1 for r in results if r["status"] == "pushed"),
+        "failed_count": sum(1 for r in results if r["status"] == "failed"),
+    }
+
+
+@router.delete("/api/garmin/workouts/push")
+async def delete_garmin_pushed_workouts(plan_id: int = Query(..., description="Plan id whose pushed workouts should be removed from the Garmin account")):
+    """Unschedules and deletes every Garmin workout pushed for this plan (Issue #176).
+
+    Writes to the real Garmin account - the client must confirm with the user before
+    calling this."""
+    email = get_api_key('freja_garmin_email') or ""
+    password = get_api_key('freja_garmin_password') or ""
+    if not email or not password:
+        raise HTTPException(status_code=400, detail="Garmin Connect credentials are missing.")
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT id, garmin_workout_id, garmin_schedule_id FROM garmin_pushed_workouts WHERE plan_id = ?",
+            (plan_id,)
+        )
+        rows = cursor.fetchall()
+    if not rows:
+        return {"status": "success", "removed": 0, "message": "Nothing was pushed for this plan."}
+
+    try:
+        from garminconnect import Garmin
+        token_dir = _garmin_token_dir()
+        client = Garmin(email, password)
+        client.login(tokenstore=token_dir)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Garmin login failed: {e}")
+
+    removed = 0
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        for row_id, workout_id, schedule_id in rows:
+            try:
+                if schedule_id:
+                    client.unschedule_workout(schedule_id)
+                if workout_id:
+                    client.delete_workout(workout_id)
+                cursor.execute("DELETE FROM garmin_pushed_workouts WHERE id = ?", (row_id,))
+                removed += 1
+            except Exception as e:
+                print(f"[Garmin Workout Push] Failed to remove pushed workout {workout_id}: {e}")
+        conn.commit()
+
+    return {"status": "success", "removed": removed}
+
+
 def run_garmin_sync_task_blocking(email, password, days, end_date=None):
     """Syncs `days` days of Garmin data ending on `end_date` (default: today).
 

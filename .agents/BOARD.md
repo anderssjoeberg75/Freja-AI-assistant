@@ -508,35 +508,61 @@ T-014/T-016/T-018/T-019/T-020 each add prompt content) → T-010.**
 
 ### [T-010] Push planned workouts from F.R.E.J.A. to the Garmin watch
 - Owner: claude
-- Status: todo
+- Status: step 1 done (2026-07-24), steps 2-3 deferred (see below)
 - Priority: P2
 - Created-by: anders (GitHub issue #176)
-- Files: `backend/services/garmin_workout.py` (new), `backend/routes/garmin.py`, `backend/services/plan_export.py` (`plan_occurrences`), `backend/routes/trainer/generation.py`
-- Depends-on: T-015 (auth robustness — this writes to the account, a half-authenticated
-  write is worse than a failed read) is a soft prerequisite, not a hard block; can start
-  step 1 in parallel.
-- Spec: **Step 1 (land this):** build Garmin workout JSON from a plan session
-  (`activity_type` → sport type, `duration_minutes` → step target) via
-  `upload_workout`/`schedule_workout`; `POST /api/garmin/workouts/push` (plan id + start
-  date) runs `plan_occurrences()` and uploads+schedules each session; migration/table for
-  the returned `workoutId`/`scheduleId` per plan session so re-booking doesn't duplicate
-  watch entries; wire the daily check-in's `adjust_workout` path to update/reschedule the
-  already-pushed workout instead of adding a second one; `DELETE` path to
-  unschedule/remove, with confirmation (writes to the real account). **Steps 2-3 (later,
-  separate PRs):** richer step structure with HR/pace zones; strength sessions at exercise
-  level via the same name table as T-017.
-- Handoff: T-024 ("skicka till klockan" button next to plan export) is blocked on
-  `POST /api/garmin/workouts/push` existing.
+- Files: `backend/models.py`, `backend/services/garmin_workout.py` (new), `backend/routes/garmin.py`, `backend/routes/trainer/checkin.py`, `tests/test_garmin_routes.py`
+- **Step 1 DONE.** `backend/services/garmin_workout.py`: `build_garmin_workout(workout,
+  duration_minutes)` builds a single time-based MAIN-step Garmin workout payload — schema
+  verified against the installed client's own typed models
+  (`garminconnect.workout.BaseWorkout`/`WorkoutSegment`/`ExecutableStep`), built as plain
+  dicts rather than importing those models since they need the optional `pydantic` extra
+  this project doesn't otherwise use. Swedish `activity_type` → Garmin `SportType` mapping
+  for the six types F.R.E.J.A. actually generates, falling back to `OTHER` for anything
+  unmapped (climbing, etc.).
+  New `garmin_pushed_workouts` table (unique on `plan_id, workout_date`) tracks the
+  Garmin-side `workoutId`/`scheduleId` per session. `push_single_workout_to_garmin()`
+  (shared by the endpoint and the check-in hook below) uploads + schedules, and — if that
+  `(plan_id, date)` was already pushed under a *different* workout_id (the plan changed) —
+  deletes the stale Garmin-side workout after the new one lands, so re-pushing never
+  silently duplicates entries on the watch.
+  `POST /api/garmin/workouts/push` (`plan_id` + optional `start_date`, defaults to this
+  week's Monday) runs `plan_occurrences()` and pushes each non-rest session, returning a
+  per-session pushed/failed result rather than one pass/fail for the whole plan.
+  `DELETE /api/garmin/workouts/push?plan_id=N` unschedules + deletes every pushed workout
+  for that plan and clears the tracking rows — writes to the real account, so the client
+  must confirm before calling it.
+  Wired into `trainer_daily_checkin`'s `adjust_workout` path (right after it re-times the
+  calendar event): if today's session was already pushed, look up the plan's own workout
+  entry for today's weekday and re-push it with the adjusted duration, updating the
+  existing Garmin workout instead of leaving a stale duration there or creating a second
+  one. Entirely best-effort — no credentials, nothing pushed for today, or any Garmin
+  failure must not fail the check-in itself.
+  9 new tests: sport-type mapping + duration-in-seconds + description; unknown activity
+  type falls back to `OTHER`; minimum-duration enforcement; missing credentials / missing
+  `plan_id` → 400; a 3-session plan pushes the 2 non-rest days and tracks 2 rows; re-pushing
+  the same plan updates (not duplicates) the tracked row and deletes the stale Garmin
+  workout; the delete endpoint unschedules + deletes + clears tracking. `pytest` → 416
+  passed, 3 skipped.
+- **Steps 2-3 deferred**, per the issue's own phasing ("later, separate PRs"): richer step
+  structure with HR/pace zone targets (would consume #186's threshold benchmarks, now
+  available) and strength sessions at exercise level (would reuse
+  `backend/services/garmin_exercises.py`'s Swedish↔Garmin table in its Swedish→Garmin
+  direction, the reverse of what #183/T-017 already built). Both are real follow-ups with
+  their groundwork already in place, not blocked on anything new.
+- Handoff: **T-024 ("skicka till klockan" button) is now unblocked** —
+  `POST /api/garmin/workouts/push` and `DELETE /api/garmin/workouts/push` are both live.
 
 ---
 
 ### [T-024] Client: "skicka till klockan" action next to the plan export
 - Owner: antigravity
-- Status: blocked
+- Status: todo — UNBLOCKED 2026-07-24, ready for Antigravity to run
 - Priority: P2
 - Created-by: claude (split from GitHub issue #176)
 - Files: `client/**` (wherever the plan export action lives)
-- Blocked by: T-010 (`POST /api/garmin/workouts/push` must exist first)
+- Was blocked by: T-010, now done — `POST /api/garmin/workouts/push` and
+  `DELETE /api/garmin/workouts/push?plan_id=N` are both live.
 - Handoff-notes: New endpoint takes a plan id + start date and pushes/schedules every
   session in the plan to the user's Garmin watch. It writes to a real external account, so
   the button must confirm before firing, and should show per-session success/failure (a

@@ -2114,6 +2114,243 @@ def test_garmin_benchmarks_endpoint_returns_stored_values(auth_headers):
     assert data['lactate_threshold_hr']['unit'] == 'bpm'
 
 
+def test_build_garmin_workout_maps_sport_type_and_duration():
+    """A plan session must map to the correct Garmin sport type and duration in
+    seconds (#176)."""
+    from backend.services.garmin_workout import build_garmin_workout
+
+    workout = {"activity_type": "Löpning", "title": "Intervaller", "description": "6x800m i tröskelfart."}
+    payload = build_garmin_workout(workout, 45)
+
+    assert payload["sportType"]["sportTypeKey"] == "running"
+    assert payload["estimatedDurationInSecs"] == 45 * 60
+    assert "Intervaller" in payload["workoutName"]
+    assert payload["workoutSegments"][0]["workoutSteps"][0]["endConditionValue"] == 45 * 60.0
+    assert payload["description"] == "6x800m i tröskelfart."
+
+
+def test_build_garmin_workout_unknown_activity_type_falls_back_to_default():
+    from backend.services.garmin_workout import build_garmin_workout, DEFAULT_SPORT_TYPE
+
+    payload = build_garmin_workout({"activity_type": "Klättring", "title": "Bouldering"}, 30)
+    assert payload["sportType"] == DEFAULT_SPORT_TYPE
+
+
+def test_build_garmin_workout_enforces_minimum_duration():
+    """Garmin rejects a near-zero-duration step (#176)."""
+    from backend.services.garmin_workout import build_garmin_workout, MIN_WORKOUT_SECONDS
+
+    payload = build_garmin_workout({"activity_type": "Löpning"}, 0)
+    assert payload["estimatedDurationInSecs"] == MIN_WORKOUT_SECONDS
+
+
+def _make_workout_push_plan(goal, workouts):
+    import json as json_module
+    from backend.database import get_db_connection
+
+    advice_text = json_module.dumps({"workouts": workouts})
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM trainer_plans WHERE goal = ?", (goal,))
+        cursor.execute(
+            "INSERT INTO trainer_plans (date, goal, advice_text, limitations) VALUES (?, ?, ?, ?)",
+            ('2026-01-01', goal, advice_text, '')
+        )
+        conn.commit()
+        cursor.execute("SELECT id FROM trainer_plans WHERE goal = ?", (goal,))
+        return cursor.fetchone()[0]
+
+
+def test_push_workouts_requires_credentials(auth_headers):
+    from backend.database import set_api_key
+    set_api_key('freja_garmin_email', '')
+    set_api_key('freja_garmin_password', '')
+    client = TestClient(app)
+    response = client.post("/api/garmin/workouts/push", json={"plan_id": 1}, headers=auth_headers)
+    assert response.status_code == 400
+
+
+def test_push_workouts_requires_plan_id(auth_headers):
+    from backend.database import set_api_key
+    set_api_key('freja_garmin_email', 'a@b.c')
+    set_api_key('freja_garmin_password', 'pw')
+    client = TestClient(app)
+    response = client.post("/api/garmin/workouts/push", json={}, headers=auth_headers)
+    assert response.status_code == 400
+
+
+def test_push_workouts_endpoint_uploads_and_schedules_sessions(auth_headers, monkeypatch):
+    """Pushing a plan must upload+schedule each non-rest session and track it, skipping
+    rest days (#176)."""
+    import sys
+    import types
+    import datetime
+    from backend.database import set_api_key, get_db_connection
+
+    set_api_key('freja_garmin_email', 'a@b.c')
+    set_api_key('freja_garmin_password', 'pw')
+
+    plan_id = _make_workout_push_plan("T-176 push test", [
+        {"day": "Måndag", "activity_type": "Löpning", "title": "Lugn distans", "duration_minutes": 40, "description": "Lugnt."},
+        {"day": "Onsdag", "activity_type": "Vila", "duration_minutes": 0},
+        {"day": "Fredag", "activity_type": "Styrketräning", "title": "Helkropp", "duration_minutes": 50, "description": "Ben och bål."},
+    ])
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM garmin_pushed_workouts WHERE plan_id = ?", (plan_id,))
+        conn.commit()
+
+    uploaded = []
+
+    class FakeGarmin:
+        def __init__(self, *a, **k):
+            pass
+        def login(self, **k):
+            return True
+        def upload_workout(self, workout_json):
+            uploaded.append(workout_json)
+            return {"workoutId": 5000 + len(uploaded)}
+        def schedule_workout(self, workout_id, date_str):
+            return {"workoutScheduleId": workout_id * 10}
+        def delete_workout(self, workout_id):
+            pass
+
+    module = types.ModuleType('garminconnect')
+    module.Garmin = FakeGarmin
+    monkeypatch.setitem(sys.modules, 'garminconnect', module)
+
+    today = datetime.date.today()
+    monday = (today - datetime.timedelta(days=today.weekday())).strftime('%Y-%m-%d')
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/garmin/workouts/push",
+        json={"plan_id": plan_id, "start_date": monday},
+        headers=auth_headers
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["pushed_count"] == 2
+    assert data["failed_count"] == 0
+    assert len(uploaded) == 2
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM garmin_pushed_workouts WHERE plan_id = ?", (plan_id,))
+        count = cursor.fetchone()[0]
+    assert count == 2
+
+
+def test_push_workouts_reimport_updates_not_duplicates(auth_headers, monkeypatch):
+    """Re-pushing the same plan must update the tracked row (cleaning up the stale Garmin
+    workout), not create a duplicate (#176)."""
+    import sys
+    import types
+    import datetime
+    from backend.database import set_api_key, get_db_connection
+
+    set_api_key('freja_garmin_email', 'a@b.c')
+    set_api_key('freja_garmin_password', 'pw')
+
+    plan_id = _make_workout_push_plan("T-176 repush test", [
+        {"day": "Tisdag", "activity_type": "Löpning", "title": "Pass", "duration_minutes": 30, "description": "x"},
+    ])
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM garmin_pushed_workouts WHERE plan_id = ?", (plan_id,))
+        conn.commit()
+
+    deleted = []
+    upload_calls = {"n": 0}
+
+    class FakeGarmin:
+        def __init__(self, *a, **k):
+            pass
+        def login(self, **k):
+            return True
+        def upload_workout(self, workout_json):
+            upload_calls["n"] += 1
+            return {"workoutId": 6000 + upload_calls["n"]}
+        def schedule_workout(self, workout_id, date_str):
+            return {"workoutScheduleId": workout_id * 10}
+        def delete_workout(self, workout_id):
+            deleted.append(workout_id)
+
+    module = types.ModuleType('garminconnect')
+    module.Garmin = FakeGarmin
+    monkeypatch.setitem(sys.modules, 'garminconnect', module)
+
+    today = datetime.date.today()
+    monday = (today - datetime.timedelta(days=today.weekday())).strftime('%Y-%m-%d')
+
+    client = TestClient(app)
+    first = client.post("/api/garmin/workouts/push", json={"plan_id": plan_id, "start_date": monday}, headers=auth_headers)
+    second = client.post("/api/garmin/workouts/push", json={"plan_id": plan_id, "start_date": monday}, headers=auth_headers)
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert upload_calls["n"] == 2
+    assert len(deleted) == 1
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM garmin_pushed_workouts WHERE plan_id = ?", (plan_id,))
+        count = cursor.fetchone()[0]
+    assert count == 1
+
+
+def test_delete_pushed_workouts_unschedules_and_removes_tracking(auth_headers, monkeypatch):
+    """Deleting a plan's pushed workouts must unschedule + delete each on Garmin and clear
+    the tracking rows (#176)."""
+    import sys
+    import types
+    from backend.database import set_api_key, get_db_connection
+
+    set_api_key('freja_garmin_email', 'a@b.c')
+    set_api_key('freja_garmin_password', 'pw')
+
+    plan_id = _make_workout_push_plan("T-176 delete test", [])
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM garmin_pushed_workouts WHERE plan_id = ?", (plan_id,))
+        cursor.execute(
+            "INSERT INTO garmin_pushed_workouts (plan_id, workout_date, garmin_workout_id, garmin_schedule_id, pushed_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (plan_id, '2026-01-05', '7001', '70010', '2026-01-01T00:00:00')
+        )
+        conn.commit()
+
+    unscheduled = []
+    deleted = []
+
+    class FakeGarmin:
+        def __init__(self, *a, **k):
+            pass
+        def login(self, **k):
+            return True
+        def unschedule_workout(self, schedule_id):
+            unscheduled.append(schedule_id)
+        def delete_workout(self, workout_id):
+            deleted.append(workout_id)
+
+    module = types.ModuleType('garminconnect')
+    module.Garmin = FakeGarmin
+    monkeypatch.setitem(sys.modules, 'garminconnect', module)
+
+    client = TestClient(app)
+    response = client.delete(f"/api/garmin/workouts/push?plan_id={plan_id}", headers=auth_headers)
+    assert response.status_code == 200
+    assert response.json()["removed"] == 1
+    assert unscheduled == ['70010']
+    assert deleted == ['7001']
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM garmin_pushed_workouts WHERE plan_id = ?", (plan_id,))
+        count = cursor.fetchone()[0]
+    assert count == 0
+
+
 def test_backfill_detail_endpoint_requires_credentials(auth_headers):
     from backend.database import set_api_key
     set_api_key('freja_garmin_email', '')

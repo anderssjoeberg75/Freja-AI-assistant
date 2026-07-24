@@ -3,6 +3,7 @@
 import asyncio
 import datetime
 import httpx
+import json
 from fastapi import APIRouter, HTTPException, Query, Request
 from backend.database import get_db_connection, get_api_key
 from backend.services import llm_client
@@ -371,6 +372,63 @@ Rules for the briefing:
                     calendar_updated = True
                 except Exception as adj_err:
                     print(f"[TRAINER CHECKIN] Could not adjust the calendar session: {adj_err}")
+
+                # If today's session was already pushed to the Garmin watch (#176), update
+                # it in place rather than leaving a stale duration there or pushing a
+                # second workout for the same day. Best-effort: no credentials, no push
+                # tracked for today, or any Garmin failure must not fail the check-in.
+                if calendar_updated:
+                    try:
+                        email = get_api_key('freja_garmin_email') or ""
+                        password = get_api_key('freja_garmin_password') or ""
+                        with get_db_connection() as conn:
+                            cursor = conn.cursor()
+                            cursor.execute(
+                                "SELECT plan_id FROM trainer_bookings WHERE workout_date = ? ORDER BY id DESC LIMIT 1",
+                                (today_str,)
+                            )
+                            booking_row = cursor.fetchone()
+
+                        plan_id = booking_row[0] if booking_row else None
+                        if plan_id and email and password:
+                            with get_db_connection() as conn:
+                                cursor = conn.cursor()
+                                cursor.execute(
+                                    "SELECT 1 FROM garmin_pushed_workouts WHERE plan_id = ? AND workout_date = ?",
+                                    (plan_id, today_str)
+                                )
+                                already_pushed = cursor.fetchone()
+                                plan_row = None
+                                if already_pushed:
+                                    cursor.execute("SELECT advice_text FROM trainer_plans WHERE id = ?", (plan_id,))
+                                    plan_row = cursor.fetchone()
+
+                            if already_pushed and plan_row:
+                                from backend.services.plan_export import SWEDISH_DAY_OFFSETS
+                                plan_data = json.loads(
+                                    str(plan_row[0] or "").replace("```json", "").replace("```", "").strip()
+                                )
+                                today_weekday = today.weekday()
+                                todays_workout = next(
+                                    (
+                                        w for w in plan_data.get("workouts", [])
+                                        if SWEDISH_DAY_OFFSETS.get(str(w.get("day", "")).strip().lower()) == today_weekday
+                                    ),
+                                    None,
+                                )
+                                if todays_workout:
+                                    from garminconnect import Garmin
+                                    from backend.routes.garmin import _garmin_token_dir, push_single_workout_to_garmin
+                                    g_client = Garmin(email, password)
+                                    g_client.login(tokenstore=_garmin_token_dir())
+                                    with get_db_connection() as conn:
+                                        cursor = conn.cursor()
+                                        push_single_workout_to_garmin(
+                                            cursor, g_client, plan_id, todays_workout, today_str, new_dur
+                                        )
+                                        conn.commit()
+                    except Exception as garmin_push_err:
+                        print(f"[TRAINER CHECKIN] Could not update the pushed Garmin workout: {garmin_push_err}")
 
         return {
             "status": "success",
