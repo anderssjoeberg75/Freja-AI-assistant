@@ -558,6 +558,130 @@ def compute_adherence(days: int = 14) -> dict:
     }
 
 
+# --- Unified Garmin/Strava session view (Issue #188) -------------------------
+# In the normal setup a session is recorded on the Garmin watch and pushed to Strava by
+# auto-sync - Garmin is the original, Strava the copy. build_training_load_summary()'s own
+# docstring used to claim the opposite ("Strava... the authoritative record"), which had every
+# call site here independently deciding which source to believe. This is the one place that
+# decision gets made.
+DUPLICATE_TIME_TOLERANCE_SECONDS = 600   # ±10 minutes
+DUPLICATE_DURATION_TOLERANCE_PCT = 0.10  # ±10%
+
+
+def _parse_session_datetime(date_str, time_str):
+    """Best-effort datetime parse for the duplicate-matching window - both Garmin's
+    'YYYY-MM-DD HH:MM:SS' and Strava's 'YYYY-MM-DDTHH:MM:SS...' local-time strings."""
+    if not time_str:
+        return None
+    candidate = str(time_str)[:19].replace('T', ' ')
+    try:
+        return datetime.datetime.strptime(candidate, "%Y-%m-%d %H:%M:%S")
+    except (ValueError, TypeError):
+        return None
+
+
+def unified_sessions(start_str: str, end_str: str) -> list:
+    """Merges Garmin and Strava activities into one session list, Garmin-first (#188).
+
+    Garmin's activities are all included. A Strava activity is added only when it has no
+    Garmin counterpart - matched on start time within `DUPLICATE_TIME_TOLERANCE_SECONDS` AND
+    duration within `DUPLICATE_DURATION_TOLERANCE_PCT`, not on date alone (date-only matching
+    drops a genuine second session on a day that already has one). Everything else - a
+    session that never touched the Garmin watch (Zwift, the phone app, another device, a
+    manual entry) - is Strava's real contribution and survives.
+
+    Returns sessions sorted by start time (falling back to date), each with a `source` field
+    (`'garmin'` / `'strava'`) so callers can tell where a figure came from."""
+    garmin_rows, strava_rows = [], []
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                '''SELECT activity_id, date, start_time_local, type, duration_minutes,
+                          distance_m, avg_hr, max_hr
+                   FROM garmin_activities WHERE date >= ? AND date <= ?
+                   ORDER BY start_time_local ASC''',
+                (start_str, end_str)
+            )
+            garmin_rows = cursor.fetchall()
+        except Exception as e:
+            print(f"[UNIFIED SESSIONS] Error reading Garmin activities: {e}")
+        try:
+            cursor.execute(
+                '''SELECT id, date, type, moving_time, distance, average_heartrate, max_heartrate
+                   FROM strava_activities
+                   WHERE SUBSTR(date, 1, 10) >= ? AND SUBSTR(date, 1, 10) <= ?
+                   ORDER BY date ASC''',
+                (start_str, end_str)
+            )
+            strava_rows = cursor.fetchall()
+        except Exception as e:
+            print(f"[UNIFIED SESSIONS] Error reading Strava activities: {e}")
+
+    sessions = []
+    garmin_index = []  # (parsed_datetime, duration_minutes) for duplicate matching
+    for activity_id, date_str, start_time_local, a_type, duration_min, distance_m, avg_hr, max_hr in garmin_rows:
+        sessions.append({
+            "date": (date_str or '')[:10],
+            "start_time": start_time_local,
+            "type": a_type,
+            "duration_minutes": duration_min or 0.0,
+            "distance_km": round((distance_m or 0) / 1000.0, 2) if distance_m else None,
+            "avg_hr": avg_hr,
+            "max_hr": max_hr,
+            "source": "garmin",
+            "garmin_activity_id": activity_id,
+            "strava_id": None,
+        })
+        garmin_index.append((_parse_session_datetime(date_str, start_time_local), duration_min or 0.0))
+
+    for strava_id, date_str, a_type, moving_time, distance, avg_hr, max_hr in strava_rows:
+        minutes = round((moving_time or 0) / 60.0, 1)
+        if minutes <= 0:
+            continue
+        strava_dt = _parse_session_datetime(date_str[:10], date_str)
+        is_duplicate = False
+        if strava_dt is not None:
+            for garmin_dt, garmin_minutes in garmin_index:
+                if garmin_dt is None:
+                    continue
+                time_diff = abs((strava_dt - garmin_dt).total_seconds())
+                if time_diff > DUPLICATE_TIME_TOLERANCE_SECONDS:
+                    continue
+                if garmin_minutes <= 0 or minutes <= 0:
+                    continue
+                duration_diff_pct = abs(garmin_minutes - minutes) / max(garmin_minutes, minutes)
+                if duration_diff_pct <= DUPLICATE_DURATION_TOLERANCE_PCT:
+                    is_duplicate = True
+                    break
+                else:
+                    # Same day, close start time, but too different in duration to be
+                    # confident - log the near-miss so the tolerances can be tuned against
+                    # real data instead of guessed at once (issue's own suggestion).
+                    print(
+                        f"[UNIFIED SESSIONS] Near-miss, not merged: Strava {strava_id} vs a "
+                        f"Garmin session {time_diff:.0f}s apart, duration {minutes} vs "
+                        f"{garmin_minutes} min ({duration_diff_pct:.0%} apart)."
+                    )
+        if is_duplicate:
+            continue
+        sessions.append({
+            "date": date_str[:10],
+            "start_time": date_str,
+            "type": a_type,
+            "duration_minutes": minutes,
+            "distance_km": round((distance or 0) / 1000.0, 2) if distance else None,
+            "avg_hr": avg_hr,
+            "max_hr": max_hr,
+            "source": "strava",
+            "garmin_activity_id": None,
+            "strava_id": strava_id,
+        })
+
+    sessions.sort(key=lambda s: s["start_time"] or s["date"] or "")
+    return sessions
+
+
 # --- Training-load history for safe progression ------------------------------
 # A plan built only from the last 7 days has no idea what the user can actually sustain: a
 # quiet week reads as "untrained" and the next plan jumps from a 20-minute jog to an hour.
@@ -571,8 +695,9 @@ MAX_WEEKLY_STEP_PCT = 10      # Weekly volume may rise by at most this vs the re
 def build_training_load_summary(days: int = TRAINING_LOAD_DAYS) -> dict:
     """Summarises actually-completed training over the last `days` days.
 
-    Reads Strava activities (the authoritative record of what was performed) and falls back
-    to Garmin's logged workouts for sessions Strava never saw. Returns per-week volume, the
+    Reads Garmin activities (the original record - sessions are recorded on the watch and
+    pushed to Strava by auto-sync, see #188) via `unified_sessions()`, which adds Strava
+    activities only when they have no Garmin counterpart. Returns per-week volume, the
     longest single session, and per-activity typical/longest durations - the reference
     points a progression has to be built on."""
     days = max(7, min(int(days or TRAINING_LOAD_DAYS), 180))
@@ -580,66 +705,18 @@ def build_training_load_summary(days: int = TRAINING_LOAD_DAYS) -> dict:
     cutoff = today - datetime.timedelta(days=days)
     cutoff_str = cutoff.strftime('%Y-%m-%d')
 
-    # date -> {type: minutes} so a Garmin row is only used when Strava has nothing that day.
-    sessions = []       # (date, activity_type, minutes, distance_km, avg_hr, source)
-    strava_dates = set()
-
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        try:
-            cursor.execute(
-                '''SELECT SUBSTR(date, 1, 10), type, moving_time, distance, average_heartrate
-                   FROM strava_activities
-                   WHERE SUBSTR(date, 1, 10) >= ?
-                   ORDER BY date ASC''',
-                (cutoff_str,)
-            )
-            for d, a_type, moving_time, distance, avg_hr in cursor.fetchall():
-                if not d:
-                    continue
-                minutes = round((moving_time or 0) / 60.0, 1)
-                if minutes <= 0:
-                    continue
-                strava_dates.add(d)
-                sessions.append({
-                    "date": d,
-                    "type": (a_type or "Träning").strip(),
-                    "minutes": minutes,
-                    "distance_km": round((distance or 0) / 1000.0, 2),
-                    "avg_hr": avg_hr,
-                    "source": "Strava",
-                })
-        except Exception as e:
-            print(f"[TRAINER LOAD] Error reading Strava activities: {e}")
-
-        try:
-            # Reads garmin_activities (one row per session, see #177) rather than the
-            # garmin_health same-day rollup, so a multi-session day counts every session
-            # instead of only the day's dominant one.
-            cursor.execute(
-                '''SELECT date, type, duration_minutes, distance_m, avg_hr
-                   FROM garmin_activities
-                   WHERE date >= ?
-                   ORDER BY date ASC''',
-                (cutoff_str,)
-            )
-            for d, a_type, minutes, distance_m, avg_hr in cursor.fetchall():
-                if not d or d[:10] in strava_dates:
-                    continue  # Strava already has this day; don't double-count it.
-                minutes = round(float(minutes or 0), 1)
-                if minutes <= 0 or not a_type:
-                    continue
-                sessions.append({
-                    "date": d[:10],
-                    "type": str(a_type).strip(),
-                    "minutes": minutes,
-                    "distance_km": round((distance_m or 0) / 1000.0, 2) if distance_m else None,
-                    "avg_hr": avg_hr,
-                    "source": "Garmin",
-                })
-        except Exception as e:
-            print(f"[TRAINER LOAD] Error reading Garmin activities: {e}")
-
+    sessions = [
+        {
+            "date": s["date"],
+            "type": (s["type"] or "Träning").strip(),
+            "minutes": s["duration_minutes"] or 0.0,
+            "distance_km": s["distance_km"],
+            "avg_hr": s["avg_hr"],
+            "source": s["source"].capitalize(),
+        }
+        for s in unified_sessions(cutoff_str, today.strftime('%Y-%m-%d'))
+        if (s["duration_minutes"] or 0) > 0
+    ]
     sessions.sort(key=lambda s: s["date"])
 
     # Weekly buckets, counted back from today so "this week" is the most recent one.

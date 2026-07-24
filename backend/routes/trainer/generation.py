@@ -11,6 +11,7 @@ from .shared import (
     get_trainer_profile, fetch_7day_weather_forecast, calculate_trends, format_trends_summary,
     recompute_health_baselines, format_recent_strength_logs, format_active_injuries,
     build_training_load_summary, format_training_load_summary, _format_progression_rules,
+    unified_sessions,
     MAX_INPUT_LEN, GEMINI_TIMEOUT_SECONDS, BASELINE_WINDOW_DAYS, DEFAULT_LOCATION,
     RHR_ALERT_PCT, HRV_ALERT_PCT, TRAINING_LOAD_DAYS,
 )
@@ -56,19 +57,6 @@ async def generate_trainer_plan(request: Request):
                 )
 
             cursor.execute('''
-                SELECT name, type, date, distance, moving_time, total_elevation_gain, average_heartrate, max_heartrate, calories
-                FROM strava_activities
-                ORDER BY date DESC
-                LIMIT 20
-            ''')
-            for r in cursor.fetchall():
-                dist_km = round(r[3] / 1000.0, 2) if r[3] else 0
-                dur_min = round(r[4] / 60.0, 1) if r[4] else 0
-                strava_summary.append(
-                    f"Activity: {r[0]}, Type: {r[1]}, Date: {r[2]}, Distance: {dist_km} km, Time: {dur_min} min, Elevation gain: {r[5]}m, Avg HR: {r[6]}, Max HR: {r[7]}, Calories: {r[8]}kcal"
-                )
-
-            cursor.execute('''
                 SELECT date, weight, fat_ratio, bone_mass, heart_pulse, sleep_duration, steps, calories, sleep_score
                 FROM withings_measurements
                 ORDER BY date DESC
@@ -79,6 +67,19 @@ async def generate_trainer_plan(request: Request):
                 withings_summary.append(
                     f"Date: {r[0]}, Weight: {r[1]} kg, Body fat: {r[2]}%, Bone mass: {r[3]} kg, Pulse: {r[4]} BPM, Sleep: {sleep_h}h (Score: {r[8]}), Steps: {r[6]}, Calories: {r[7]}kcal"
                 )
+
+        # Per-activity list: unified_sessions() (#188) merges Garmin + Strava, Garmin-first,
+        # so the model sees each session once instead of the same session twice (once from
+        # Garmin's daily rollup above, once from a separate Strava-only list) with slightly
+        # different numbers to reconcile itself.
+        recent_start = (today_local() - datetime.timedelta(days=30)).strftime('%Y-%m-%d')
+        for s in unified_sessions(recent_start, today_local().strftime('%Y-%m-%d'))[-20:]:
+            dur_min = s.get("duration_minutes") or 0
+            dist_km = s.get("distance_km") or 0
+            strava_summary.append(
+                f"Activity ({s['source']}): Type: {s.get('type') or 'Träning'}, Date: {s['date']}, "
+                f"Distance: {dist_km} km, Time: {dur_min} min, Avg HR: {s.get('avg_hr')}, Max HR: {s.get('max_hr')}"
+            )
 
         # 5. Calculate trends
         trends = calculate_trends()
@@ -341,22 +342,34 @@ def _collect_onboarding_signals(days: int = ONBOARDING_LOOKBACK_DAYS) -> dict:
             print(f"[TRAINER ONBOARDING] Garmin read error: {e}")
 
         try:
-            cursor.execute(
-                '''SELECT type, COUNT(*), AVG(moving_time), MAX(distance), AVG(average_heartrate), MAX(max_heartrate)
-                   FROM strava_activities WHERE SUBSTR(date, 1, 10) >= ?
-                   GROUP BY type ORDER BY COUNT(*) DESC''',
-                (cutoff,)
-            )
-            for a_type, count, avg_time, max_dist, avg_hr, max_hr in cursor.fetchall():
-                activity_types[a_type or "Träning"] = {
-                    "sessions": count,
-                    "avg_minutes": round((avg_time or 0) / 60.0, 1),
-                    "longest_km": round((max_dist or 0) / 1000.0, 2),
-                    "avg_hr": round(avg_hr, 0) if avg_hr else None,
-                    "max_hr": max_hr,
+            # unified_sessions() (#188) merges Garmin + Strava, Garmin-first, so activity
+            # types reflect every completed session rather than only the ones Strava saw.
+            end_str = today_local().strftime('%Y-%m-%d')
+            by_type: dict = {}
+            for s in unified_sessions(cutoff, end_str):
+                minutes = s.get("duration_minutes") or 0
+                if minutes <= 0:
+                    continue
+                t = (s.get("type") or "Träning").strip()
+                entry = by_type.setdefault(t, {"sessions": 0, "total_minutes": 0.0, "longest_km": 0.0, "hr_values": [], "max_hr": None})
+                entry["sessions"] += 1
+                entry["total_minutes"] += minutes
+                if s.get("distance_km"):
+                    entry["longest_km"] = max(entry["longest_km"], s["distance_km"])
+                if s.get("avg_hr"):
+                    entry["hr_values"].append(s["avg_hr"])
+                if s.get("max_hr"):
+                    entry["max_hr"] = max(entry["max_hr"] or 0, s["max_hr"])
+            for t, e in by_type.items():
+                activity_types[t] = {
+                    "sessions": e["sessions"],
+                    "avg_minutes": round(e["total_minutes"] / e["sessions"], 1) if e["sessions"] else 0.0,
+                    "longest_km": round(e["longest_km"], 2),
+                    "avg_hr": round(sum(e["hr_values"]) / len(e["hr_values"]), 0) if e["hr_values"] else None,
+                    "max_hr": e["max_hr"],
                 }
         except Exception as e:
-            print(f"[TRAINER ONBOARDING] Strava read error: {e}")
+            print(f"[TRAINER ONBOARDING] Unified sessions read error: {e}")
 
         try:
             cursor.execute(

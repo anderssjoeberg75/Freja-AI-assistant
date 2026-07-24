@@ -1480,3 +1480,129 @@ def test_adherence_genuine_zero_with_healthy_sync_stays_reliable():
 
     assert result["reliable"] is True
     assert result["adherence_pct"] == 0.0
+
+
+def _clear_unified_sessions_fixture(date_str, activity_ids=(), strava_ids=()):
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM garmin_activities WHERE date = ?", (date_str,))
+        cursor.execute("DELETE FROM strava_activities WHERE SUBSTR(date, 1, 10) = ?", (date_str,))
+        conn.commit()
+
+
+def test_unified_sessions_same_session_counts_once_keeps_garmin_fields():
+    """A session recorded on both Garmin and Strava (matched by start time + duration)
+    must count once, keeping Garmin's richer fields rather than Strava's (#188)."""
+    import datetime
+    from backend.routes.trainer.shared import unified_sessions
+
+    target_date = datetime.date.today().strftime('%Y-%m-%d')
+    _clear_unified_sessions_fixture(target_date)
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO garmin_activities (activity_id, date, start_time_local, type, duration_minutes, distance_m, avg_hr, max_hr) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            ('t188-dup', target_date, f'{target_date}T07:00:00', 'Löpning', 30.0, 5000.0, 145, 165)
+        )
+        cursor.execute(
+            "INSERT INTO strava_activities (name, type, date, distance, moving_time) VALUES (?, ?, ?, ?, ?)",
+            ('Morgonlöpning', 'Run', f'{target_date}T07:02:00', 5010.0, 1810)  # ~30.2 min, 2 min later
+        )
+        conn.commit()
+
+    sessions = unified_sessions(target_date, target_date)
+
+    assert len(sessions) == 1
+    assert sessions[0]['source'] == 'garmin'
+    assert sessions[0]['garmin_activity_id'] == 't188-dup'
+    assert sessions[0]['avg_hr'] == 145  # Garmin's field, not lost to the Strava row
+
+
+def test_unified_sessions_strava_only_activity_is_included():
+    """An activity with no Garmin counterpart (e.g. Zwift, phone app, manual entry) is
+    Strava's real contribution and must survive (#188)."""
+    import datetime
+    from backend.routes.trainer.shared import unified_sessions
+
+    target_date = datetime.date.today().strftime('%Y-%m-%d')
+    _clear_unified_sessions_fixture(target_date)
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO strava_activities (name, type, date, distance, moving_time) VALUES (?, ?, ?, ?, ?)",
+            ('Zwift-pass', 'Ride', f'{target_date}T18:00:00', 20000.0, 3600)
+        )
+        conn.commit()
+
+    sessions = unified_sessions(target_date, target_date)
+
+    assert len(sessions) == 1
+    assert sessions[0]['source'] == 'strava'
+
+
+def test_unified_sessions_two_genuine_sessions_one_day_both_survive():
+    """Two distinct sessions on the same day (an easy run + strength, say) must not be
+    collapsed into one just because they share a date (#188)."""
+    import datetime
+    from backend.routes.trainer.shared import unified_sessions
+
+    target_date = datetime.date.today().strftime('%Y-%m-%d')
+    _clear_unified_sessions_fixture(target_date)
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO garmin_activities (activity_id, date, start_time_local, type, duration_minutes) "
+            "VALUES (?, ?, ?, ?, ?)",
+            ('t188-morning', target_date, f'{target_date}T06:00:00', 'Löpning', 30.0)
+        )
+        # A genuinely different Strava session much later the same day - far outside the
+        # ±10 minute / ±10% duplicate-matching window.
+        cursor.execute(
+            "INSERT INTO strava_activities (name, type, date, distance, moving_time) VALUES (?, ?, ?, ?, ?)",
+            ('Kvällspass', 'WeightTraining', f'{target_date}T18:00:00', 0.0, 2700)
+        )
+        conn.commit()
+
+    sessions = unified_sessions(target_date, target_date)
+
+    assert len(sessions) == 2
+    assert {s['source'] for s in sessions} == {'garmin', 'strava'}
+
+
+def test_unified_sessions_garmin_outage_falls_back_to_strava_and_vice_versa():
+    """If Garmin has nothing for the window, Strava carries it alone - and vice versa - so
+    an outage in either source doesn't blind the coach (#188)."""
+    import datetime
+    from backend.routes.trainer.shared import unified_sessions
+
+    target_date = datetime.date.today().strftime('%Y-%m-%d')
+    _clear_unified_sessions_fixture(target_date)
+
+    # Garmin outage: only Strava has data for the window.
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO strava_activities (name, type, date, distance, moving_time) VALUES (?, ?, ?, ?, ?)",
+            ('Utan Garmin', 'Run', f'{target_date}T07:00:00', 8000.0, 2400)
+        )
+        conn.commit()
+
+    sessions = unified_sessions(target_date, target_date)
+    assert len(sessions) == 1
+    assert sessions[0]['source'] == 'strava'
+
+    # Now the reverse: Strava outage, only Garmin has data.
+    _clear_unified_sessions_fixture(target_date)
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO garmin_activities (activity_id, date, start_time_local, type, duration_minutes) "
+            "VALUES (?, ?, ?, ?, ?)",
+            ('t188-strava-out', target_date, f'{target_date}T07:00:00', 'Löpning', 40.0)
+        )
+        conn.commit()
+
+    sessions = unified_sessions(target_date, target_date)
+    assert len(sessions) == 1
+    assert sessions[0]['source'] == 'garmin'

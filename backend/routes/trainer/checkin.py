@@ -168,23 +168,25 @@ async def trainer_daily_checkin(request: Request):
                 f"Sleep: {sleep_h}h (Score: {w[8]}), Steps: {w[6]}, Calories: {w[7]}kcal"
             )
 
-        # 3. Did yesterday's workout get completed? (Strava)
-        completed_summary = "No workout was recorded on Strava yesterday."
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                SELECT name, type, distance, moving_time, average_heartrate
-                FROM strava_activities
-                WHERE SUBSTR(date, 1, 10) = ?
-                ORDER BY date DESC
-            ''', (yesterday_str,))
-            strava_rows = cursor.fetchall()
-        if strava_rows:
+        # 3. Did yesterday's workout get completed? unified_sessions() (#188) checks Garmin
+        # first (the original recording device) and Strava for anything Garmin never saw,
+        # instead of only ever checking Strava - a session recorded on the watch but not yet
+        # synced to Strava used to read as "no workout" here.
+        completed_summary = "No workout was recorded yesterday."
+        from .shared import unified_sessions
+        yesterday_sessions = [
+            s for s in unified_sessions(yesterday_str, yesterday_str)
+            if (s.get("duration_minutes") or 0) > 0
+        ]
+        if yesterday_sessions:
             parts = []
-            for r in strava_rows:
-                dist_km = round(r[2] / 1000.0, 2) if r[2] else 0
-                dur_min = round(r[3] / 60.0, 1) if r[3] else 0
-                parts.append(f"{r[0]} ({r[1]}, {dist_km} km, {dur_min} min, avg HR {r[4]})")
+            for s in yesterday_sessions:
+                dist_km = s.get("distance_km") or 0
+                dur_min = s.get("duration_minutes") or 0
+                parts.append(
+                    f"{s.get('type') or 'Träning'} ({s['source']}, {dist_km} km, {dur_min} min, "
+                    f"avg HR {s.get('avg_hr')})"
+                )
             completed_summary = "Completed yesterday: " + "; ".join(parts)
 
         # 4. Today's calendar: separate planned workouts from other commitments
@@ -376,7 +378,7 @@ Rules for the briefing:
             "checkin": briefing_data,
             "provider": active_provider,
             "has_workout_today": bool(workout_events),
-            "workout_completed_yesterday": bool(strava_rows),
+            "workout_completed_yesterday": bool(yesterday_sessions),
             "adherence": adherence,
             "calendar_updated": calendar_updated,
             "sync": sync_results

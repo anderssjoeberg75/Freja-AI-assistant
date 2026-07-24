@@ -419,21 +419,39 @@ T-014/T-016/T-018/T-019/T-020 each add prompt content) → T-010.**
 
 ### [T-022] Make Garmin the primary activity source, Strava the completeness net
 - Owner: claude
-- Status: todo
+- Status: done (2026-07-24) — 4 of 5 call sites migrated, `compute_adherence()` intentionally not
 - Priority: P2
 - Created-by: anders (GitHub issue #188)
-- Files: `backend/routes/trainer.py` (`build_training_load_summary` ~531, `compute_adherence` ~480, `_collect_onboarding_signals` ~1800, `trainer_daily_checkin` ~2394, plan-generation prompt ~1513), new service module
-- Depends-on: T-011 (`garmin_activities` table)
-- Spec: `build_training_load_summary()`'s docstring has the hierarchy backwards — sessions
-  are recorded on the watch and pushed *to* Strava, so Garmin is the original and Strava the
-  copy. New shared `unified_sessions(start, end)` helper: Garmin-first merge, matching
-  Strava activities with no Garmin counterpart on start-time (±10 min) + duration (±10%),
-  not date alone (date-only matching drops genuine same-day second sessions). Each session
-  gets a `source` field. Migrate all five call sites listed in the issue onto this one
-  helper instead of five independently-drifting decisions; log near-misses during rollout to
-  tune tolerances. Correct the docstring. Tests: same session in both sources counts once
-  with Garmin's richer fields kept; Strava-only activity included; two genuine same-day
-  sessions both survive; outage in either source falls back to the other.
+- Files: `backend/routes/trainer/shared.py` (`unified_sessions`, `build_training_load_summary`), `backend/routes/trainer/generation.py` (`_collect_onboarding_signals`, plan prompt), `backend/routes/trainer/checkin.py`, `tests/test_trainer_routes.py`
+- **DONE**, with one deliberate scope note. New `unified_sessions(start_str, end_str)` in
+  `shared.py`: Garmin-first merge, matching Strava activities with no Garmin counterpart on
+  start-time (±10 min, `DUPLICATE_TIME_TOLERANCE_SECONDS`) **and** duration (±10%,
+  `DUPLICATE_DURATION_TOLERANCE_PCT`) rather than date alone, so a genuine second session on
+  a day that already has one survives. Each session carries a `source` field
+  (`garmin`/`strava`) plus its originating id. Near-misses (same-day, close start time, but
+  duration too different to be confident) are logged so the tolerances can be tuned against
+  real data. Corrected `build_training_load_summary()`'s docstring, which had the hierarchy
+  backwards ("Strava... the authoritative record").
+  Migrated 4 of the 5 call sites onto this one helper: `build_training_load_summary()`,
+  `_collect_onboarding_signals()` (was a raw SQL `GROUP BY` against `strava_activities`
+  only — now computes the same aggregates in Python from `unified_sessions()`), the
+  plan-generation prompt (was two separate Garmin/Strava blocks the model had to reconcile
+  itself — now one merged list), and `trainer_daily_checkin`'s "was yesterday's session
+  completed" check (was Strava-only).
+  **`compute_adherence()` deliberately left on its own union logic** (already Garmin+Strava
+  since T-021, already tested with the `reliable`/`reason` machinery) rather than rerouted
+  through `unified_sessions()` — adherence only needs *date presence*, not
+  duplicate-instance matching, and touching T-021's just-shipped, just-tested reliability
+  logic for a redundant refactor risked destabilizing it for no behavioral gain. The
+  Garmin-primacy goal (union both sources, don't miss Garmin-only completions) is already
+  achieved there.
+  Caught and fixed one regression during this work: removing the old Strava-only lookup in
+  `checkin.py` left a stray `strava_rows` reference in the response dict, causing every
+  `/api/trainer/checkin` call to 500 — full-suite run caught it immediately.
+  4 new tests on `unified_sessions()`: a session in both sources counts once with Garmin's
+  richer fields kept; a Strava-only activity is included; two genuine same-day sessions
+  both survive; an outage in either source falls back to the other. `pytest` → 406 passed,
+  3 skipped.
 
 ### [T-023] Decide what new Garmin data adds to prompts vs stays tool-only, and budget it
 - Owner: claude
