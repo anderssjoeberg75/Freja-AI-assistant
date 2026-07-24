@@ -95,6 +95,33 @@ class GarminActivity(Base):
     training_load = Column(Float)
     aerobic_te = Column(Float)
     anaerobic_te = Column(Float)
+    # Nullable marker (Issue #182): NULL means detail has not been fetched yet. A completed
+    # activity is immutable, so detail only needs fetching once per activity_id, ever - the
+    # detail pass selects rows where this is NULL, and a failed fetch simply leaves it NULL
+    # for the next run to retry.
+    detail_fetched_at = Column(String)
+
+class GarminActivityDetail(Base):
+    """Per-activity detail from Garmin's get_activity() summary (Issue #182), keyed on
+    activity_id in its own table rather than widening garmin_activities - so #183 (strength
+    sets), #184 (HR zones) and #185 (laps) can each add their own table without a migration
+    collision, and a missing row cleanly means "not fetched yet" rather than a row of NULLs.
+    """
+    __tablename__ = 'garmin_activity_detail'
+    activity_id = Column(String, primary_key=True)
+    recovery_time_hours = Column(Float)
+    training_effect_label = Column(String)
+    training_effect_message = Column(String)
+    avg_ground_contact_time = Column(Float)
+    avg_vertical_oscillation = Column(Float)
+    avg_vertical_ratio = Column(Float)
+    avg_stride_length = Column(Float)
+    norm_power = Column(Float)      # cycling
+    avg_power = Column(Float)
+    max_power = Column(Float)
+    min_temperature = Column(Float)
+    max_temperature = Column(Float)
+    vo2max_value = Column(Float)    # this session's own VO2max estimate
 
 class StravaActivity(Base):
     __tablename__ = 'strava_activities'

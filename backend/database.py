@@ -190,6 +190,11 @@ def init_db():
         ("training_readiness_feedback", "TEXT"),
     ])
 
+    # Backfill the detail-fetch marker added to garmin_activities (Issue #182).
+    _ensure_columns(cursor, "garmin_activities", [
+        ("detail_fetched_at", "TEXT"),
+    ])
+
     # Backfill the baselines_updated_at column added to trainer_profile for the
     # weekly baseline auto-update (Issue #35).
     _ensure_columns(cursor, "trainer_profile", [

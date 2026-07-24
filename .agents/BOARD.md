@@ -220,22 +220,35 @@ T-014/T-016/T-018/T-019/T-020 each add prompt content) → T-010.**
 
 ### [T-016] Fetch per-activity Garmin detail once per new activity
 - Owner: claude
-- Status: todo
+- Status: done (2026-07-24)
 - Priority: P2
 - Created-by: anders (GitHub issue #182)
-- Files: `backend/routes/garmin.py` (`run_garmin_sync_flow`), `backend/database.py`, `tests/test_garmin_routes.py`
-- Depends-on: T-011 (`garmin_activities` table)
-- Spec: A finished activity never changes, so detail needs fetching once, ever, per
-  `activity_id`. Nullable `detail_fetched_at` marker on `garmin_activities`;
-  `fetch_activity_details(client, limit=10)` selects unfetched rows, fetches, stores, stamps
-  — capped per sync run, logging what's deferred. Runs after the daily loop and after
-  `drain_garmin_backfill`, in its own `try/except`; per-activity `try/except` too. New
-  `garmin_activity_detail` table keyed on `activity_id` (not a widened `garmin_activities`,
-  so T-017/T-018/T-019 each get their own table). First consumer: `get_activity()` summary
-  fields (`recoveryTimeInHours`, `trainingEffectLabel/Message`, `activityTrainingLoad`,
-  running-dynamics fields, power fields, temperature, `vO2MaxValue`). Old activities are
-  opt-in via `POST /api/garmin/activities/backfill-detail`. **Not** `get_activity_details()`
-  (plural) — that returns 50-500 KB of GPS track per activity.
+- Files: `backend/models.py`, `backend/database.py`, `backend/routes/garmin.py`, `tests/test_garmin_routes.py`
+- **DONE.** Nullable `detail_fetched_at` marker on `garmin_activities`;
+  `fetch_activity_details(client, cursor, limit=10, since_date=None)` selects unfetched
+  rows, fetches via `get_activity()` (singular — verified the plural `get_activity_details()`
+  is a different, much heavier endpoint, per the issue), stores into the new
+  `garmin_activity_detail` table keyed on `activity_id`, stamps the marker. Capped at 10 per
+  call, logs a deferred count rather than reading a capped pass as complete. Runs in
+  `run_garmin_sync_flow` after the backfill drain, in its own `try/except` (re-logs in
+  fresh, since the health-metric sync's own connection has already closed by that point);
+  per-activity `try/except` inside the loop too, so one malformed activity's failure leaves
+  only its own `detail_fetched_at` NULL for retry.
+  Scope note: skipped storing `activityTrainingLoad` in the detail table — it's already
+  captured in `garmin_activities.training_load` from the activity-list payload (#177), so
+  the issue's own text calls it "confirms the list value" rather than new data; duplicating
+  an identical column across two tables added nothing.
+  `since_date` defaults `None` for the automatic per-sync pass called with
+  `DETAIL_FETCH_SHIP_DATE = "2026-07-24"` (today), so old history is opt-in, exactly as
+  specified; the new `POST /api/garmin/activities/backfill-detail?limit=N` omits the date
+  filter for deliberate historical fills, draining the same capped mechanism on repeated
+  calls. `GET /api/garmin/activities` now LEFT JOINs the detail table so the fields are
+  live wherever activities are already read.
+  6 new tests: already-fetched activity triggers no call; a successful fetch stores fields
+  and stamps the marker; a failing fetch leaves the marker NULL without aborting the other
+  activities in the batch; the cap defers the remainder and reports it; the `since_date`
+  filter excludes older activities; the backfill endpoint requires credentials.
+  `pytest` → 375 passed, 3 skipped.
 
 ### [T-017] Auto-import Garmin strength sets into the PT strength log
 - Owner: claude

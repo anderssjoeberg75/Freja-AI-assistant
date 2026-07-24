@@ -177,6 +177,92 @@ def _upsert_garmin_activities(cursor, activities):
         ))
 
 
+DETAIL_FETCH_CAP = 10   # activities per sync run (Issue #182)
+# Old activities are opt-in: the automatic per-sync pass only reaches activities on or after
+# this date. A fresh install does not silently vacuum a multi-year history the moment this
+# ships - that's what POST /api/garmin/activities/backfill-detail is for.
+DETAIL_FETCH_SHIP_DATE = "2026-07-24"
+
+
+def fetch_activity_details(client, cursor, limit=DETAIL_FETCH_CAP, since_date=None):
+    """Fetches per-activity detail for activities that have never had it (Issue #182).
+
+    A completed activity is immutable, so detail only needs fetching once, ever, per
+    `activity_id` - every subsequent sync costs zero requests for it. Capped per call so a
+    first-ever run against years of history spreads over several syncs instead of firing
+    hundreds of requests at once; a failed fetch leaves `detail_fetched_at` NULL so the next
+    run retries it, and one malformed activity cannot abort the pass for the others.
+    `since_date` (`'YYYY-MM-DD'`) narrows the automatic per-sync pass to recent activities;
+    the manual backfill endpoint omits it to reach the full history.
+    Returns `{"fetched": N, "failed": N, "remaining": N}` - `remaining` lets the caller log
+    a deferred count rather than a capped pass silently reading as complete."""
+    query = "SELECT activity_id FROM garmin_activities WHERE detail_fetched_at IS NULL"
+    params = []
+    if since_date:
+        query += " AND date >= ?"
+        params.append(since_date)
+    query += " ORDER BY date ASC"
+    cursor.execute(query, params)
+    pending = [row[0] for row in cursor.fetchall()]
+
+    fetched, failed = 0, 0
+    now_str = datetime.datetime.now().isoformat()
+    for activity_id in pending[:limit]:
+        try:
+            detail = client.get_activity(activity_id) or {}
+            summary = detail.get('summaryDTO') or {}
+            cursor.execute('''
+                INSERT INTO garmin_activity_detail (
+                    activity_id, recovery_time_hours, training_effect_label,
+                    training_effect_message, avg_ground_contact_time, avg_vertical_oscillation,
+                    avg_vertical_ratio, avg_stride_length, norm_power, avg_power, max_power,
+                    min_temperature, max_temperature, vo2max_value
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(activity_id) DO UPDATE SET
+                    recovery_time_hours = excluded.recovery_time_hours,
+                    training_effect_label = excluded.training_effect_label,
+                    training_effect_message = excluded.training_effect_message,
+                    avg_ground_contact_time = excluded.avg_ground_contact_time,
+                    avg_vertical_oscillation = excluded.avg_vertical_oscillation,
+                    avg_vertical_ratio = excluded.avg_vertical_ratio,
+                    avg_stride_length = excluded.avg_stride_length,
+                    norm_power = excluded.norm_power,
+                    avg_power = excluded.avg_power,
+                    max_power = excluded.max_power,
+                    min_temperature = excluded.min_temperature,
+                    max_temperature = excluded.max_temperature,
+                    vo2max_value = excluded.vo2max_value
+            ''', (
+                str(activity_id),
+                summary.get('recoveryTimeInHours'),
+                summary.get('trainingEffectLabel'),
+                summary.get('trainingEffectMessage'),
+                summary.get('avgGroundContactTime'),
+                summary.get('avgVerticalOscillation'),
+                summary.get('avgVerticalRatio'),
+                summary.get('avgStrideLength'),
+                summary.get('normPower'),
+                summary.get('avgPower'),
+                summary.get('maxPower'),
+                summary.get('minTemperature'),
+                summary.get('maxTemperature'),
+                summary.get('vO2MaxValue'),
+            ))
+            cursor.execute(
+                "UPDATE garmin_activities SET detail_fetched_at = ? WHERE activity_id = ?",
+                (now_str, str(activity_id))
+            )
+            fetched += 1
+        except Exception as detail_err:
+            print(f"[Garmin Sync] Error fetching activity detail for {activity_id}: {detail_err}")
+            failed += 1
+
+    remaining = max(0, len(pending) - limit)
+    if remaining:
+        print(f"[Garmin Sync] Activity detail pass deferred {remaining} activities to the next run.")
+    return {"fetched": fetched, "failed": failed, "remaining": remaining}
+
+
 router = APIRouter()
 
 @router.get("/api/garmin/data")
@@ -244,11 +330,17 @@ async def get_garmin_activities(days: int = Query(30, description="Number of day
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                SELECT activity_id, date, start_time_local, type, name, duration_minutes,
-                       distance_m, avg_hr, max_hr, calories, training_load, aerobic_te, anaerobic_te
-                FROM garmin_activities
-                WHERE date >= ?
-                ORDER BY date DESC, start_time_local DESC
+                SELECT a.activity_id, a.date, a.start_time_local, a.type, a.name,
+                       a.duration_minutes, a.distance_m, a.avg_hr, a.max_hr, a.calories,
+                       a.training_load, a.aerobic_te, a.anaerobic_te,
+                       d.recovery_time_hours, d.training_effect_label, d.training_effect_message,
+                       d.avg_ground_contact_time, d.avg_vertical_oscillation, d.avg_vertical_ratio,
+                       d.avg_stride_length, d.norm_power, d.avg_power, d.max_power,
+                       d.min_temperature, d.max_temperature, d.vo2max_value
+                FROM garmin_activities a
+                LEFT JOIN garmin_activity_detail d ON d.activity_id = a.activity_id
+                WHERE a.date >= ?
+                ORDER BY a.date DESC, a.start_time_local DESC
             ''', (cutoff,))
             rows = cursor.fetchall()
 
@@ -267,11 +359,59 @@ async def get_garmin_activities(days: int = Query(30, description="Number of day
                 'training_load': row[10],
                 'aerobic_te': row[11],
                 'anaerobic_te': row[12],
+                # Per-activity detail (#182) - None on every field until the fetch-once pass
+                # reaches this activity, rather than a partially-populated placeholder row.
+                'recovery_time_hours': row[13],
+                'training_effect_label': row[14],
+                'training_effect_message': row[15],
+                'avg_ground_contact_time': row[16],
+                'avg_vertical_oscillation': row[17],
+                'avg_vertical_ratio': row[18],
+                'avg_stride_length': row[19],
+                'norm_power': row[20],
+                'avg_power': row[21],
+                'max_power': row[22],
+                'min_temperature': row[23],
+                'max_temperature': row[24],
+                'vo2max_value': row[25],
             }
             for row in rows
         ]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api/garmin/activities/backfill-detail")
+async def post_garmin_activities_backfill_detail(
+    limit: int = Query(DETAIL_FETCH_CAP, description="Max activities to fetch detail for in this call")
+):
+    """Deliberate historical fill for per-activity detail (Issue #182).
+
+    The automatic per-sync pass only reaches activities on/after DETAIL_FETCH_SHIP_DATE -
+    backfilling a user's entire history is a bulk operation against an unofficial API, so it
+    is opt-in. Repeated calls drain the backlog through the same capped mechanism."""
+    email = get_api_key('freja_garmin_email') or ""
+    password = get_api_key('freja_garmin_password') or ""
+    if not email or not password:
+        raise HTTPException(
+            status_code=400,
+            detail="Garmin Connect credentials are missing. Enter the email and password in Settings."
+        )
+
+    limit = max(1, min(int(limit), 100))
+    try:
+        from garminconnect import Garmin
+        token_dir = _garmin_token_dir()
+        os.makedirs(token_dir, exist_ok=True)
+        client = Garmin(email, password)
+        client.login(tokenstore=token_dir)
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            result = fetch_activity_details(client, cursor, limit=limit, since_date=None)
+            conn.commit()
+        return {"status": "success", **result}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 def run_garmin_sync_task_blocking(email, password, days, end_date=None):
@@ -657,6 +797,21 @@ async def drain_garmin_backfill(email, password) -> dict:
     return {"status": "success", "synced_days": chunk_days, "remaining_days": remaining}
 
 
+def _run_activity_detail_pass_blocking(email, password):
+    """Blocking helper: logs in and runs one capped activity-detail pass (Issue #182)."""
+    from garminconnect import Garmin
+    token_dir = _garmin_token_dir()
+    os.makedirs(token_dir, exist_ok=True)
+    client = Garmin(email, password)
+    client.login(tokenstore=token_dir)
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        result = fetch_activity_details(client, cursor, since_date=DETAIL_FETCH_SHIP_DATE)
+        conn.commit()
+    return result
+
+
 async def run_garmin_sync_flow(email, password, days):
     """Asynchronous orchestrator for Garmin Connect synchronization.
     Runs the blocking sync in a thread executor, then executes optimization in the main event loop.
@@ -675,7 +830,19 @@ async def run_garmin_sync_flow(email, password, days):
             # A failed backfill must not fail the sync that already succeeded; the range
             # stays queued and the next run retries it.
             print(f"[GARMIN SYNC] Backfill chunk was skipped: {backfill_err}")
-        
+
+        # Fetch per-activity detail (training effect, running dynamics, ...) for activities
+        # that have never had it (Issue #182). Own try/except: a failure here must not fail
+        # a sync that already succeeded - a re-login on top of the one above is deliberate,
+        # since this runs as its own blocking pass after the health-metric sync's connection
+        # has already been used and closed.
+        try:
+            detail_result = await asyncio.to_thread(_run_activity_detail_pass_blocking, email, password)
+            if detail_result.get("fetched") or detail_result.get("remaining"):
+                print(f"[GARMIN SYNC] Activity detail pass: {detail_result}")
+        except Exception as detail_pass_err:
+            print(f"[GARMIN SYNC] Activity detail pass was skipped: {detail_pass_err}")
+
         # Refresh the PT health baselines from the freshly-synced data. This is a
         # cheap SQLite pass that self-limits to a weekly cadence (Issue #35), so it is
         # safe to call after every sync.

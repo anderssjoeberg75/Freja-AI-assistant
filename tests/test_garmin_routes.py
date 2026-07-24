@@ -1235,6 +1235,226 @@ def test_token_age_no_warning_when_tokenstore_missing(auth_headers, monkeypatch,
     assert data["token_stale_warning"] is False
 
 
+def _clear_garmin_activities_and_detail():
+    """Full-table clear for the T-182 tests below - unlike the other Garmin tests, these
+    are sensitive to any leftover unfetched-detail row from earlier tests in the same
+    session, since fetch_activity_details() scans the whole table by default."""
+    from backend.database import get_db_connection
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM garmin_activities")
+        cursor.execute("DELETE FROM garmin_activity_detail")
+        conn.commit()
+
+
+def test_fetch_activity_details_skips_already_fetched():
+    """An activity that already has detail_fetched_at must not trigger a get_activity call -
+    a completed activity is immutable, so detail only needs fetching once, ever (#182)."""
+    import datetime
+    from backend.database import get_db_connection
+    from backend.routes.garmin import fetch_activity_details
+
+    _clear_garmin_activities_and_detail()
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO garmin_activities (activity_id, date, start_time_local, type, duration_minutes, detail_fetched_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            ('t182-already', '2026-01-01', '2026-01-01 07:00:00', 'Löpning', 30.0,
+             datetime.datetime.now().isoformat())
+        )
+        conn.commit()
+
+    calls = []
+
+    class FakeClient:
+        def get_activity(self, activity_id):
+            calls.append(activity_id)
+            return {'summaryDTO': {}}
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        result = fetch_activity_details(FakeClient(), cursor)
+        conn.commit()
+
+    assert calls == []
+    assert result == {"fetched": 0, "failed": 0, "remaining": 0}
+
+
+def test_fetch_activity_details_stores_summary_and_stamps_marker():
+    """A successful fetch stores the summaryDTO fields and stamps detail_fetched_at (#182)."""
+    from backend.database import get_db_connection
+    from backend.routes.garmin import fetch_activity_details
+
+    _clear_garmin_activities_and_detail()
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO garmin_activities (activity_id, date, start_time_local, type, duration_minutes) "
+            "VALUES (?, ?, ?, ?, ?)",
+            ('t182-new', '2026-01-02', '2026-01-02 07:00:00', 'Löpning', 45.0)
+        )
+        conn.commit()
+
+    class FakeClient:
+        def get_activity(self, activity_id):
+            return {
+                'summaryDTO': {
+                    'recoveryTimeInHours': 24,
+                    'trainingEffectLabel': 'AEROBIC_BASE',
+                    'trainingEffectMessage': 'Bra grundträning.',
+                    'avgGroundContactTime': 250.0,
+                    'vO2MaxValue': 52.0,
+                }
+            }
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        result = fetch_activity_details(FakeClient(), cursor)
+        conn.commit()
+
+    assert result == {"fetched": 1, "failed": 0, "remaining": 0}
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT recovery_time_hours, training_effect_label, vo2max_value "
+            "FROM garmin_activity_detail WHERE activity_id = ?",
+            ('t182-new',)
+        )
+        detail_row = cursor.fetchone()
+        cursor.execute(
+            "SELECT detail_fetched_at FROM garmin_activities WHERE activity_id = ?", ('t182-new',)
+        )
+        marker = cursor.fetchone()[0]
+
+    assert detail_row == (24, 'AEROBIC_BASE', 52.0)
+    assert marker is not None
+
+
+def test_fetch_activity_details_failure_leaves_marker_null_and_does_not_abort_others():
+    """A failing detail fetch must leave detail_fetched_at NULL for retry, and must not
+    abort the pass for the remaining activities (#182)."""
+    from backend.database import get_db_connection
+    from backend.routes.garmin import fetch_activity_details
+
+    _clear_garmin_activities_and_detail()
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.executemany(
+            "INSERT INTO garmin_activities (activity_id, date, start_time_local, type, duration_minutes) "
+            "VALUES (?, ?, ?, ?, ?)",
+            [
+                ('t182-fail', '2026-01-03', '2026-01-03 07:00:00', 'Löpning', 30.0),
+                ('t182-ok', '2026-01-04', '2026-01-04 07:00:00', 'Löpning', 30.0),
+            ]
+        )
+        conn.commit()
+
+    class FakeClient:
+        def get_activity(self, activity_id):
+            if activity_id == 't182-fail':
+                raise RuntimeError("Garmin unavailable")
+            return {'summaryDTO': {'recoveryTimeInHours': 10}}
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        result = fetch_activity_details(FakeClient(), cursor)
+        conn.commit()
+
+    assert result["fetched"] == 1
+    assert result["failed"] == 1
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT detail_fetched_at FROM garmin_activities WHERE activity_id = ?", ('t182-fail',)
+        )
+        failed_marker = cursor.fetchone()[0]
+        cursor.execute(
+            "SELECT detail_fetched_at FROM garmin_activities WHERE activity_id = ?", ('t182-ok',)
+        )
+        ok_marker = cursor.fetchone()[0]
+
+    assert failed_marker is None
+    assert ok_marker is not None
+
+
+def test_fetch_activity_details_cap_defers_remainder():
+    """A window with more unfetched activities than the cap must defer the remainder and
+    report it, rather than a capped pass silently reading as complete (#182)."""
+    from backend.database import get_db_connection
+    from backend.routes.garmin import fetch_activity_details
+
+    _clear_garmin_activities_and_detail()
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.executemany(
+            "INSERT INTO garmin_activities (activity_id, date, start_time_local, type, duration_minutes) "
+            "VALUES (?, ?, ?, ?, ?)",
+            [
+                (f't182-cap-{i}', f'2026-02-{i + 1:02d}', f'2026-02-{i + 1:02d} 07:00:00', 'Löpning', 30.0)
+                for i in range(3)
+            ]
+        )
+        conn.commit()
+
+    class FakeClient:
+        def get_activity(self, activity_id):
+            return {'summaryDTO': {}}
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        result = fetch_activity_details(FakeClient(), cursor, limit=2)
+        conn.commit()
+
+    assert result == {"fetched": 2, "failed": 0, "remaining": 1}
+
+
+def test_fetch_activity_details_since_date_filter_excludes_older_activities():
+    """The automatic per-sync pass's since_date filter must exclude activities predating it,
+    leaving them for the deliberate backfill endpoint instead (#182)."""
+    from backend.database import get_db_connection
+    from backend.routes.garmin import fetch_activity_details
+
+    _clear_garmin_activities_and_detail()
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.executemany(
+            "INSERT INTO garmin_activities (activity_id, date, start_time_local, type, duration_minutes) "
+            "VALUES (?, ?, ?, ?, ?)",
+            [
+                ('t182-old', '2020-01-01', '2020-01-01 07:00:00', 'Löpning', 30.0),
+                ('t182-recent', '2026-08-01', '2026-08-01 07:00:00', 'Löpning', 30.0),
+            ]
+        )
+        conn.commit()
+
+    calls = []
+
+    class FakeClient:
+        def get_activity(self, activity_id):
+            calls.append(activity_id)
+            return {'summaryDTO': {}}
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        result = fetch_activity_details(FakeClient(), cursor, since_date='2026-07-24')
+        conn.commit()
+
+    assert calls == ['t182-recent']
+    assert result["fetched"] == 1
+
+
+def test_backfill_detail_endpoint_requires_credentials(auth_headers):
+    from backend.database import set_api_key
+    set_api_key('freja_garmin_email', '')
+    set_api_key('freja_garmin_password', '')
+    client = TestClient(app)
+    response = client.post("/api/garmin/activities/backfill-detail", headers=auth_headers)
+    assert response.status_code == 400
+
+
 def test_unparseable_last_sync_does_not_shrink_the_window(auth_headers, monkeypatch):
     """A corrupt timestamp must not narrow every future sync to a single day."""
     from backend.database import set_api_key
