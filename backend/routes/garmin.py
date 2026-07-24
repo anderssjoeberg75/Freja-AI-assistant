@@ -53,6 +53,64 @@ def _queue_backfill(start, end):
     _write_backfill_range(start, end)
     print(f"[Garmin Sync] Queued backfill for {start} .. {end} ({(end - start).days + 1} days).")
 
+# Garmin's typeKey -> the Swedish label persisted in garmin_health.workout_type and
+# garmin_activities.type. These labels are rendered directly in the HUD dashboard, which is
+# why they are Swedish. Changing them would require migrating existing rows.
+GARMIN_TYPE_MAPPING = {
+    'running': 'Löpning',
+    'cycling': 'Cykling',
+    'fitness_equipment': 'Styrketräning',
+    'swimming': 'Simning',
+    'walking': 'Promenad',
+    'yoga': 'Yoga'
+}
+
+
+def _map_garmin_type(type_key):
+    if not type_key:
+        return None
+    return GARMIN_TYPE_MAPPING.get(type_key, type_key.replace('_', ' ').capitalize())
+
+
+def _upsert_garmin_activities(cursor, activities):
+    """Upserts every fetched activity into garmin_activities, keyed on Garmin's activity_id.
+
+    Idempotent by construction (ON CONFLICT DO UPDATE), so the recent-window sync and a
+    backfill chunk can overlap without duplicating rows (#177)."""
+    for act in activities:
+        activity_id = act.get('activityId')
+        start_time_local = act.get('startTimeLocal') or ''
+        if activity_id is None or not start_time_local:
+            continue
+        act_type = _map_garmin_type((act.get('activityType', {}) or {}).get('typeKey'))
+        cursor.execute('''
+            INSERT INTO garmin_activities (
+                activity_id, date, start_time_local, type, name, duration_minutes,
+                distance_m, avg_hr, max_hr, calories, training_load, aerobic_te, anaerobic_te
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(activity_id) DO UPDATE SET
+                date = excluded.date,
+                start_time_local = excluded.start_time_local,
+                type = excluded.type,
+                name = excluded.name,
+                duration_minutes = excluded.duration_minutes,
+                distance_m = excluded.distance_m,
+                avg_hr = excluded.avg_hr,
+                max_hr = excluded.max_hr,
+                calories = excluded.calories,
+                training_load = excluded.training_load,
+                aerobic_te = excluded.aerobic_te,
+                anaerobic_te = excluded.anaerobic_te
+        ''', (
+            str(activity_id), start_time_local[:10], start_time_local, act_type,
+            act.get('activityName'),
+            round((act.get('duration') or 0) / 60.0, 1),
+            act.get('distance'), act.get('averageHR'), act.get('maxHR'), act.get('calories'),
+            act.get('activityTrainingLoad'), act.get('aerobicTrainingEffect'),
+            act.get('anaerobicTrainingEffect'),
+        ))
+
+
 router = APIRouter()
 
 @router.get("/api/garmin/data")
@@ -96,6 +154,46 @@ async def get_garmin_data(days: int = Query(7, description="Number of days to re
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@router.get("/api/garmin/activities")
+async def get_garmin_activities(days: int = Query(30, description="Number of days to retrieve")):
+    """Per-activity Garmin detail, mirroring /api/strava/data - one row per session rather
+    than the same-day rollup /api/garmin/data serves (#177)."""
+    try:
+        cutoff = (today_local() - datetime.timedelta(days=days)).strftime('%Y-%m-%d')
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT activity_id, date, start_time_local, type, name, duration_minutes,
+                       distance_m, avg_hr, max_hr, calories, training_load, aerobic_te, anaerobic_te
+                FROM garmin_activities
+                WHERE date >= ?
+                ORDER BY date DESC, start_time_local DESC
+            ''', (cutoff,))
+            rows = cursor.fetchall()
+
+        return [
+            {
+                'activity_id': row[0],
+                'date': row[1],
+                'start_time_local': row[2],
+                'type': row[3],
+                'name': row[4],
+                'duration_minutes': row[5],
+                'distance_m': row[6],
+                'avg_hr': row[7],
+                'max_hr': row[8],
+                'calories': row[9],
+                'training_load': row[10],
+                'aerobic_te': row[11],
+                'anaerobic_te': row[12],
+            }
+            for row in rows
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 def run_garmin_sync_task_blocking(email, password, days, end_date=None):
     """Syncs `days` days of Garmin data ending on `end_date` (default: today).
 
@@ -125,7 +223,16 @@ def run_garmin_sync_task_blocking(email, password, days, end_date=None):
             activities = client.get_activities_by_date(dates_to_sync[0], dates_to_sync[-1])
         except Exception as act_err:
             print(f"Error fetching activities: {act_err}")
-            
+
+        # Group once by day so a day with multiple sessions (e.g. an easy run in the morning
+        # and strength in the evening) keeps all of them, instead of the old per-day scan that
+        # took the first match and silently dropped the rest (#177).
+        activities_by_date = {}
+        for act in activities:
+            start_time_local = act.get('startTimeLocal') or ''
+            if start_time_local:
+                activities_by_date.setdefault(start_time_local[:10], []).append(act)
+
         # Tracks whether ANY per-day metric call succeeded for ANY day in the window. If the
         # whole run fails silently (expired session, Garmin rate-limiting/lockout mid-run),
         # every field for every day stays None and the per-day try/excepts swallow it, so
@@ -136,6 +243,13 @@ def run_garmin_sync_task_blocking(email, password, days, end_date=None):
 
         with get_db_connection() as conn:
             cursor = conn.cursor()
+
+            try:
+                _upsert_garmin_activities(cursor, activities)
+            except Exception as upsert_err:
+                # Must not fail the health-metric sync that already succeeded; a failed
+                # upsert here just leaves garmin_activities stale until the next run.
+                print(f"[Garmin Sync] Error upserting activities: {upsert_err}")
 
             for date_str in dates_to_sync:
                 # Reset EVERY per-day field here, so a failed fetch leaves NULL instead of
@@ -219,28 +333,20 @@ def run_garmin_sync_task_blocking(email, password, days, end_date=None):
                 except Exception as hr_err:
                     print(f"Error fetching heart rates for {date_str}: {hr_err}")
                     
-                for act in activities:
-                    start_time_local = act.get('startTimeLocal', '')
-                    if start_time_local and start_time_local.startswith(date_str):
-                        act_type = act.get('activityType', {}).get('typeKey')
-                        # Garmin's typeKey -> the Swedish label persisted in garmin_health.workout_type.
-                        # These labels are rendered directly in the HUD dashboard, which is why they are
-                        # Swedish. Changing them would require migrating existing rows.
-                        type_mapping = {
-                            'running': 'Löpning',
-                            'cycling': 'Cykling',
-                            'fitness_equipment': 'Styrketräning',
-                            'swimming': 'Simning',
-                            'walking': 'Promenad',
-                            'yoga': 'Yoga'
-                        }
-                        if act_type in type_mapping:
-                            workout_type = type_mapping[act_type]
-                        else:
-                            workout_type = act_type.replace('_', ' ').capitalize()
-                        workout_duration = int(round(act.get('duration', 0) / 60.0))
-                        break
-                        
+                # garmin_health keeps one row per date, so multiple sessions on one day are
+                # rolled up rather than stored individually here - the full per-activity detail
+                # lives in garmin_activities (upserted above). Dominant = longest session (what
+                # a user would call "today's workout"); duration = the day's total, so a second
+                # session is no longer silently dropped (#177).
+                day_activities = activities_by_date.get(date_str, [])
+                if day_activities:
+                    dominant = max(day_activities, key=lambda a: a.get('duration', 0) or 0)
+                    act_type = (dominant.get('activityType', {}) or {}).get('typeKey')
+                    workout_type = _map_garmin_type(act_type)
+                    workout_duration = int(round(
+                        sum(a.get('duration', 0) or 0 for a in day_activities) / 60.0
+                    ))
+
                 try:
                     bb_data = client.get_body_battery(date_str)
                     if bb_data and isinstance(bb_data, list):

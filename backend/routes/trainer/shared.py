@@ -544,29 +544,32 @@ def build_training_load_summary(days: int = TRAINING_LOAD_DAYS) -> dict:
             print(f"[TRAINER LOAD] Error reading Strava activities: {e}")
 
         try:
+            # Reads garmin_activities (one row per session, see #177) rather than the
+            # garmin_health same-day rollup, so a multi-session day counts every session
+            # instead of only the day's dominant one.
             cursor.execute(
-                '''SELECT date, workout_type, workout_duration
-                   FROM garmin_health
+                '''SELECT date, type, duration_minutes, distance_m, avg_hr
+                   FROM garmin_activities
                    WHERE date >= ?
                    ORDER BY date ASC''',
                 (cutoff_str,)
             )
-            for d, w_type, w_dur in cursor.fetchall():
+            for d, a_type, minutes, distance_m, avg_hr in cursor.fetchall():
                 if not d or d[:10] in strava_dates:
                     continue  # Strava already has this day; don't double-count it.
-                minutes = round(float(w_dur or 0), 1)
-                if minutes <= 0 or not w_type:
+                minutes = round(float(minutes or 0), 1)
+                if minutes <= 0 or not a_type:
                     continue
                 sessions.append({
                     "date": d[:10],
-                    "type": str(w_type).strip(),
+                    "type": str(a_type).strip(),
                     "minutes": minutes,
-                    "distance_km": None,
-                    "avg_hr": None,
+                    "distance_km": round((distance_m or 0) / 1000.0, 2) if distance_m else None,
+                    "avg_hr": avg_hr,
                     "source": "Garmin",
                 })
         except Exception as e:
-            print(f"[TRAINER LOAD] Error reading Garmin workouts: {e}")
+            print(f"[TRAINER LOAD] Error reading Garmin activities: {e}")
 
     sessions.sort(key=lambda s: s["date"])
 

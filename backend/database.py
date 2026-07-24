@@ -190,6 +190,7 @@ def init_db():
     cursor.execute("CREATE INDEX IF NOT EXISTS ix_trainer_bookings_workout_date ON trainer_bookings (workout_date)")
     cursor.execute("CREATE INDEX IF NOT EXISTS ix_trainer_bookings_plan_id ON trainer_bookings (plan_id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS ix_strava_activities_date ON strava_activities (date)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS ix_garmin_activities_date ON garmin_activities (date)")
     cursor.execute("CREATE INDEX IF NOT EXISTS ix_trainer_plans_date ON trainer_plans (date)")
     cursor.execute("CREATE INDEX IF NOT EXISTS ix_trainer_injury_logs_date ON trainer_injury_logs (date)")
     cursor.execute("CREATE INDEX IF NOT EXISTS ix_trainer_strength_logs_date ON trainer_strength_logs (date)")

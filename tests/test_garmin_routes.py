@@ -467,6 +467,161 @@ async def test_failed_backfill_keeps_the_days_queued(monkeypatch):
     set_api_key(gm.BACKFILL_KEY, "")
 
 
+def _stub_garmin_with_activities(monkeypatch, activities):
+    """Installs a fake `garminconnect` whose only interesting behavior is the activity list;
+    every per-day metric call raises except get_stats, which succeeds so the sync doesn't
+    hit the "no health data for any day" guard."""
+    import sys
+    import types
+
+    class FakeGarmin:
+        def __init__(self, *a, **k):
+            pass
+        def login(self, **k):
+            return True
+        def get_activities_by_date(self, *a, **k):
+            return activities
+        def get_stats(self, d):
+            return {'totalSteps': 5000, 'activeCalories': 300}
+        def get_sleep_data(self, d):
+            raise RuntimeError("no sleep data")
+        def get_heart_rates(self, d):
+            raise RuntimeError("no heart rate data")
+        def get_hrv_data(self, d):
+            raise RuntimeError("no hrv")
+        def get_body_battery(self, d):
+            raise RuntimeError("no body battery")
+        def get_max_metrics(self, d):
+            raise RuntimeError("no vo2max")
+        def get_training_status(self, d):
+            raise RuntimeError("no training status")
+        def get_training_readiness(self, d):
+            raise RuntimeError("no readiness")
+
+    module = types.ModuleType('garminconnect')
+    module.Garmin = FakeGarmin
+    monkeypatch.setitem(sys.modules, 'garminconnect', module)
+
+
+def test_multi_session_day_stores_both_and_rolls_up_correctly(monkeypatch):
+    """Two Garmin activities on the same day must both land in garmin_activities, and the
+    garmin_health rollup must reflect the dominant (longest) session's type plus the day's
+    total minutes - not just the first activity found, which used to silently drop the
+    second one (#177).
+    """
+    import datetime
+    from backend.database import get_db_connection
+    from backend.routes.garmin import run_garmin_sync_task_blocking
+
+    today = datetime.date.today()
+    target_date = today.strftime('%Y-%m-%d')
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM garmin_health WHERE date = ?", (target_date,))
+        cursor.execute("DELETE FROM garmin_activities WHERE date = ?", (target_date,))
+        conn.commit()
+
+    activities = [
+        {
+            'activityId': 91001,
+            'startTimeLocal': f'{target_date} 06:00:00',
+            'activityType': {'typeKey': 'running'},
+            'activityName': 'Morgonlöpning',
+            'duration': 1800,  # 30 min
+            'distance': 5000.0,
+            'averageHR': 140,
+            'maxHR': 160,
+            'calories': 350,
+            'activityTrainingLoad': 60.0,
+            'aerobicTrainingEffect': 3.0,
+            'anaerobicTrainingEffect': 1.0,
+        },
+        {
+            'activityId': 91002,
+            'startTimeLocal': f'{target_date} 18:00:00',
+            'activityType': {'typeKey': 'fitness_equipment'},
+            'activityName': 'Styrketräning',
+            'duration': 2700,  # 45 min - the longer, dominant session
+            'distance': 0.0,
+            'averageHR': 110,
+            'maxHR': 130,
+            'calories': 250,
+            'activityTrainingLoad': 40.0,
+            'aerobicTrainingEffect': 1.0,
+            'anaerobicTrainingEffect': 2.0,
+        },
+    ]
+    _stub_garmin_with_activities(monkeypatch, activities)
+
+    run_garmin_sync_task_blocking('a@b.c', 'pw', 1, end_date=today)
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT activity_id, duration_minutes FROM garmin_activities WHERE date = ? ORDER BY activity_id",
+            (target_date,)
+        )
+        rows = cursor.fetchall()
+        cursor.execute(
+            "SELECT workout_type, workout_duration FROM garmin_health WHERE date = ?",
+            (target_date,)
+        )
+        rollup = cursor.fetchone()
+
+    assert [r[0] for r in rows] == ['91001', '91002']
+    assert rows[0][1] == 30.0
+    assert rows[1][1] == 45.0
+    # Dominant session (longest) sets the label; total minutes is the sum of both sessions.
+    assert rollup == ('Styrketräning', 75)
+
+
+def test_activity_upsert_is_idempotent_across_overlapping_syncs(monkeypatch):
+    """The recent-window sync and a backfill chunk can cover the same day/activity - the
+    upsert must not create a second row for the same Garmin activity_id (#177)."""
+    import datetime
+    from backend.database import get_db_connection
+    from backend.routes.garmin import run_garmin_sync_task_blocking
+
+    today = datetime.date.today()
+    target_date = today.strftime('%Y-%m-%d')
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM garmin_health WHERE date = ?", (target_date,))
+        cursor.execute("DELETE FROM garmin_activities WHERE date = ?", (target_date,))
+        conn.commit()
+
+    activity = {
+        'activityId': 92001,
+        'startTimeLocal': f'{target_date} 07:00:00',
+        'activityType': {'typeKey': 'running'},
+        'activityName': 'Löprunda',
+        'duration': 1500,
+        'distance': 4000.0,
+        'averageHR': 138,
+        'maxHR': 155,
+        'calories': 300,
+        'activityTrainingLoad': 50.0,
+        'aerobicTrainingEffect': 2.5,
+        'anaerobicTrainingEffect': 0.5,
+    }
+    _stub_garmin_with_activities(monkeypatch, [activity])
+
+    # Simulate the recent-window sync, then a backfill chunk that re-covers the same day.
+    run_garmin_sync_task_blocking('a@b.c', 'pw', 1, end_date=today)
+    run_garmin_sync_task_blocking('a@b.c', 'pw', 1, end_date=today)
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT COUNT(*) FROM garmin_activities WHERE activity_id = ?", ('92001',)
+        )
+        count = cursor.fetchone()[0]
+
+    assert count == 1, "the same Garmin activity_id must not duplicate on a re-sync"
+
+
 def test_unparseable_last_sync_does_not_shrink_the_window(auth_headers, monkeypatch):
     """A corrupt timestamp must not narrow every future sync to a single day."""
     from backend.database import set_api_key

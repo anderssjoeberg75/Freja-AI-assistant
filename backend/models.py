@@ -60,6 +60,28 @@ class GarminHealth(Base):
     intensity_minutes = Column(Integer)    # daily intensity minutes (vigorous weighted x2, Garmin style)
     sleep_score = Column(Integer)          # Garmin overall sleep score (0-100)
 
+class GarminActivity(Base):
+    """One Garmin Connect activity, keyed on Garmin's own activity_id so a re-synced window
+    (recent sync + backfill chunk can overlap) upserts instead of duplicating (see #177).
+    garmin_health.workout_type/workout_duration stays a same-day rollup derived from these
+    rows rather than being migrated away, since existing HUD reads and seed data depend on it.
+    """
+    __tablename__ = 'garmin_activities'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    activity_id = Column(String, unique=True, index=True)
+    date = Column(String, index=True)
+    start_time_local = Column(String)
+    type = Column(String)
+    name = Column(String)
+    duration_minutes = Column(Float)
+    distance_m = Column(Float)
+    avg_hr = Column(Float)
+    max_hr = Column(Float)
+    calories = Column(Float)
+    training_load = Column(Float)
+    aerobic_te = Column(Float)
+    anaerobic_te = Column(Float)
+
 class StravaActivity(Base):
     __tablename__ = 'strava_activities'
     id = Column(Integer, primary_key=True, autoincrement=True)

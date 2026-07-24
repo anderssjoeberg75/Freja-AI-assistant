@@ -92,18 +92,25 @@ T-014/T-016/T-018/T-019/T-020 each add prompt content) → T-010.**
 
 ### [T-011] Garmin sync drops every activity after the first one each day
 - Owner: claude
-- Status: todo
+- Status: done (2026-07-24)
 - Priority: P1
 - Created-by: anders (GitHub issue #177)
-- Files: `backend/routes/garmin.py` (~118, ~227), `backend/database.py`, `backend/routes/trainer.py` (~531), `tests/test_garmin_routes.py`
-- Spec: Root cause is schema, not the `break` — `garmin_health` has one row per date. Add a
-  `garmin_activities` table (unique on `activity_id`, modelled on `strava_activities`);
-  swap `get_activities(0, 30)` for `get_activities_by_date(window_start, window_end)`;
-  upsert every activity in the window; write the day's dominant session into
-  `garmin_health.workout_type`/`workout_duration` as a rollup (existing readers keep
-  working); point `build_training_load_summary()`'s Garmin fallback at the new table.
-  Add `GET /api/garmin/activities?days=N`. Tests: two same-day activities → two rows +
-  correct rollup; overlapping recent-window/backfill-chunk activity does not duplicate.
+- Files: `backend/models.py` (`GarminActivity`), `backend/database.py`, `backend/routes/garmin.py`, `backend/routes/trainer/shared.py` (`build_training_load_summary`), `tests/test_garmin_routes.py`
+- **DONE.** The `get_activities(0,30)` → `get_activities_by_date` half was already fixed by
+  a prior commit (`a2db28c`); this closed the remaining half — the per-day loop still kept
+  only the first activity match via `break`. New `GarminActivity` model / `garmin_activities`
+  table (unique on `activity_id`, picked up by `Base.metadata.create_all` — no Alembic
+  revision needed, matching how `TrainerInjuryLog`/`TrainerStrengthLog` were added). All
+  fetched activities are upserted every sync (idempotent, so a backfill-chunk overlap with
+  the recent window doesn't duplicate); the per-day rollup into `garmin_health.workout_type`/
+  `workout_duration` now uses the day's dominant (longest) session's type and the sum of all
+  same-day sessions' minutes, instead of the first match found. `build_training_load_summary()`'s
+  Garmin fallback now reads `garmin_activities` instead of the single-session rollup, so a
+  multi-session day counts fully. New `GET /api/garmin/activities?days=N`. Two new tests
+  (multi-session-day rollup, idempotent re-sync) — `pytest` → 354 passed, 3 skipped.
+- Note: old Garmin-sourced sessions predating this change exist only in `garmin_health`'s
+  rollup, not in `garmin_activities` — they reappear in `build_training_load_summary()` once
+  the account is re-synced. No backfill was in scope for this issue.
 
 ### [T-012] Cut Garmin sync request volume via date-ranged endpoints
 - Owner: claude
