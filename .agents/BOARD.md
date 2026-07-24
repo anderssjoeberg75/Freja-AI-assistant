@@ -554,7 +554,7 @@ T-014/T-016/T-018/T-019/T-020 each add prompt content) → T-010.**
 
 ### [T-028] Client: HUD stacked weekly HR-zone bar
 - Owner: antigravity
-- Status: todo — UNBLOCKED 2026-07-24, ready for Antigravity to run
+- Status: done (2026-07-24)
 - Priority: P2
 - Created-by: claude (split from GitHub issue #184)
 - Files: `client/js/ui-dashboards.js`

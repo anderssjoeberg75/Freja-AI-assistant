@@ -1017,7 +1017,109 @@ FrejaUIController.prototype.buildTrendCard = function (cfg) {
     `;
 };
 
-// Fetch and draw the RHR/HRV trends plus planned-vs-completed adherence.
+FrejaUIController.prototype.buildWeeklyHRZoneCard = function (zonesData) {
+    if (!zonesData || !Array.isArray(zonesData) || zonesData.length === 0) {
+        return ''; // Omit when no zone data is available
+    }
+
+    const weekMap = {};
+    zonesData.forEach(item => {
+        if (!item.date) return;
+        const d = new Date(item.date + 'T00:00:00');
+        const day = d.getDay();
+        const diff = d.getDate() - (day === 0 ? 6 : day - 1);
+        const monday = new Date(d.setDate(diff));
+        const year = monday.getFullYear();
+        const month = String(monday.getMonth() + 1).padStart(2, '0');
+        const dayNum = String(monday.getDate()).padStart(2, '0');
+        const weekKey = `${year}-${month}-${dayNum}`;
+
+        if (!weekMap[weekKey]) {
+            weekMap[weekKey] = { weekKey, totalSecs: 0, z1: 0, z2: 0, z3: 0, z4: 0, z5: 0 };
+        }
+
+        const z1 = item.secs_zone_1 || 0;
+        const z2 = item.secs_zone_2 || 0;
+        const z3 = item.secs_zone_3 || 0;
+        const z4 = item.secs_zone_4 || 0;
+        const z5 = item.secs_zone_5 || 0;
+        const sum = z1 + z2 + z3 + z4 + z5;
+
+        if (sum > 0) {
+            weekMap[weekKey].z1 += z1;
+            weekMap[weekKey].z2 += z2;
+            weekMap[weekKey].z3 += z3;
+            weekMap[weekKey].z4 += z4;
+            weekMap[weekKey].z5 += z5;
+            weekMap[weekKey].totalSecs += sum;
+        }
+    });
+
+    const validWeeks = Object.values(weekMap)
+        .filter(w => w.totalSecs > 0)
+        .sort((a, b) => a.weekKey.localeCompare(b.weekKey));
+
+    if (validWeeks.length === 0) {
+        return '';
+    }
+
+    const colors = {
+        z1: '#34c759',
+        z2: '#30b0c7',
+        z3: '#5856d6',
+        z4: '#ff9f0a',
+        z5: '#ff3b30'
+    };
+
+    let barsHtml = '';
+    validWeeks.forEach(w => {
+        const tot = w.totalSecs;
+        const p1 = (w.z1 / tot) * 100;
+        const p2 = (w.z2 / tot) * 100;
+        const p3 = (w.z3 / tot) * 100;
+        const p4 = (w.z4 / tot) * 100;
+        const p5 = (w.z5 / tot) * 100;
+        const mins = Math.round(tot / 60);
+
+        barsHtml += `
+            <div style="display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px;">
+                <div style="display: flex; justify-content: space-between; font-size: 10px; font-family: var(--font-mono); color: var(--color-text-bright);">
+                    <span>Vecka f.o.m. ${w.weekKey}</span>
+                    <span style="color: var(--color-text-muted);">${mins} min i zoner</span>
+                </div>
+                <div style="height: 12px; width: 100%; background: rgba(255,255,255,0.06); border-radius: 4px; overflow: hidden; display: flex;" title="Z1: ${Math.round(p1)}%, Z2: ${Math.round(p2)}%, Z3: ${Math.round(p3)}%, Z4: ${Math.round(p4)}%, Z5: ${Math.round(p5)}%">
+                    ${p1 > 0 ? `<div style="width: ${p1}%; background: ${colors.z1}; height: 100%;"></div>` : ''}
+                    ${p2 > 0 ? `<div style="width: ${p2}%; background: ${colors.z2}; height: 100%;"></div>` : ''}
+                    ${p3 > 0 ? `<div style="width: ${p3}%; background: ${colors.z3}; height: 100%;"></div>` : ''}
+                    ${p4 > 0 ? `<div style="width: ${p4}%; background: ${colors.z4}; height: 100%;"></div>` : ''}
+                    ${p5 > 0 ? `<div style="width: ${p5}%; background: ${colors.z5}; height: 100%;"></div>` : ''}
+                </div>
+            </div>
+        `;
+    });
+
+    const legendHtml = `
+        <div style="display: flex; gap: 8px; flex-wrap: wrap; font-size: 9px; font-family: var(--font-mono); color: var(--color-text-muted); margin-bottom: 8px;">
+            <span style="display: flex; align-items: center; gap: 3px;"><span style="width: 7px; height: 7px; border-radius: 50%; background: ${colors.z1}; display: inline-block;"></span> Z1</span>
+            <span style="display: flex; align-items: center; gap: 3px;"><span style="width: 7px; height: 7px; border-radius: 50%; background: ${colors.z2}; display: inline-block;"></span> Z2</span>
+            <span style="display: flex; align-items: center; gap: 3px;"><span style="width: 7px; height: 7px; border-radius: 50%; background: ${colors.z3}; display: inline-block;"></span> Z3</span>
+            <span style="display: flex; align-items: center; gap: 3px;"><span style="width: 7px; height: 7px; border-radius: 50%; background: ${colors.z4}; display: inline-block;"></span> Z4</span>
+            <span style="display: flex; align-items: center; gap: 3px;"><span style="width: 7px; height: 7px; border-radius: 50%; background: ${colors.z5}; display: inline-block;"></span> Z5</span>
+        </div>
+    `;
+
+    return `
+        <div class="trend-metric-card" style="padding: 10px; display: flex; flex-direction: column; background: rgba(0,0,0,0.3); border: 1px solid var(--color-border); border-radius: 4px;">
+            <div style="font-size: 9px; color: var(--color-text-muted); font-family: var(--font-display); letter-spacing: 0.5px; margin-bottom: 8px;">
+                <i class="fa-solid fa-layer-group" style="color: var(--color-primary); margin-right: 4px;"></i>VECKOFÖRDELNING PULSZONER (HR ZONES 1-5)
+            </div>
+            ${legendHtml}
+            ${barsHtml}
+        </div>
+    `;
+};
+
+// Fetch and draw the RHR/HRV trends plus planned-vs-completed adherence and HR zones.
 FrejaUIController.prototype.loadTrainerTrendsUI = async function () {
     const container = document.getElementById('trainer-trends-charts');
     if (!container) return;
@@ -1029,17 +1131,23 @@ FrejaUIController.prototype.loadTrainerTrendsUI = async function () {
 
     try {
         let data = {};
-        const res = await fetch(`/api/trainer/trends?days=${days}`);
+        let zonesData = [];
+        const [res, zonesRes] = await Promise.all([
+            fetch(`/api/trainer/trends?days=${days}`),
+            fetch(`/api/garmin/zones?days=${days}`).catch(() => null)
+        ]);
+
         if (res.ok) {
             data = await res.json();
         } else if (res.status === 401) {
-            // Say so plainly. This used to fall back to the stored profile baselines and,
-            // failing those, to literal placeholders (62 bpm / 23 ms) - so an unauthenticated
-            // HUD drew a confident-looking chart out of numbers that were never measured.
             container.innerHTML = '<div style="color: #ffb020; text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 16px; line-height: 1.5;">[NOT AUTHENTICATED]<br>Enter your access token in Settings to load trends.</div>';
             return;
         } else {
             throw new Error(`HTTP ${res.status}`);
+        }
+
+        if (zonesRes && zonesRes.ok) {
+            zonesData = await zonesRes.json();
         }
 
         const series = data.series || [];
@@ -1047,8 +1155,6 @@ FrejaUIController.prototype.loadTrainerTrendsUI = async function () {
         const baselines = data.baselines || {};
         const adherence = data.adherence || {};
 
-        // A metric is only plotted on days it actually has a reading, so gaps in the
-        // data stay gaps instead of collapsing to zero.
         const pointsFor = key => series
             .filter(p => p[key] !== null && p[key] !== undefined)
             .map(p => ({ date: p.date, value: Number(p[key]) }));
@@ -1072,7 +1178,6 @@ FrejaUIController.prototype.loadTrainerTrendsUI = async function () {
             goodDirection: 'up'
         });
 
-        // Adherence: planned sessions vs the ones actually completed on Strava.
         const planned = adherence.planned || 0;
         const completed = adherence.completed || 0;
         const pct = adherence.adherence_pct;
@@ -1099,11 +1204,14 @@ FrejaUIController.prototype.loadTrainerTrendsUI = async function () {
                    ${missed.length ? `<div style="font-size: 9px; color: var(--color-text-muted); font-family: var(--font-mono);">Missed: ${missed.join(', ')}</div>` : ''}
                </div>`;
 
+        const hrZonesCard = this.buildWeeklyHRZoneCard(zonesData);
+
         container.innerHTML = `
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
                 ${rhrCard}
                 ${hrvCard}
             </div>
+            ${hrZonesCard}
             ${adherenceCard}
         `;
     } catch (e) {
