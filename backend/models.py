@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, CheckConstraint
+from sqlalchemy import Column, Integer, String, Float, CheckConstraint, UniqueConstraint
 from sqlalchemy.orm import declarative_base
 
 Base = declarative_base()
@@ -99,6 +99,10 @@ class GarminActivity(Base):
     # Swedish-mapped `type` above so downstream consumers (Issue #183's strength-type filter)
     # don't have to reverse-map the display label back to Garmin's taxonomy.
     raw_type_key = Column(String)
+    # Garmin's own lap count from the activity-list payload (Issue #185) - free to capture
+    # alongside the other list-level fields, and lets the detail pass skip fetching splits
+    # for an unstructured single-lap activity without an extra request just to find that out.
+    lap_count = Column(Integer)
     # Nullable marker (Issue #182): NULL means detail has not been fetched yet. A completed
     # activity is immutable, so detail only needs fetching once per activity_id, ever - the
     # detail pass selects rows where this is NULL, and a failed fetch simply leaves it NULL
@@ -141,6 +145,32 @@ class GarminActivityZones(Base):
     secs_zone_3 = Column(Integer)
     secs_zone_4 = Column(Integer)
     secs_zone_5 = Column(Integer)
+
+class GarminActivityLap(Base):
+    """One lap from Garmin's get_activity_splits() (Issue #185), keyed on (activity_id,
+    lap_index) so a 12-lap interval session is 12 rows rather than one wide row. Volume
+    note: ~20 sessions/month averaging maybe 8 laps is ~160 rows/month - trivial for SQLite.
+    """
+    __tablename__ = 'garmin_activity_laps'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    activity_id = Column(String, index=True)
+    lap_index = Column(Integer)
+    date = Column(String, index=True)
+    distance_m = Column(Float)
+    duration_s = Column(Float)
+    moving_duration_s = Column(Float)
+    avg_speed = Column(Float)       # pace derived on read
+    max_speed = Column(Float)
+    avg_hr = Column(Float)
+    max_hr = Column(Float)
+    avg_cadence = Column(Float)
+    avg_power = Column(Float)
+    elevation_gain_m = Column(Float)
+    intensity_type = Column(String)  # ACTIVE / REST / WARMUP / COOLDOWN
+
+    __table_args__ = (
+        UniqueConstraint('activity_id', 'lap_index', name='uq_garmin_activity_laps_activity_lap'),
+    )
 
 class StravaActivity(Base):
     __tablename__ = 'strava_activities'

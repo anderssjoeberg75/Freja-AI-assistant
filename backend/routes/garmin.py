@@ -154,8 +154,8 @@ def _upsert_garmin_activities(cursor, activities):
             INSERT INTO garmin_activities (
                 activity_id, date, start_time_local, type, name, duration_minutes,
                 distance_m, avg_hr, max_hr, calories, training_load, aerobic_te, anaerobic_te,
-                raw_type_key
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                raw_type_key, lap_count
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(activity_id) DO UPDATE SET
                 date = excluded.date,
                 start_time_local = excluded.start_time_local,
@@ -169,14 +169,15 @@ def _upsert_garmin_activities(cursor, activities):
                 training_load = excluded.training_load,
                 aerobic_te = excluded.aerobic_te,
                 anaerobic_te = excluded.anaerobic_te,
-                raw_type_key = excluded.raw_type_key
+                raw_type_key = excluded.raw_type_key,
+                lap_count = excluded.lap_count
         ''', (
             str(activity_id), start_time_local[:10], start_time_local, act_type,
             act.get('activityName'),
             round((act.get('duration') or 0) / 60.0, 1),
             act.get('distance'), act.get('averageHR'), act.get('maxHR'), act.get('calories'),
             act.get('activityTrainingLoad'), act.get('aerobicTrainingEffect'),
-            act.get('anaerobicTrainingEffect'), raw_type_key,
+            act.get('anaerobicTrainingEffect'), raw_type_key, act.get('lapCount'),
         ))
 
 
@@ -235,6 +236,38 @@ def zone_percentages(secs_zone_1, secs_zone_2, secs_zone_3, secs_zone_4, secs_zo
         "easy_pct": round(100.0 * easy / total, 1),
         "hard_pct": round(100.0 * hard / total, 1),
     }
+
+
+def _import_garmin_laps(cursor, activity_id, activity_date, splits_payload):
+    """Stores per-lap detail from get_activity_splits() (Issue #185), replacing any prior
+    laps for this activity_id (idempotent re-fetch). Returns the number of laps stored.
+
+    Field-name note: no typed model for this endpoint in the installed client - the exact
+    key names (`lapDTOs`, `movingDuration`, `averageRunCadence`, `intensityType`, ...) are
+    the issue's best-effort description, not independently verified against a live account.
+    A shape mismatch degrades to "no laps stored" via the caller's try/except, not a crash."""
+    laps = (splits_payload or {}).get('lapDTOs') or []
+    if not laps:
+        return 0
+
+    cursor.execute("DELETE FROM garmin_activity_laps WHERE activity_id = ?", (str(activity_id),))
+    for i, lap in enumerate(laps):
+        if not isinstance(lap, dict):
+            continue
+        cursor.execute('''
+            INSERT INTO garmin_activity_laps (
+                activity_id, lap_index, date, distance_m, duration_s, moving_duration_s,
+                avg_speed, max_speed, avg_hr, max_hr, avg_cadence, avg_power,
+                elevation_gain_m, intensity_type
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            str(activity_id), i, activity_date,
+            lap.get('distance'), lap.get('duration'), lap.get('movingDuration'),
+            lap.get('averageSpeed'), lap.get('maxSpeed'), lap.get('averageHR'), lap.get('maxHR'),
+            lap.get('averageRunCadence'), lap.get('averagePower') or lap.get('normalizedPower'),
+            lap.get('elevationGain'), lap.get('intensityType'),
+        ))
+    return len(laps)
 
 
 def _import_garmin_strength_sets(cursor, activity_id, activity_date, exercise_sets_payload):
@@ -310,7 +343,7 @@ def fetch_activity_details(client, cursor, limit=DETAIL_FETCH_CAP, since_date=No
     `trainer_strength_logs` in the same pass, sharing the same once-ever marker.
     Returns `{"fetched": N, "failed": N, "remaining": N}` - `remaining` lets the caller log
     a deferred count rather than a capped pass silently reading as complete."""
-    query = "SELECT activity_id, date, raw_type_key FROM garmin_activities WHERE detail_fetched_at IS NULL"
+    query = "SELECT activity_id, date, raw_type_key, lap_count FROM garmin_activities WHERE detail_fetched_at IS NULL"
     params = []
     if since_date:
         query += " AND date >= ?"
@@ -321,7 +354,7 @@ def fetch_activity_details(client, cursor, limit=DETAIL_FETCH_CAP, since_date=No
 
     fetched, failed = 0, 0
     now_str = datetime.datetime.now().isoformat()
-    for activity_id, activity_date, raw_type_key in pending[:limit]:
+    for activity_id, activity_date, raw_type_key, lap_count in pending[:limit]:
         try:
             detail = client.get_activity(activity_id) or {}
             summary = detail.get('summaryDTO') or {}
@@ -405,6 +438,16 @@ def fetch_activity_details(client, cursor, limit=DETAIL_FETCH_CAP, since_date=No
                     # zero-filled row, is the truthful outcome (issue's own requirement).
                 except Exception as zones_err:
                     print(f"[Garmin Sync] Error fetching HR zones for {activity_id}: {zones_err}")
+
+            # Lap splits (#185), own try/except for the same reason as above. Skipped for
+            # lapCount <= 1 - an unstructured steady run produces one lap and tells us
+            # nothing new, so this avoids a pointless request per easy jog.
+            if lap_count is not None and lap_count > 1:
+                try:
+                    splits = client.get_activity_splits(activity_id)
+                    _import_garmin_laps(cursor, activity_id, activity_date, splits)
+                except Exception as laps_err:
+                    print(f"[Garmin Sync] Error fetching laps for {activity_id}: {laps_err}")
 
             fetched += 1
         except Exception as detail_err:
@@ -598,6 +641,43 @@ async def get_garmin_zones(days: int = Query(28, description="Number of days to 
                 'easy_pct': pct['easy_pct'], 'hard_pct': pct['hard_pct'],
             })
         return results
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/api/garmin/activities/{activity_id}/laps")
+async def get_garmin_activity_laps(activity_id: str):
+    """Per-lap detail for one activity (Issue #185), for the PT panel's lap table."""
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT lap_index, distance_m, duration_s, moving_duration_s, avg_speed,
+                       max_speed, avg_hr, max_hr, avg_cadence, avg_power, elevation_gain_m,
+                       intensity_type
+                FROM garmin_activity_laps
+                WHERE activity_id = ?
+                ORDER BY lap_index ASC
+            ''', (activity_id,))
+            rows = cursor.fetchall()
+
+        return [
+            {
+                'lap_index': row[0],
+                'distance_m': row[1],
+                'duration_s': row[2],
+                'moving_duration_s': row[3],
+                'avg_speed': row[4],
+                'max_speed': row[5],
+                'avg_hr': row[6],
+                'max_hr': row[7],
+                'avg_cadence': row[8],
+                'avg_power': row[9],
+                'elevation_gain_m': row[10],
+                'intensity_type': row[11],
+            }
+            for row in rows
+        ]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

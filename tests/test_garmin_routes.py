@@ -1823,6 +1823,137 @@ def test_garmin_zones_endpoint_returns_easy_hard_pct(auth_headers):
     assert matching[0]['hard_pct'] == 0.0
 
 
+def test_laps_multi_lap_session_stores_one_row_per_lap_in_order():
+    """A multi-lap session must produce one row per lap, preserving lap order (#185)."""
+    from backend.database import get_db_connection
+    from backend.routes.garmin import fetch_activity_details
+
+    _clear_garmin_activities_and_detail()
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM garmin_activity_laps WHERE activity_id = ?", ('t185-multi',))
+        cursor.execute(
+            "INSERT INTO garmin_activities (activity_id, date, start_time_local, type, raw_type_key, duration_minutes, lap_count) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            ('t185-multi', '2026-05-01', '2026-05-01 07:00:00', 'Löpning', 'running', 30.0, 3)
+        )
+        conn.commit()
+
+    class FakeClient:
+        def get_activity(self, activity_id):
+            return {'summaryDTO': {}}
+        def get_activity_hr_in_timezones(self, activity_id):
+            return []
+        def get_activity_splits(self, activity_id):
+            return {'lapDTOs': [
+                {'distance': 1000.0, 'duration': 240.0, 'averageHR': 150, 'intensityType': 'ACTIVE'},
+                {'distance': 1000.0, 'duration': 245.0, 'averageHR': 155, 'intensityType': 'ACTIVE'},
+                {'distance': 500.0, 'duration': 130.0, 'averageHR': 140, 'intensityType': 'COOLDOWN'},
+            ]}
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        fetch_activity_details(FakeClient(), cursor)
+        conn.commit()
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT lap_index, distance_m, intensity_type FROM garmin_activity_laps "
+            "WHERE activity_id = ? ORDER BY lap_index",
+            ('t185-multi',)
+        )
+        rows = cursor.fetchall()
+
+    assert rows == [(0, 1000.0, 'ACTIVE'), (1, 1000.0, 'ACTIVE'), (2, 500.0, 'COOLDOWN')]
+
+
+def test_laps_single_lap_activity_triggers_no_request():
+    """An unstructured single-lap activity must not trigger get_activity_splits at
+    all (#185)."""
+    from backend.database import get_db_connection
+    from backend.routes.garmin import fetch_activity_details
+
+    _clear_garmin_activities_and_detail()
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO garmin_activities (activity_id, date, start_time_local, type, raw_type_key, duration_minutes, lap_count) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            ('t185-single', '2026-05-02', '2026-05-02 07:00:00', 'Löpning', 'running', 20.0, 1)
+        )
+        conn.commit()
+
+    splits_calls = []
+
+    class FakeClient:
+        def get_activity(self, activity_id):
+            return {'summaryDTO': {}}
+        def get_activity_hr_in_timezones(self, activity_id):
+            return []
+        def get_activity_splits(self, activity_id):
+            splits_calls.append(activity_id)
+            return {'lapDTOs': []}
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        fetch_activity_details(FakeClient(), cursor)
+        conn.commit()
+
+    assert splits_calls == []
+
+
+def test_laps_reimport_replaces_not_duplicates():
+    """Re-importing laps for the same activity must replace, not duplicate, its rows (#185)."""
+    from backend.database import get_db_connection
+    from backend.routes.garmin import _import_garmin_laps
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM garmin_activity_laps WHERE activity_id = ?", ('t185-reimport',))
+        conn.commit()
+
+    payload = {'lapDTOs': [{'distance': 1000.0, 'duration': 240.0, 'intensityType': 'ACTIVE'}]}
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        _import_garmin_laps(cursor, 't185-reimport', '2026-05-03', payload)
+        _import_garmin_laps(cursor, 't185-reimport', '2026-05-03', payload)
+        conn.commit()
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT COUNT(*) FROM garmin_activity_laps WHERE activity_id = ?", ('t185-reimport',)
+        )
+        count = cursor.fetchone()[0]
+
+    assert count == 1
+
+
+def test_laps_endpoint_returns_laps_in_order(auth_headers):
+    """GET /api/garmin/activities/{id}/laps must return laps ordered by lap_index (#185)."""
+    from backend.database import get_db_connection
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM garmin_activity_laps WHERE activity_id = ?", ('t185-endpoint',))
+        cursor.executemany(
+            "INSERT INTO garmin_activity_laps (activity_id, lap_index, date, distance_m, intensity_type) "
+            "VALUES (?, ?, ?, ?, ?)",
+            [
+                ('t185-endpoint', 1, '2026-05-04', 1000.0, 'ACTIVE'),
+                ('t185-endpoint', 0, '2026-05-04', 1000.0, 'ACTIVE'),
+            ]
+        )
+        conn.commit()
+
+    client = TestClient(app)
+    response = client.get("/api/garmin/activities/t185-endpoint/laps", headers=auth_headers)
+    assert response.status_code == 200
+    laps = response.json()
+    assert [l['lap_index'] for l in laps] == [0, 1]
+
+
 def test_backfill_detail_endpoint_requires_credentials(auth_headers):
     from backend.database import set_api_key
     set_api_key('freja_garmin_email', '')

@@ -317,21 +317,39 @@ T-014/T-016/T-018/T-019/T-020 each add prompt content) → T-010.**
 
 ### [T-019] Capture lap splits, grade adherence on execution not just attendance
 - Owner: claude
-- Status: todo
+- Status: steps 1-2 done (2026-07-24), step 3 deferred — see below
 - Priority: P2
 - Created-by: anders (GitHub issue #185)
-- Files: `backend/routes/trainer.py` (`compute_adherence` ~480), `backend/database.py`
-- Depends-on: T-016
-- Spec: Three steps, each independently useful — land at least step 1 before calling this
-  done. **Step 1:** `garmin_activity_laps` table (unique on `activity_id, lap_index`);
-  consume `get_activity_splits`, skip `lapCount <= 1`; `GET
-  /api/garmin/activities/{id}/laps`. **Step 2:** lap breakdown of recent structured sessions
-  into `build_chat_context_block()` (Tier C per #189 — tool-call only, not resident).
-  **Step 3:** extend `compute_adherence()` with an execution-quality dimension matching
-  work-interval laps (via `get_activity_typed_splits`'s `intensityType`) against the
-  prescribed session in `trainer_plans.advice_text`; must degrade to today's date-only
-  behaviour whenever a confident match isn't possible, never emit a wrong grade.
-- Handoff: T-029 (PT-panel lap table) is blocked on the step-1 endpoint.
+- Files: `backend/models.py`, `backend/database.py`, `backend/routes/garmin.py`, `backend/services/tool_registry/health_data.py`, `tests/test_garmin_routes.py`
+- Depends-on: T-016 (done)
+- **Steps 1-2 DONE.** New `garmin_activity_laps` table (unique on `activity_id, lap_index`),
+  keyed to garmin's own `lap_count` (a new column, captured free from the activity-list
+  payload alongside the other list-level fields already added in #177). Wired into T-016's
+  detail pass, skipping `lap_count <= 1` (an unstructured steady run tells us nothing new)
+  — own nested try/except like the strength-sets/zones additions. New `GET
+  /api/garmin/activities/{id}/laps`.
+  Step 2 implemented as a **registered tool** (`get_garmin_activity_laps`) rather than
+  literally injecting into `build_chat_context_block()` — the spec line's own parenthetical
+  says Tier C means "tool-call only, not resident" (per #189), and a tool is what makes it
+  reachable on demand without being resident in every turn's prompt. Freja can now discuss
+  a specific session's execution when asked.
+  Field-name caveat: `get_activity_splits` has no typed model in the installed client —
+  the exact key names (`lapDTOs`, `movingDuration`, `averageRunCadence`, `intensityType`)
+  are the issue's best-effort description, not independently verified. Documented in
+  `_import_garmin_laps`'s docstring.
+  **Step 3 deliberately deferred.** Matching work-interval laps against a free-text plan
+  prescription in `trainer_plans.advice_text` to grade execution quality is real NLP/
+  heuristic design work — the issue itself calls this "the largest step and the one most
+  likely to need iteration." Steps 1-2 are independently useful today (lap data is
+  captured, exposed, and queryable); building step 3 speculatively without a concrete
+  matching design risked exactly the failure mode the issue warns against ("degrade... never
+  a wrong grade"). Left as an open follow-up with a clear starting point: `compute_adherence()`
+  in `backend/routes/trainer/shared.py`, `trainer_plans.advice_text`'s structured JSON, and
+  `garmin_activity_laps.intensity_type` are all in place for whoever picks it up.
+  4 new tests: multi-lap session stores laps in order; a single-lap activity triggers no
+  request; re-import replaces rather than duplicates; the laps endpoint returns them
+  ordered. `pytest` → 393 passed, 3 skipped.
+- Handoff: **T-029 (PT-panel lap table) is now unblocked** — the step-1 endpoint is live.
 
 ### [T-020] Pull Garmin performance benchmarks (threshold, race predictions, PRs)
 - Owner: claude
@@ -524,11 +542,11 @@ T-014/T-016/T-018/T-019/T-020 each add prompt content) → T-010.**
 
 ### [T-029] Client: PT-panel lap table
 - Owner: antigravity
-- Status: blocked
+- Status: todo — UNBLOCKED 2026-07-24, ready for Antigravity to run
 - Priority: P2
 - Created-by: claude (split from GitHub issue #185)
 - Files: `client/**` (PT panel, activity detail view)
-- Blocked by: T-019 step 1 (`GET /api/garmin/activities/{id}/laps`)
+- Was blocked by: T-019 step 1, now done — `GET /api/garmin/activities/{id}/laps` is live.
 - Handoff-notes: Per-lap distance, duration, pace (derive from speed), HR, and
   `intensity_type` (`ACTIVE`/`REST`/`WARMUP`/`COOLDOWN`). Useful stand-alone before any
   adherence-grading logic exists.

@@ -2,7 +2,7 @@
 
 import datetime
 from backend.database import get_api_key
-from backend.routes.garmin import run_garmin_sync_flow, get_garmin_data
+from backend.routes.garmin import run_garmin_sync_flow, get_garmin_data, get_garmin_activity_laps
 from backend.routes.withings import run_withings_sync_task, get_withings_data
 from backend.routes.strava import (
     run_strava_sync_task,
@@ -417,6 +417,31 @@ async def exec_strava_data(args):
         }
     except Exception as e:
         return {"error": f"Could not fetch Strava activities: {str(e)}"}
+
+@registry.register(
+    name="get_garmin_activity_laps",
+    description="Gets lap-by-lap splits (pace, heart rate, cadence, power, intensity type) for one specific Garmin activity ID, from garmin_activities or the recent Garmin activity list. Use this when the user asks about how a specific session actually went - pacing, whether intervals were hit, fade over the session - rather than just whether it happened.",
+    permission_key="freja_tool_get_garmin_activity_laps_allowed",
+    parameters={
+        "type": "OBJECT",
+        "properties": {
+            "activity_id": {
+                "type": "STRING",
+                "description": "The Garmin activity ID (e.g. from get_garmin_health's activity data)."
+            }
+        },
+        "required": ["activity_id"]
+    },
+)
+async def exec_garmin_activity_laps(args):
+    activity_id = args.get("activity_id", "")
+    if not activity_id:
+        return {"error": "Activity ID is missing."}
+    laps = await get_garmin_activity_laps(activity_id=activity_id)
+    if not laps:
+        return {"message": f"No lap data was found for activity {activity_id}.", "laps": []}
+    return {"activity_id": activity_id, "lap_count": len(laps), "laps": laps}
+
 
 @registry.register(
     name="get_strava_activity_analysis",

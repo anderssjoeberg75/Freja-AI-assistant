@@ -190,10 +190,12 @@ def init_db():
         ("training_readiness_feedback", "TEXT"),
     ])
 
-    # Backfill the detail-fetch marker + raw type key added to garmin_activities (#182/#183).
+    # Backfill the detail-fetch marker, raw type key and lap count added to garmin_activities
+    # (#182/#183/#185).
     _ensure_columns(cursor, "garmin_activities", [
         ("detail_fetched_at", "TEXT"),
         ("raw_type_key", "TEXT"),
+        ("lap_count", "INTEGER"),
     ])
 
     # Backfill source/activity_id added to trainer_strength_logs for Garmin auto-import
