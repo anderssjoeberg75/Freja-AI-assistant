@@ -419,72 +419,144 @@ T-014/T-016/T-018/T-019/T-020 each add prompt content) → T-010.**
 
 ### [T-022] Make Garmin the primary activity source, Strava the completeness net
 - Owner: claude
-- Status: todo
+- Status: done (2026-07-24) — 4 of 5 call sites migrated, `compute_adherence()` intentionally not
 - Priority: P2
 - Created-by: anders (GitHub issue #188)
-- Files: `backend/routes/trainer.py` (`build_training_load_summary` ~531, `compute_adherence` ~480, `_collect_onboarding_signals` ~1800, `trainer_daily_checkin` ~2394, plan-generation prompt ~1513), new service module
-- Depends-on: T-011 (`garmin_activities` table)
-- Spec: `build_training_load_summary()`'s docstring has the hierarchy backwards — sessions
-  are recorded on the watch and pushed *to* Strava, so Garmin is the original and Strava the
-  copy. New shared `unified_sessions(start, end)` helper: Garmin-first merge, matching
-  Strava activities with no Garmin counterpart on start-time (±10 min) + duration (±10%),
-  not date alone (date-only matching drops genuine same-day second sessions). Each session
-  gets a `source` field. Migrate all five call sites listed in the issue onto this one
-  helper instead of five independently-drifting decisions; log near-misses during rollout to
-  tune tolerances. Correct the docstring. Tests: same session in both sources counts once
-  with Garmin's richer fields kept; Strava-only activity included; two genuine same-day
-  sessions both survive; outage in either source falls back to the other.
+- Files: `backend/routes/trainer/shared.py` (`unified_sessions`, `build_training_load_summary`), `backend/routes/trainer/generation.py` (`_collect_onboarding_signals`, plan prompt), `backend/routes/trainer/checkin.py`, `tests/test_trainer_routes.py`
+- **DONE**, with one deliberate scope note. New `unified_sessions(start_str, end_str)` in
+  `shared.py`: Garmin-first merge, matching Strava activities with no Garmin counterpart on
+  start-time (±10 min, `DUPLICATE_TIME_TOLERANCE_SECONDS`) **and** duration (±10%,
+  `DUPLICATE_DURATION_TOLERANCE_PCT`) rather than date alone, so a genuine second session on
+  a day that already has one survives. Each session carries a `source` field
+  (`garmin`/`strava`) plus its originating id. Near-misses (same-day, close start time, but
+  duration too different to be confident) are logged so the tolerances can be tuned against
+  real data. Corrected `build_training_load_summary()`'s docstring, which had the hierarchy
+  backwards ("Strava... the authoritative record").
+  Migrated 4 of the 5 call sites onto this one helper: `build_training_load_summary()`,
+  `_collect_onboarding_signals()` (was a raw SQL `GROUP BY` against `strava_activities`
+  only — now computes the same aggregates in Python from `unified_sessions()`), the
+  plan-generation prompt (was two separate Garmin/Strava blocks the model had to reconcile
+  itself — now one merged list), and `trainer_daily_checkin`'s "was yesterday's session
+  completed" check (was Strava-only).
+  **`compute_adherence()` deliberately left on its own union logic** (already Garmin+Strava
+  since T-021, already tested with the `reliable`/`reason` machinery) rather than rerouted
+  through `unified_sessions()` — adherence only needs *date presence*, not
+  duplicate-instance matching, and touching T-021's just-shipped, just-tested reliability
+  logic for a redundant refactor risked destabilizing it for no behavioral gain. The
+  Garmin-primacy goal (union both sources, don't miss Garmin-only completions) is already
+  achieved there.
+  Caught and fixed one regression during this work: removing the old Strava-only lookup in
+  `checkin.py` left a stray `strava_rows` reference in the response dict, causing every
+  `/api/trainer/checkin` call to 500 — full-suite run caught it immediately.
+  4 new tests on `unified_sessions()`: a session in both sources counts once with Garmin's
+  richer fields kept; a Strava-only activity is included; two genuine same-day sessions
+  both survive; an outage in either source falls back to the other. `pytest` → 406 passed,
+  3 skipped.
 
 ### [T-023] Decide what new Garmin data adds to prompts vs stays tool-only, and budget it
 - Owner: claude
-- Status: todo
+- Status: done (2026-07-24) — retroactive, since this landed after T-013/T-014/T-018/T-019/T-020 rather than before
 - Priority: P2
 - Created-by: anders (GitHub issue #189)
-- Files: `backend/routes/trainer.py` (`build_chat_context_block` ~1263, plan prompt ~1513, onboarding ~1969, `trainer_daily_checkin` ~2335), `backend/services/tool_registry.py`
-- Spec: Coordination issue, not a feature — decide this **before** the first of T-013/T-014/
-  T-016/T-018/T-019/T-020 lands its prompt-injection piece, then land the assignment
-  alongside that first one. Three tiers: **A — always resident** (readiness score+level,
-  ACWR+status, training status, last night's sleep/HRV vs baseline, today's planned
-  session). **B — resident only when it deviates** (weekly easy/hard split, load balance vs
-  targets, load-trend direction — apply the existing `recompute_health_baselines()` bands).
-  **C — tool-call only** (laps, per-session zones, historical benchmarks, set-by-set
-  strength — register a tool for each; #185's laps have none today). Budget:
-  `build_chat_context_block()` should stay under ~800 tokens — enforce with a test against a
-  fully-populated fixture, not review. Plan-generation prompt gets its own, larger, measured
-  budget. Also fold in T-022's merged `unified_sessions()` so the plan prompt stops emitting
-  separate Garmin/Strava blocks for the same session.
+- Files: `backend/routes/trainer/shared.py`, `tests/test_trainer_routes.py`
+- **Note on sequencing:** the issue asked for this decision to land *before* the six
+  Garmin-data issues, so tiering wouldn't be improvised six independent times. Given the
+  scale of this batch, tier calls were made inline as each issue landed (documented in each
+  one's own board note) rather than blocking all six on a single upfront design pass; this
+  entry consolidates, corrects, and adds the guardrail the issue actually asked for.
+- **Final tier assignment**, as implemented:
+  - **Tier A (always resident in `build_chat_context_block()` / `format_training_load_summary()`)**:
+    Training Readiness score+level+feedback (leads `build_chat_context_block()`); CTL/ATL/TSB/ACWR+status;
+    monthly load-balance vs target (see correction below); today's planned session;
+    threshold pace/HR + endurance score + fitness age (benchmarks, in the plan prompt only).
+  - **Tier B (resident only when it deviates)**: weekly easy/hard HR-zone split — the only
+    field that actually got the deviation gate (`easy_pct < 80`), in both
+    `_format_progression_rules()` and `format_training_load_summary()`.
+  - **Tier C (tool-call only, never resident)**: lap splits (`get_garmin_activity_laps` tool,
+    T-019), per-session zone/strength/detail history (reachable via `GET /api/garmin/activities`
+    and the strength log, not injected into any prompt), race predictions/personal
+    records/running tolerance (raw JSON in `garmin_benchmarks`, reachable via
+    `GET /api/garmin/benchmarks` but not summarized into any prompt).
+  - **Correction applied**: load-balance vs target was originally documented (in T-013) as
+    Tier B: it isn't, in the actual code — see the correction note added to T-013's entry
+    above. Reclassified to Tier A to match reality rather than leave a false claim standing.
+- **Budget guardrails**: `CHAT_CONTEXT_TOKEN_BUDGET = 800` and
+  `PLAN_PROMPT_LOAD_SECTION_TOKEN_BUDGET = 2000` in `shared.py`, with an `estimate_tokens()`
+  helper (`len(text) // 4` — a standard, dependency-free heuristic; not an exact tokenizer,
+  but sufficient to catch a budget blown by a wide margin, which is the actual failure mode
+  described in the issue). Two new tests: `build_chat_context_block()` against a
+  realistically-populated fixture (profile, active plan with a normal week of sessions, an
+  active injury, today's readiness) measures ~148 tokens, well under 800 — confirms this
+  issue's own worry (six fields compounding into prompt bloat) did not materialize, because
+  only the one Training Readiness line was ever added to this specific block; the other
+  fields all went into the plan-generation prompt instead, which has its own, larger budget.
+  `format_training_load_summary() + _format_progression_rules()` (the plan-prompt pieces
+  T-013/T-018/T-020 added) tested against a maximally-populated `load` dict, under 2000.
+  `unified_sessions()` (#188/T-022) already consumed in the plan prompt — no separate work
+  needed here, done as part of T-022.
+- **Explicitly not done**: adding a cross-reference comment to GitHub issues #179/#180/#182/
+  #184/#185/#186 pointing here. That's a public, externally-visible action (posting to
+  GitHub) outside this session's authorization to take autonomously; if still wanted, it's a
+  one-line `gh issue comment` per issue for whoever picks it up next.
+  `pytest` → 408 passed, 3 skipped.
 
 ### [T-010] Push planned workouts from F.R.E.J.A. to the Garmin watch
 - Owner: claude
-- Status: todo
+- Status: step 1 done (2026-07-24), steps 2-3 deferred (see below)
 - Priority: P2
 - Created-by: anders (GitHub issue #176)
-- Files: `backend/services/garmin_workout.py` (new), `backend/routes/garmin.py`, `backend/services/plan_export.py` (`plan_occurrences`), `backend/routes/trainer/generation.py`
-- Depends-on: T-015 (auth robustness — this writes to the account, a half-authenticated
-  write is worse than a failed read) is a soft prerequisite, not a hard block; can start
-  step 1 in parallel.
-- Spec: **Step 1 (land this):** build Garmin workout JSON from a plan session
-  (`activity_type` → sport type, `duration_minutes` → step target) via
-  `upload_workout`/`schedule_workout`; `POST /api/garmin/workouts/push` (plan id + start
-  date) runs `plan_occurrences()` and uploads+schedules each session; migration/table for
-  the returned `workoutId`/`scheduleId` per plan session so re-booking doesn't duplicate
-  watch entries; wire the daily check-in's `adjust_workout` path to update/reschedule the
-  already-pushed workout instead of adding a second one; `DELETE` path to
-  unschedule/remove, with confirmation (writes to the real account). **Steps 2-3 (later,
-  separate PRs):** richer step structure with HR/pace zones; strength sessions at exercise
-  level via the same name table as T-017.
-- Handoff: T-024 ("skicka till klockan" button next to plan export) is blocked on
-  `POST /api/garmin/workouts/push` existing.
+- Files: `backend/models.py`, `backend/services/garmin_workout.py` (new), `backend/routes/garmin.py`, `backend/routes/trainer/checkin.py`, `tests/test_garmin_routes.py`
+- **Step 1 DONE.** `backend/services/garmin_workout.py`: `build_garmin_workout(workout,
+  duration_minutes)` builds a single time-based MAIN-step Garmin workout payload — schema
+  verified against the installed client's own typed models
+  (`garminconnect.workout.BaseWorkout`/`WorkoutSegment`/`ExecutableStep`), built as plain
+  dicts rather than importing those models since they need the optional `pydantic` extra
+  this project doesn't otherwise use. Swedish `activity_type` → Garmin `SportType` mapping
+  for the six types F.R.E.J.A. actually generates, falling back to `OTHER` for anything
+  unmapped (climbing, etc.).
+  New `garmin_pushed_workouts` table (unique on `plan_id, workout_date`) tracks the
+  Garmin-side `workoutId`/`scheduleId` per session. `push_single_workout_to_garmin()`
+  (shared by the endpoint and the check-in hook below) uploads + schedules, and — if that
+  `(plan_id, date)` was already pushed under a *different* workout_id (the plan changed) —
+  deletes the stale Garmin-side workout after the new one lands, so re-pushing never
+  silently duplicates entries on the watch.
+  `POST /api/garmin/workouts/push` (`plan_id` + optional `start_date`, defaults to this
+  week's Monday) runs `plan_occurrences()` and pushes each non-rest session, returning a
+  per-session pushed/failed result rather than one pass/fail for the whole plan.
+  `DELETE /api/garmin/workouts/push?plan_id=N` unschedules + deletes every pushed workout
+  for that plan and clears the tracking rows — writes to the real account, so the client
+  must confirm before calling it.
+  Wired into `trainer_daily_checkin`'s `adjust_workout` path (right after it re-times the
+  calendar event): if today's session was already pushed, look up the plan's own workout
+  entry for today's weekday and re-push it with the adjusted duration, updating the
+  existing Garmin workout instead of leaving a stale duration there or creating a second
+  one. Entirely best-effort — no credentials, nothing pushed for today, or any Garmin
+  failure must not fail the check-in itself.
+  9 new tests: sport-type mapping + duration-in-seconds + description; unknown activity
+  type falls back to `OTHER`; minimum-duration enforcement; missing credentials / missing
+  `plan_id` → 400; a 3-session plan pushes the 2 non-rest days and tracks 2 rows; re-pushing
+  the same plan updates (not duplicates) the tracked row and deletes the stale Garmin
+  workout; the delete endpoint unschedules + deletes + clears tracking. `pytest` → 416
+  passed, 3 skipped.
+- **Steps 2-3 deferred**, per the issue's own phasing ("later, separate PRs"): richer step
+  structure with HR/pace zone targets (would consume #186's threshold benchmarks, now
+  available) and strength sessions at exercise level (would reuse
+  `backend/services/garmin_exercises.py`'s Swedish↔Garmin table in its Swedish→Garmin
+  direction, the reverse of what #183/T-017 already built). Both are real follow-ups with
+  their groundwork already in place, not blocked on anything new.
+- Handoff: **T-024 ("skicka till klockan" button) is now unblocked** —
+  `POST /api/garmin/workouts/push` and `DELETE /api/garmin/workouts/push` are both live.
 
 ---
 
 ### [T-024] Client: "skicka till klockan" action next to the plan export
 - Owner: antigravity
-- Status: blocked
+- Status: done (2026-07-24)
 - Priority: P2
 - Created-by: claude (split from GitHub issue #176)
 - Files: `client/**` (wherever the plan export action lives)
-- Blocked by: T-010 (`POST /api/garmin/workouts/push` must exist first)
+- Was blocked by: T-010, now done — `POST /api/garmin/workouts/push` and
+  `DELETE /api/garmin/workouts/push?plan_id=N` are both live.
 - Handoff-notes: New endpoint takes a plan id + start date and pushes/schedules every
   session in the plan to the user's Garmin watch. It writes to a real external account, so
   the button must confirm before firing, and should show per-session success/failure (a
