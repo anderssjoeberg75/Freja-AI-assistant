@@ -127,6 +127,21 @@ class GarminActivityDetail(Base):
     max_temperature = Column(Float)
     vo2max_value = Column(Float)    # this session's own VO2max estimate
 
+class GarminActivityZones(Base):
+    """Seconds spent in each of Garmin's five heart-rate zones for one session (Issue #184).
+
+    Five columns on one row rather than five rows per activity - the zone count is fixed,
+    so this is easier to query than a child table. `easy_pct`/`hard_pct` are deliberately
+    NOT stored here; they are derived on read (see zone_percentages()) so they cannot drift
+    from the raw seconds."""
+    __tablename__ = 'garmin_activity_zones'
+    activity_id = Column(String, primary_key=True)
+    secs_zone_1 = Column(Integer)
+    secs_zone_2 = Column(Integer)
+    secs_zone_3 = Column(Integer)
+    secs_zone_4 = Column(Integer)
+    secs_zone_5 = Column(Integer)
+
 class StravaActivity(Base):
     __tablename__ = 'strava_activities'
     id = Column(Integer, primary_key=True, autoincrement=True)

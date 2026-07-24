@@ -190,6 +190,52 @@ DETAIL_FETCH_SHIP_DATE = "2026-07-24"
 # calling get_activity_exercise_sets for a run.
 STRENGTH_ACTIVITY_TYPE_KEYS = {'fitness_equipment', 'strength_training', 'indoor_cardio'}
 
+# Activity types where heart-rate zone time is not meaningful (Issue #184) - strength work
+# is already handled by #183, and a walk's "zone distribution" says nothing useful.
+SKIP_ZONE_ACTIVITY_TYPE_KEYS = STRENGTH_ACTIVITY_TYPE_KEYS | {'walking'}
+
+
+def _parse_hr_zones(response):
+    """Returns `{zone_number: secs_in_zone}` from get_activity_hr_in_timezones (Issue #184).
+
+    No typed model in the installed client for this endpoint; handles both a bare list of
+    zone dicts and a dict wrapping one under a nested key, mirroring this codebase's
+    existing normalisation pattern for other undocumented Garmin response shapes (e.g.
+    get_training_status's list-vs-dict handling)."""
+    if isinstance(response, list):
+        entries = response
+    elif isinstance(response, dict):
+        entries = response.get('zonesDTO') or response.get('heartRateZones') or []
+    else:
+        entries = []
+    zones = {}
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        zone_num = entry.get('zoneNumber')
+        secs = entry.get('secsInZone')
+        if isinstance(zone_num, (int, float)) and isinstance(secs, (int, float)):
+            zones[int(zone_num)] = int(secs)
+    return zones
+
+
+def zone_percentages(secs_zone_1, secs_zone_2, secs_zone_3, secs_zone_4, secs_zone_5):
+    """Derives easy_pct (zones 1-2) / hard_pct (zones 4-5) from raw zone seconds (#184).
+
+    Computed on read rather than stored, so these cannot drift from the seconds they are
+    derived from. Returns `{"easy_pct": None, "hard_pct": None}` for a zero-total session
+    rather than dividing by zero."""
+    zones = [secs_zone_1, secs_zone_2, secs_zone_3, secs_zone_4, secs_zone_5]
+    total = sum(z or 0 for z in zones)
+    if not total:
+        return {"easy_pct": None, "hard_pct": None}
+    easy = (secs_zone_1 or 0) + (secs_zone_2 or 0)
+    hard = (secs_zone_4 or 0) + (secs_zone_5 or 0)
+    return {
+        "easy_pct": round(100.0 * easy / total, 1),
+        "hard_pct": round(100.0 * hard / total, 1),
+    }
+
 
 def _import_garmin_strength_sets(cursor, activity_id, activity_date, exercise_sets_payload):
     """Groups active sets by exercise and (re-)imports them into trainer_strength_logs for
@@ -333,6 +379,32 @@ def fetch_activity_details(client, cursor, limit=DETAIL_FETCH_CAP, since_date=No
                     _import_garmin_strength_sets(cursor, activity_id, activity_date, exercise_sets)
                 except Exception as strength_err:
                     print(f"[Garmin Sync] Error importing strength sets for {activity_id}: {strength_err}")
+
+            # Time in HR zones (#184), own try/except for the same reason as above - a
+            # failure here must not un-stamp the marker or abort the pass.
+            if (raw_type_key or '') not in SKIP_ZONE_ACTIVITY_TYPE_KEYS:
+                try:
+                    zones = _parse_hr_zones(client.get_activity_hr_in_timezones(activity_id))
+                    if zones:
+                        cursor.execute('''
+                            INSERT INTO garmin_activity_zones (
+                                activity_id, secs_zone_1, secs_zone_2, secs_zone_3,
+                                secs_zone_4, secs_zone_5
+                            ) VALUES (?, ?, ?, ?, ?, ?)
+                            ON CONFLICT(activity_id) DO UPDATE SET
+                                secs_zone_1 = excluded.secs_zone_1,
+                                secs_zone_2 = excluded.secs_zone_2,
+                                secs_zone_3 = excluded.secs_zone_3,
+                                secs_zone_4 = excluded.secs_zone_4,
+                                secs_zone_5 = excluded.secs_zone_5
+                        ''', (
+                            str(activity_id), zones.get(1), zones.get(2), zones.get(3),
+                            zones.get(4), zones.get(5),
+                        ))
+                    # No row when the activity genuinely has no HR data - absence, not a
+                    # zero-filled row, is the truthful outcome (issue's own requirement).
+                except Exception as zones_err:
+                    print(f"[Garmin Sync] Error fetching HR zones for {activity_id}: {zones_err}")
 
             fetched += 1
         except Exception as detail_err:
@@ -494,6 +566,40 @@ async def post_garmin_activities_backfill_detail(
         return {"status": "success", **result}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/api/garmin/zones")
+async def get_garmin_zones(days: int = Query(28, description="Number of days to retrieve")):
+    """Per-session time-in-HR-zones, for the HUD's weekly intensity-distribution chart (#184)."""
+    try:
+        days = max(1, min(int(days), 180))
+        cutoff = (today_local() - datetime.timedelta(days=days)).strftime('%Y-%m-%d')
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT a.activity_id, a.date, a.type,
+                       z.secs_zone_1, z.secs_zone_2, z.secs_zone_3, z.secs_zone_4, z.secs_zone_5
+                FROM garmin_activity_zones z
+                JOIN garmin_activities a ON a.activity_id = z.activity_id
+                WHERE a.date >= ?
+                ORDER BY a.date DESC
+            ''', (cutoff,))
+            rows = cursor.fetchall()
+
+        results = []
+        for activity_id, date_str, act_type, z1, z2, z3, z4, z5 in rows:
+            pct = zone_percentages(z1, z2, z3, z4, z5)
+            results.append({
+                'activity_id': activity_id,
+                'date': date_str,
+                'type': act_type,
+                'secs_zone_1': z1, 'secs_zone_2': z2, 'secs_zone_3': z3,
+                'secs_zone_4': z4, 'secs_zone_5': z5,
+                'easy_pct': pct['easy_pct'], 'hard_pct': pct['hard_pct'],
+            })
+        return results
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 def run_garmin_sync_task_blocking(email, password, days, end_date=None):

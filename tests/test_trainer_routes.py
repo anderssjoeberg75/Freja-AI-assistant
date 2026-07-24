@@ -1298,3 +1298,36 @@ def test_recent_strength_logs_prefers_garmin_over_manual_duplicate():
     assert len(matching) == 1
     assert matching[0]['source'] == 'garmin'
     assert matching[0]['sets'] == 4
+
+
+def test_training_load_summary_includes_weekly_zone_split():
+    """build_training_load_summary()'s weekly_zone_split must aggregate HR-zone seconds
+    across sessions in the same week (#184)."""
+    import datetime
+    from backend.database import get_db_connection
+    from backend.routes.trainer.shared import build_training_load_summary
+
+    today = datetime.date.today()
+    recent_date = today.strftime('%Y-%m-%d')
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM garmin_activities WHERE activity_id = ?", ('t184-load-1',))
+        cursor.execute("DELETE FROM garmin_activity_zones WHERE activity_id = ?", ('t184-load-1',))
+        cursor.execute(
+            "INSERT INTO garmin_activities (activity_id, date, start_time_local, type, duration_minutes) "
+            "VALUES (?, ?, ?, ?, ?)",
+            ('t184-load-1', recent_date, f'{recent_date} 07:00:00', 'Löpning', 30.0)
+        )
+        cursor.execute(
+            "INSERT INTO garmin_activity_zones (activity_id, secs_zone_1, secs_zone_2, secs_zone_3, secs_zone_4, secs_zone_5) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            ('t184-load-1', 60, 60, 300, 300, 300)  # heavily skewed hard
+        )
+        conn.commit()
+
+    load = build_training_load_summary(days=30)
+    this_week = next((w for w in load["weekly_zone_split"] if w["weeks_ago"] == 0), None)
+
+    assert this_week is not None
+    assert this_week["easy_pct"] < 80

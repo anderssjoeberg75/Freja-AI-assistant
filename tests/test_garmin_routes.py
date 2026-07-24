@@ -1657,6 +1657,172 @@ def test_strength_activity_triggers_exercise_sets_fetch_via_detail_pass():
     assert row == ('Knäböj', 80.0)
 
 
+def test_zone_percentages_handles_zero_total_without_dividing_by_zero():
+    """A session with no zone time at all must return None, not a ZeroDivisionError (#184)."""
+    from backend.routes.garmin import zone_percentages
+    assert zone_percentages(None, None, None, None, None) == {"easy_pct": None, "hard_pct": None}
+    assert zone_percentages(0, 0, 0, 0, 0) == {"easy_pct": None, "hard_pct": None}
+
+
+def test_zone_percentages_computes_easy_and_hard_shares():
+    """easy_pct is zones 1-2, hard_pct is zones 4-5, as a share of total in-zone time (#184)."""
+    from backend.routes.garmin import zone_percentages
+    # 100 total: 40 easy (z1+z2), 30 moderate (z3), 30 hard (z4+z5).
+    result = zone_percentages(20, 20, 30, 15, 15)
+    assert result == {"easy_pct": 40.0, "hard_pct": 30.0}
+
+
+def test_hr_zones_stored_for_a_session_with_all_five_zones():
+    """A session with time in all five zones must store correctly via the detail pass (#184)."""
+    from backend.database import get_db_connection
+    from backend.routes.garmin import fetch_activity_details
+
+    _clear_garmin_activities_and_detail()
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM garmin_activity_zones WHERE activity_id = ?", ('t184-zones',))
+        cursor.execute(
+            "INSERT INTO garmin_activities (activity_id, date, start_time_local, type, raw_type_key, duration_minutes) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            ('t184-zones', '2026-04-01', '2026-04-01 07:00:00', 'Löpning', 'running', 45.0)
+        )
+        conn.commit()
+
+    class FakeClient:
+        def get_activity(self, activity_id):
+            return {'summaryDTO': {}}
+        def get_activity_hr_in_timezones(self, activity_id):
+            return [
+                {'zoneNumber': 1, 'secsInZone': 300},
+                {'zoneNumber': 2, 'secsInZone': 900},
+                {'zoneNumber': 3, 'secsInZone': 600},
+                {'zoneNumber': 4, 'secsInZone': 300},
+                {'zoneNumber': 5, 'secsInZone': 100},
+            ]
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        fetch_activity_details(FakeClient(), cursor)
+        conn.commit()
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT secs_zone_1, secs_zone_2, secs_zone_3, secs_zone_4, secs_zone_5 "
+            "FROM garmin_activity_zones WHERE activity_id = ?",
+            ('t184-zones',)
+        )
+        row = cursor.fetchone()
+
+    assert row == (300, 900, 600, 300, 100)
+
+
+def test_hr_zones_no_data_stores_no_row_and_does_not_fail():
+    """An activity with no HR-zone data must store no row and must not fail the detail
+    pass (#184)."""
+    from backend.database import get_db_connection
+    from backend.routes.garmin import fetch_activity_details
+
+    _clear_garmin_activities_and_detail()
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM garmin_activity_zones WHERE activity_id = ?", ('t184-nozones',))
+        cursor.execute(
+            "INSERT INTO garmin_activities (activity_id, date, start_time_local, type, raw_type_key, duration_minutes) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            ('t184-nozones', '2026-04-02', '2026-04-02 07:00:00', 'Löpning', 'running', 20.0)
+        )
+        conn.commit()
+
+    class FakeClient:
+        def get_activity(self, activity_id):
+            return {'summaryDTO': {}}
+        def get_activity_hr_in_timezones(self, activity_id):
+            return []  # no HR data for this session
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        result = fetch_activity_details(FakeClient(), cursor)
+        conn.commit()
+
+    assert result["failed"] == 0
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT COUNT(*) FROM garmin_activity_zones WHERE activity_id = ?", ('t184-nozones',)
+        )
+        count = cursor.fetchone()[0]
+
+    assert count == 0
+
+
+def test_strength_activity_skips_hr_zone_fetch():
+    """A strength-type activity must not trigger get_activity_hr_in_timezones - zone time
+    is not meaningful there (#184)."""
+    from backend.database import get_db_connection
+    from backend.routes.garmin import fetch_activity_details
+
+    _clear_garmin_activities_and_detail()
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO garmin_activities (activity_id, date, start_time_local, type, raw_type_key, duration_minutes) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            ('t184-strength', '2026-04-03', '2026-04-03 18:00:00', 'Styrketräning', 'fitness_equipment', 40.0)
+        )
+        conn.commit()
+
+    zone_calls = []
+
+    class FakeClient:
+        def get_activity(self, activity_id):
+            return {'summaryDTO': {}}
+        def get_activity_exercise_sets(self, activity_id):
+            return {'exerciseSets': []}
+        def get_activity_hr_in_timezones(self, activity_id):
+            zone_calls.append(activity_id)
+            return []
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        fetch_activity_details(FakeClient(), cursor)
+        conn.commit()
+
+    assert zone_calls == []
+
+
+def test_garmin_zones_endpoint_returns_easy_hard_pct(auth_headers):
+    """GET /api/garmin/zones must include the derived easy_pct/hard_pct per session (#184)."""
+    import datetime
+    from backend.database import get_db_connection
+
+    recent_date = datetime.date.today().strftime('%Y-%m-%d')
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM garmin_activities WHERE activity_id = ?", ('t184-endpoint',))
+        cursor.execute("DELETE FROM garmin_activity_zones WHERE activity_id = ?", ('t184-endpoint',))
+        cursor.execute(
+            "INSERT INTO garmin_activities (activity_id, date, start_time_local, type, duration_minutes) "
+            "VALUES (?, ?, ?, ?, ?)",
+            ('t184-endpoint', recent_date, f'{recent_date} 07:00:00', 'Löpning', 30.0)
+        )
+        cursor.execute(
+            "INSERT INTO garmin_activity_zones (activity_id, secs_zone_1, secs_zone_2, secs_zone_3, secs_zone_4, secs_zone_5) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            ('t184-endpoint', 600, 600, 0, 0, 0)
+        )
+        conn.commit()
+
+    client = TestClient(app)
+    response = client.get("/api/garmin/zones?days=30", headers=auth_headers)
+    assert response.status_code == 200
+    matching = [r for r in response.json() if r['activity_id'] == 't184-endpoint']
+    assert len(matching) == 1
+    assert matching[0]['easy_pct'] == 100.0
+    assert matching[0]['hard_pct'] == 0.0
+
+
 def test_backfill_detail_endpoint_requires_credentials(auth_headers):
     from backend.database import set_api_key
     set_api_key('freja_garmin_email', '')

@@ -665,6 +665,39 @@ def build_training_load_summary(days: int = TRAINING_LOAD_DAYS) -> dict:
         except Exception as e:
             print(f"[TRAINER LOAD] Error reading Garmin training load: {e}")
 
+    # Weekly easy/hard HR-zone split (#184): a number that is normal tells the model
+    # nothing; the point is spotting when the split drifts from the 80/20-style target, so
+    # this is read as a deviation signal rather than resident every turn (see #189).
+    weekly_zone_split = []
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                '''SELECT a.date, z.secs_zone_1, z.secs_zone_2, z.secs_zone_3, z.secs_zone_4, z.secs_zone_5
+                   FROM garmin_activity_zones z
+                   JOIN garmin_activities a ON a.activity_id = z.activity_id
+                   WHERE a.date >= ?
+                   ORDER BY a.date ASC''',
+                (cutoff_str,)
+            )
+            from backend.routes.garmin import zone_percentages
+            zone_weeks: dict = {}
+            for d, z1, z2, z3, z4, z5 in cursor.fetchall():
+                try:
+                    parsed = datetime.datetime.strptime(str(d)[:10], "%Y-%m-%d").date()
+                except (ValueError, TypeError):
+                    continue
+                bucket = (today - parsed).days // 7
+                wk = zone_weeks.setdefault(bucket, [0, 0, 0, 0, 0])
+                for i, z in enumerate((z1, z2, z3, z4, z5)):
+                    wk[i] += z or 0
+            for bucket, totals in sorted(zone_weeks.items()):
+                pct = zone_percentages(*totals)
+                if pct["easy_pct"] is not None:
+                    weekly_zone_split.append({"weeks_ago": bucket, **pct})
+        except Exception as e:
+            print(f"[TRAINER LOAD] Error reading Garmin HR zones: {e}")
+
     return {
         "window_days": days,
         "session_count": len(sessions),
@@ -678,6 +711,7 @@ def build_training_load_summary(days: int = TRAINING_LOAD_DAYS) -> dict:
         "max_weekly_minutes": round(avg_weekly_minutes * (1 + MAX_WEEKLY_STEP_PCT / 100.0)) if avg_weekly_minutes else None,
         "recent_sessions": sessions[-20:],
         "latest_load": latest_load,
+        "weekly_zone_split": weekly_zone_split,
     }
 
 
@@ -720,6 +754,21 @@ def _format_progression_rules(load: dict) -> str:
             "conservative end of the ceilings above rather than the aggressive end, "
             "regardless of how much minute-budget is technically available."
         )
+
+    # Intensity guardrail (#184): volume is capped above; intensity was entirely uncapped,
+    # which is the more common way to get injured. Only surfaced when the most recent week
+    # is outside the 80/20-style target band - a normal split says nothing worth stating.
+    zone_split = load.get("weekly_zone_split") or []
+    if zone_split:
+        latest_week = min(zone_split, key=lambda w: w["weeks_ago"])
+        if latest_week["easy_pct"] is not None and latest_week["easy_pct"] < 80:
+            rules.append(
+                f"- INTENSITY WARNING: only {latest_week['easy_pct']}% of last week's HR-zone "
+                f"time was easy (zones 1-2); the rest was moderate-to-hard. The established "
+                "80/20 endurance principle targets roughly 80% easy - do not add more "
+                "hard/threshold work this week even if the minute ceilings allow it, and "
+                "note the imbalance in the summary."
+            )
     return "\n".join(rules)
 
 
@@ -769,6 +818,17 @@ def format_training_load_summary(load: dict) -> str:
             )
         if load_bits:
             lines.append(f"Garmin training load (as of {latest_load['date']}): " + "; ".join(load_bits) + ".")
+
+    # Weekly easy/hard HR-zone split (#184) - only the most recent week, and only when it
+    # deviates from the 80/20-style target, matching _format_progression_rules()' guardrail.
+    zone_split = load.get("weekly_zone_split") or []
+    if zone_split:
+        latest_week = min(zone_split, key=lambda w: w["weeks_ago"])
+        if latest_week["easy_pct"] is not None and latest_week["easy_pct"] < 80:
+            lines.append(
+                f"Last week's HR-zone split was {latest_week['easy_pct']}% easy / "
+                f"{latest_week['hard_pct']}% hard - outside the 80/20 target."
+            )
     return "\n".join(lines)
 
 

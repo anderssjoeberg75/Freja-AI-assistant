@@ -289,20 +289,31 @@ T-014/T-016/T-018/T-019/T-020 each add prompt content) → T-010.**
 
 ### [T-018] Capture time-in-HR-zones per session
 - Owner: claude
-- Status: todo
+- Status: done (2026-07-24)
 - Priority: P2
 - Created-by: anders (GitHub issue #184)
-- Files: `backend/routes/trainer.py` (`build_training_load_summary`, `_format_progression_rules`), `backend/database.py`
-- Depends-on: T-016
-- Spec: `get_activity_hr_in_timezones(activity_id)` → seconds per zone. New
-  `garmin_activity_zones` table keyed on `activity_id`, five `secs_zone_1..5` columns
-  (skip activities with no HR data — no row, not a failure). Compute `easy_pct` (zones 1-2)
-  / `hard_pct` (zones 4-5) on read, never store them (must not drift). Feed weekly easy/hard
-  split into `build_training_load_summary()` and an intensity guardrail next to
-  `MAX_SESSION_STEP_PCT`/`MAX_WEEKLY_STEP_PCT` in `_format_progression_rules()`. `GET
-  /api/garmin/zones?days=N` for the HUD. Note for #189: weekly easy/hard split is a Tier-B
-  field — resident in the prompt only when it deviates from the target band.
-- Handoff: T-028 (HUD stacked zone bar) is blocked on `/api/garmin/zones?days=N`.
+- Files: `backend/models.py`, `backend/routes/garmin.py`, `backend/routes/trainer/shared.py`, `tests/test_garmin_routes.py`, `tests/test_trainer_routes.py`
+- **DONE.** New `garmin_activity_zones` table (`secs_zone_1..5`, keyed on `activity_id`,
+  created via `Base.metadata.create_all` — no migration needed for a brand-new table).
+  `_parse_hr_zones()` normalizes the endpoint's list-or-dict shape (no typed model in the
+  installed client, same defensive pattern as `get_training_status`). Wired into T-016's
+  detail pass for every activity except `{fitness_equipment, strength_training,
+  indoor_cardio, walking}` (zone time isn't meaningful there), in its own nested try/except.
+  No row when an activity genuinely has no HR data — absence, not a zero-filled row.
+  `zone_percentages()` derives `easy_pct`/`hard_pct` on read (never stored, so they can't
+  drift), returning `None` for a zero-total session rather than dividing by zero. New `GET
+  /api/garmin/zones?days=N`. `build_training_load_summary()` gained `weekly_zone_split`
+  (aggregated per week-bucket, same bucketing as the existing `weekly` sessions list) and
+  `_format_progression_rules()`/`format_training_load_summary()` both surface an intensity
+  line **only when the most recent week's `easy_pct` < 80%** — per #189's Tier-B rule,
+  resident only when it deviates from the 80/20-style target.
+  8 new tests: `zone_percentages` zero-total and normal-split cases; a full 5-zone session
+  stores correctly via the detail pass; no-HR-data stores no row without failing; a
+  strength activity never calls the zones endpoint; the `GET /api/garmin/zones` endpoint
+  returns derived percentages; `build_training_load_summary()`'s weekly aggregation.
+  `pytest` → 389 passed, 3 skipped.
+- Handoff: **T-028 (HUD stacked zone bar) is now unblocked** — `GET /api/garmin/zones?days=N`
+  is live.
 
 ### [T-019] Capture lap splits, grade adherence on execution not just attendance
 - Owner: claude
@@ -496,11 +507,12 @@ T-014/T-016/T-018/T-019/T-020 each add prompt content) → T-010.**
 
 ### [T-028] Client: HUD stacked weekly HR-zone bar
 - Owner: antigravity
-- Status: blocked
+- Status: todo — UNBLOCKED 2026-07-24, ready for Antigravity to run
 - Priority: P2
 - Created-by: claude (split from GitHub issue #184)
 - Files: `client/js/ui-dashboards.js`
-- Blocked by: T-018 (`GET /api/garmin/zones?days=N`)
+- Was blocked by: T-018, now `done` — `GET /api/garmin/zones?days=N` is live, returning
+  `secs_zone_1..5` plus derived `easy_pct`/`hard_pct` per session.
 - Handoff-notes: Endpoint returns per-session seconds in each of 5 HR zones. A stacked bar
   per week (or per session) showing the zone-1..5 split is the deliverable; this is the
   first intensity-aware chart in the HUD.
