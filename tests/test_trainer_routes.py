@@ -1606,3 +1606,111 @@ def test_unified_sessions_garmin_outage_falls_back_to_strava_and_vice_versa():
     sessions = unified_sessions(target_date, target_date)
     assert len(sessions) == 1
     assert sessions[0]['source'] == 'garmin'
+
+
+def test_chat_context_block_stays_under_token_budget():
+    """build_chat_context_block() is resident on every chat turn, so it gets the tight
+    budget from #189, enforced here against a realistically-populated fixture (profile,
+    an active plan with a normal week of sessions, an active injury, today's readiness, and
+    some training history) - the actual failure mode this guards against is incremental
+    drift across many small additions, not any single field being too big on its own."""
+    import datetime
+    import json as json_module
+    from backend.database import get_db_connection
+    from backend.routes.trainer.plans import build_chat_context_block
+    from backend.routes.trainer.shared import estimate_tokens, CHAT_CONTEXT_TOKEN_BUDGET
+
+    today = datetime.date.today()
+
+    plan_json = json_module.dumps({
+        "weekly_focus": "Bygga aerob bas infor halvmaran, med ett kvalitetspass per vecka.",
+        "summary": "Du har kort stabilt de senaste veckorna med god aterhamtning. Fortsatter progressionen forsiktigt.",
+        "workouts": [
+            {"day": "Måndag", "activity_type": "Löpning", "title": "Lugn distans", "duration_minutes": 45,
+             "description": "Lugnt tempo i zon 2, prata-takt hela passet."},
+            {"day": "Onsdag", "activity_type": "Styrketräning", "title": "Helkropp", "duration_minutes": 50,
+             "description": "Fokus pa ben och bal infor loptavlingen.",
+             "exercises": [{"name": "Knäböj", "sets": 4, "reps": 8, "target_weight": 60},
+                           {"name": "Marklyft", "sets": 3, "reps": 6, "target_weight": 80}]},
+            {"day": "Fredag", "activity_type": "Löpning", "title": "Intervaller", "duration_minutes": 40,
+             "description": "6x800m i troskelfart med 2 min vila mellan."},
+            {"day": "Söndag", "activity_type": "Löpning", "title": "Långpass", "duration_minutes": 70,
+             "description": "Lugnt langpass, bygg volym gradvis."},
+        ],
+    })
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE trainer_profile SET goals=?, fitness_level=?, availability=?, event=?, event_date=?, limitations=? WHERE id=1",
+            ("Springa ett halvmaraton under 1:50", "Medel", "4 dagar/vecka", "Halvmaraton", "2026-10-01", "Lindrig loparkna ibland")
+        )
+        cursor.execute("DELETE FROM trainer_plans WHERE goal = ?", ("T-189 budget fixture",))
+        cursor.execute(
+            "INSERT INTO trainer_plans (date, goal, advice_text, limitations) VALUES (?, ?, ?, ?)",
+            (today.strftime('%Y-%m-%d'), "T-189 budget fixture", plan_json, "Lindrig loparkna ibland")
+        )
+        cursor.execute("DELETE FROM trainer_injury_logs WHERE area = ?", ("T-189 test-kna",))
+        cursor.execute(
+            "INSERT INTO trainer_injury_logs (date, area, severity, note, status, created_at) "
+            "VALUES (?, ?, ?, ?, 'active', ?)",
+            (today.strftime('%Y-%m-%d'), "T-189 test-kna", 3,
+             "Lindrig irritation efter langpass, haller koll.", today.strftime('%Y-%m-%d'))
+        )
+        cursor.execute(
+            "INSERT INTO garmin_health (date, training_readiness, training_readiness_level, training_readiness_feedback) "
+            "VALUES (?, ?, ?, ?) ON CONFLICT(date) DO UPDATE SET "
+            "training_readiness = excluded.training_readiness, "
+            "training_readiness_level = excluded.training_readiness_level, "
+            "training_readiness_feedback = excluded.training_readiness_feedback",
+            (today.strftime('%Y-%m-%d'), 68, 'MODERATE', 'Bra form, men inte topp.')
+        )
+        conn.commit()
+
+    block = build_chat_context_block()
+    tokens = estimate_tokens(block)
+
+    assert tokens < CHAT_CONTEXT_TOKEN_BUDGET, (
+        f"build_chat_context_block() is ~{tokens} tokens, over the {CHAT_CONTEXT_TOKEN_BUDGET}-token budget"
+    )
+
+
+def test_plan_prompt_load_section_stays_under_its_own_budget():
+    """format_training_load_summary() + _format_progression_rules() feed the
+    plan-generation prompt, which runs once per plan (not once per turn) and gets a larger,
+    separately-measured budget than the chat context (#189)."""
+    from backend.routes.trainer.shared import (
+        format_training_load_summary, _format_progression_rules, estimate_tokens,
+        PLAN_PROMPT_LOAD_SECTION_TOKEN_BUDGET,
+    )
+
+    load = {
+        "window_days": 30,
+        "session_count": 20,
+        "weekly": [{"weeks_ago": i, "sessions": 4, "minutes": 180.0, "distance_km": 25.0} for i in range(4)],
+        "by_activity": [
+            {"activity_type": "Löpning", "sessions": 12, "total_minutes": 540.0, "avg_minutes": 45.0,
+             "longest_minutes": 70.0, "longest_distance_km": 12.0},
+            {"activity_type": "Styrketräning", "sessions": 8, "total_minutes": 400.0, "avg_minutes": 50.0,
+             "longest_minutes": 55.0, "longest_distance_km": 0.0},
+        ],
+        "avg_weekly_minutes": 180.0,
+        "longest_session_minutes": 70.0,
+        "max_session_minutes": 84,
+        "max_weekly_minutes": 198,
+        "recent_sessions": [],
+        "latest_load": {
+            "date": "2026-07-20", "ctl": 62.5, "atl": 58.2, "tsb": 4.3,
+            "acwr": 1.35, "acwr_status": "OPTIMAL",
+            "load_aerobic_low": 320.0, "load_aerobic_high": 110.0, "load_anaerobic": 40.0,
+        },
+        "weekly_zone_split": [{"weeks_ago": 0, "easy_pct": 62.0, "hard_pct": 22.0}],
+    }
+
+    text = format_training_load_summary(load) + "\n" + _format_progression_rules(load)
+    tokens = estimate_tokens(text)
+
+    assert tokens < PLAN_PROMPT_LOAD_SECTION_TOKEN_BUDGET, (
+        f"training-load prompt section is ~{tokens} tokens, over the "
+        f"{PLAN_PROMPT_LOAD_SECTION_TOKEN_BUDGET}-token budget"
+    )

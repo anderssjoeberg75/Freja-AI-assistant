@@ -558,6 +558,25 @@ def compute_adherence(days: int = 14) -> dict:
     }
 
 
+# --- Prompt-budget guardrails (Issue #189) ------------------------------------
+# The failure mode this issue is about is incremental: no single field addition makes a
+# prompt too big, so drift has to be caught by a test against a populated fixture rather
+# than trusted to review. build_chat_context_block() is resident on every chat turn and
+# gets the tight budget; format_training_load_summary()/_format_progression_rules() feed
+# the plan-generation prompt, which runs once per plan rather than once per turn and
+# genuinely needs the fuller training-load history, so it gets its own, larger one.
+CHARS_PER_TOKEN_ESTIMATE = 4     # Rough heuristic for English/Swedish mixed text - not an
+                                  # exact tokenizer, but stable and dependency-free, and
+                                  # precise enough to catch a budget blown by a wide margin.
+CHAT_CONTEXT_TOKEN_BUDGET = 800
+PLAN_PROMPT_LOAD_SECTION_TOKEN_BUDGET = 2000
+
+
+def estimate_tokens(text: str) -> int:
+    """Rough token-count estimate for the prompt-budget tests (Issue #189)."""
+    return len(text or "") // CHARS_PER_TOKEN_ESTIMATE
+
+
 # --- Unified Garmin/Strava session view (Issue #188) -------------------------
 # In the normal setup a session is recorded on the Garmin watch and pushed to Strava by
 # auto-sync - Garmin is the original, Strava the copy. build_training_load_summary()'s own

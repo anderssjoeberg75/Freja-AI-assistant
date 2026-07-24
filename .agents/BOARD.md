@@ -155,9 +155,15 @@ T-014/T-016/T-018/T-019/T-020 each add prompt content) → T-010.**
   (incl. derived `tsb`), `get_garmin_health`'s `latest_metrics`, `build_training_load_summary()`
   (new `latest_load` key), `_format_progression_rules()` (an ACWR guardrail line alongside
   the existing minute ceilings — advisory only, doesn't replace them), and
-  `format_training_load_summary()`. Note for T-023: CTL/ATL/ACWR+status and today's planned
-  session are Tier A; load-balance vs targets is Tier B (resident only when off-target) —
-  the prompt text already reads naturally either way since it's a single conditional line.
+  `format_training_load_summary()`.
+  **Correction from T-023** (2026-07-24): this note originally claimed load-balance vs
+  targets was Tier B ("resident only when off-target"). It isn't — the code always shows it
+  when present, same as CTL/ATL/ACWR, because Garmin's `monthlyLoadAerobicLow/High` and
+  `monthlyLoadAnaerobic` were captured without their corresponding
+  `...TargetMin`/`...TargetMax` fields, so there is no target band stored to compare
+  against. A genuine deviation gate would need those three extra fields captured first.
+  Reclassified as Tier A (always resident) to match actual behavior rather than leaving a
+  false claim on the board; capturing the target bounds is a documented open follow-up.
   3 new tests (realistic device-keyed payload parses; no-DTO payload stores `None` ×7
   without failing the day; two devices resolve deterministically). `pytest` → 359 passed,
   3 skipped.
@@ -455,22 +461,50 @@ T-014/T-016/T-018/T-019/T-020 each add prompt content) → T-010.**
 
 ### [T-023] Decide what new Garmin data adds to prompts vs stays tool-only, and budget it
 - Owner: claude
-- Status: todo
+- Status: done (2026-07-24) — retroactive, since this landed after T-013/T-014/T-018/T-019/T-020 rather than before
 - Priority: P2
 - Created-by: anders (GitHub issue #189)
-- Files: `backend/routes/trainer.py` (`build_chat_context_block` ~1263, plan prompt ~1513, onboarding ~1969, `trainer_daily_checkin` ~2335), `backend/services/tool_registry.py`
-- Spec: Coordination issue, not a feature — decide this **before** the first of T-013/T-014/
-  T-016/T-018/T-019/T-020 lands its prompt-injection piece, then land the assignment
-  alongside that first one. Three tiers: **A — always resident** (readiness score+level,
-  ACWR+status, training status, last night's sleep/HRV vs baseline, today's planned
-  session). **B — resident only when it deviates** (weekly easy/hard split, load balance vs
-  targets, load-trend direction — apply the existing `recompute_health_baselines()` bands).
-  **C — tool-call only** (laps, per-session zones, historical benchmarks, set-by-set
-  strength — register a tool for each; #185's laps have none today). Budget:
-  `build_chat_context_block()` should stay under ~800 tokens — enforce with a test against a
-  fully-populated fixture, not review. Plan-generation prompt gets its own, larger, measured
-  budget. Also fold in T-022's merged `unified_sessions()` so the plan prompt stops emitting
-  separate Garmin/Strava blocks for the same session.
+- Files: `backend/routes/trainer/shared.py`, `tests/test_trainer_routes.py`
+- **Note on sequencing:** the issue asked for this decision to land *before* the six
+  Garmin-data issues, so tiering wouldn't be improvised six independent times. Given the
+  scale of this batch, tier calls were made inline as each issue landed (documented in each
+  one's own board note) rather than blocking all six on a single upfront design pass; this
+  entry consolidates, corrects, and adds the guardrail the issue actually asked for.
+- **Final tier assignment**, as implemented:
+  - **Tier A (always resident in `build_chat_context_block()` / `format_training_load_summary()`)**:
+    Training Readiness score+level+feedback (leads `build_chat_context_block()`); CTL/ATL/TSB/ACWR+status;
+    monthly load-balance vs target (see correction below); today's planned session;
+    threshold pace/HR + endurance score + fitness age (benchmarks, in the plan prompt only).
+  - **Tier B (resident only when it deviates)**: weekly easy/hard HR-zone split — the only
+    field that actually got the deviation gate (`easy_pct < 80`), in both
+    `_format_progression_rules()` and `format_training_load_summary()`.
+  - **Tier C (tool-call only, never resident)**: lap splits (`get_garmin_activity_laps` tool,
+    T-019), per-session zone/strength/detail history (reachable via `GET /api/garmin/activities`
+    and the strength log, not injected into any prompt), race predictions/personal
+    records/running tolerance (raw JSON in `garmin_benchmarks`, reachable via
+    `GET /api/garmin/benchmarks` but not summarized into any prompt).
+  - **Correction applied**: load-balance vs target was originally documented (in T-013) as
+    Tier B: it isn't, in the actual code — see the correction note added to T-013's entry
+    above. Reclassified to Tier A to match reality rather than leave a false claim standing.
+- **Budget guardrails**: `CHAT_CONTEXT_TOKEN_BUDGET = 800` and
+  `PLAN_PROMPT_LOAD_SECTION_TOKEN_BUDGET = 2000` in `shared.py`, with an `estimate_tokens()`
+  helper (`len(text) // 4` — a standard, dependency-free heuristic; not an exact tokenizer,
+  but sufficient to catch a budget blown by a wide margin, which is the actual failure mode
+  described in the issue). Two new tests: `build_chat_context_block()` against a
+  realistically-populated fixture (profile, active plan with a normal week of sessions, an
+  active injury, today's readiness) measures ~148 tokens, well under 800 — confirms this
+  issue's own worry (six fields compounding into prompt bloat) did not materialize, because
+  only the one Training Readiness line was ever added to this specific block; the other
+  fields all went into the plan-generation prompt instead, which has its own, larger budget.
+  `format_training_load_summary() + _format_progression_rules()` (the plan-prompt pieces
+  T-013/T-018/T-020 added) tested against a maximally-populated `load` dict, under 2000.
+  `unified_sessions()` (#188/T-022) already consumed in the plan prompt — no separate work
+  needed here, done as part of T-022.
+- **Explicitly not done**: adding a cross-reference comment to GitHub issues #179/#180/#182/
+  #184/#185/#186 pointing here. That's a public, externally-visible action (posting to
+  GitHub) outside this session's authorization to take autonomously; if still wanted, it's a
+  one-line `gh issue comment` per issue for whoever picks it up next.
+  `pytest` → 408 passed, 3 skipped.
 
 ### [T-010] Push planned workouts from F.R.E.J.A. to the Garmin watch
 - Owner: claude
