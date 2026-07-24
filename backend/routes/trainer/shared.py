@@ -468,14 +468,29 @@ def format_active_injuries() -> str:
     return "\n".join(lines)
 
 
+# Sync states that mean "don't trust this source's data for this window" (#187) - a rate
+# limit or an expired login must not be presented as "the user skipped every session".
+ADHERENCE_UNRELIABLE_SYNC_STATES = {"error", "auth_required", "rate_limited"}
+
+
 def compute_adherence(days: int = 14) -> dict:
-    """Compares booked workout dates against completed Strava activity dates."""
+    """Compares booked workout dates against completed Garmin + Strava activity dates.
+
+    Distinguishes "no evidence" from "did not train" (Issue #187): if Strava is the only
+    source checked and its sync is broken/stale, a booked session that was actually
+    completed (and recorded on the watch) used to read as missed, dragging adherence to a
+    misleading 0%. Garmin dates are unioned in exactly like `build_training_load_summary()`
+    already does for training load. If BOTH sources are unreliable for this window (a sync
+    error/rate-limit/auth failure, or the query itself raising), `adherence_pct` is `None`
+    with a `reason` instead of a number that looks like a real measurement."""
     today = today_local()
     start_str = (today - datetime.timedelta(days=days)).strftime('%Y-%m-%d')
     today_str = today.strftime('%Y-%m-%d')
 
     planned_dates = set()
-    completed_dates = set()
+    strava_dates, garmin_dates = set(), set()
+    strava_query_failed = garmin_query_failed = False
+
     with get_db_connection() as conn:
         cursor = conn.cursor()
         try:
@@ -491,21 +506,55 @@ def compute_adherence(days: int = 14) -> dict:
                 'SELECT DISTINCT SUBSTR(date, 1, 10) FROM strava_activities WHERE SUBSTR(date, 1, 10) >= ? AND SUBSTR(date, 1, 10) <= ?',
                 (start_str, today_str)
             )
-            completed_dates = {r[0] for r in cursor.fetchall() if r[0]}
+            strava_dates = {r[0] for r in cursor.fetchall() if r[0]}
         except Exception as e:
-            print(f"Error fetching activities for adherence: {e}")
+            print(f"Error fetching Strava activities for adherence: {e}")
+            strava_query_failed = True
+        try:
+            cursor.execute(
+                'SELECT DISTINCT date FROM garmin_activities WHERE date >= ? AND date <= ?',
+                (start_str, today_str)
+            )
+            garmin_dates = {r[0] for r in cursor.fetchall() if r[0]}
+        except Exception as e:
+            print(f"Error fetching Garmin activities for adherence: {e}")
+            garmin_query_failed = True
+
+    completed_dates = strava_dates | garmin_dates
+
+    from backend.services.sync_status import get_sync_states
+    sync_states = get_sync_states().get("states", {})
+    strava_unreliable = strava_query_failed or sync_states.get("strava") in ADHERENCE_UNRELIABLE_SYNC_STATES
+    garmin_unreliable = garmin_query_failed or sync_states.get("garmin") in ADHERENCE_UNRELIABLE_SYNC_STATES
 
     planned = len(planned_dates)
     completed = len(planned_dates & completed_dates)
     missed = sorted(planned_dates - completed_dates)
+
+    if strava_unreliable and garmin_unreliable:
+        strava_desc = "query failed" if strava_query_failed else sync_states.get("strava", "unknown")
+        garmin_desc = "query failed" if garmin_query_failed else sync_states.get("garmin", "unknown")
+        return {
+            "window_days": days,
+            "planned": planned,
+            "completed": completed,
+            "adherence_pct": None,
+            "reliable": False,
+            "reason": f"strava: {strava_desc}, garmin: {garmin_desc} - no completion data for the window",
+            "planned_dates": sorted(planned_dates),
+            "missed_dates": missed,
+        }
+
     adherence_pct = round(completed / planned * 100, 1) if planned else None
     return {
         "window_days": days,
         "planned": planned,
         "completed": completed,
         "adherence_pct": adherence_pct,
+        "reliable": True,
+        "reason": None,
         "planned_dates": sorted(planned_dates),
-        "missed_dates": missed
+        "missed_dates": missed,
     }
 
 

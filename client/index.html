@@ -452,6 +452,9 @@
                 <button class="modal-close" id="btn-close-garmin">&times;</button>
             </div>
             <div class="modal-body" style="display: flex; flex-direction: column; gap: 15px;">
+                <!-- Summary HUD Cards (Body Battery, Training Readiness) -->
+                <div id="garmin-hud-cards" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px;"></div>
+
                 <!-- Form for entering data -->
                 <div class="garmin-form" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--color-border); border-radius: 4px; padding: 12px;">
                     <div style="grid-column: span 2; display: flex; flex-direction: column; gap: 4px;">

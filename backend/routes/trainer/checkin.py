@@ -234,6 +234,14 @@ async def trainer_daily_checkin(request: Request):
                 f"Last {adherence['window_days']} days: {adherence['completed']} of "
                 f"{adherence['planned']} booked sessions completed ({adherence['adherence_pct']}%)."
             )
+        elif adherence.get("reliable") is False:
+            # A broken/stale sync must read as "unknown", not silently omitted - stating
+            # nothing here is what used to let a 0% figure stand in for it instead (#187).
+            adherence_str = (
+                "Adherence could not be determined this time "
+                f"({adherence.get('reason', 'sync data unavailable')}) - do not assume the "
+                "user skipped sessions; ask instead if it matters for this check-in."
+            )
         else:
             adherence_str = "No booked session history to compare against yet."
 

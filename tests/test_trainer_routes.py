@@ -1331,3 +1331,152 @@ def test_training_load_summary_includes_weekly_zone_split():
 
     assert this_week is not None
     assert this_week["easy_pct"] < 80
+
+
+def _clear_adherence_fixture(date_str):
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM trainer_bookings WHERE workout_date = ?", (date_str,))
+        cursor.execute("DELETE FROM strava_activities WHERE SUBSTR(date, 1, 10) = ?", (date_str,))
+        cursor.execute("DELETE FROM garmin_activities WHERE date = ?", (date_str,))
+        conn.commit()
+
+
+def test_adherence_strava_empty_garmin_has_it_reports_real_adherence():
+    """A booked session recorded only on Garmin (Strava never saw it) must still count as
+    completed - Garmin is unioned in exactly like build_training_load_summary() (#187)."""
+    import datetime
+    from backend.services.sync_status import set_sync_state
+    from backend.routes.trainer.shared import compute_adherence
+
+    set_sync_state("strava", "success")
+    set_sync_state("garmin", "success")
+
+    target_date = datetime.date.today().strftime('%Y-%m-%d')
+    _clear_adherence_fixture(target_date)
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO trainer_bookings (plan_id, event_id, workout_date, week) VALUES (?, ?, ?, ?)",
+            (None, None, target_date, 0)
+        )
+        cursor.execute(
+            "INSERT INTO garmin_activities (activity_id, date, start_time_local, type, duration_minutes) "
+            "VALUES (?, ?, ?, ?, ?)",
+            ('t187-garmin-only', target_date, f'{target_date} 07:00:00', 'Löpning', 30.0)
+        )
+        conn.commit()
+
+    result = compute_adherence(days=1)
+
+    assert result["reliable"] is True
+    assert result["completed"] == 1
+    assert result["adherence_pct"] == 100.0
+
+
+def test_adherence_both_sources_unreliable_reports_none_not_zero():
+    """Both sources in an error state must report adherence_pct: None, reliable: False -
+    not a misleading 0.0 (#187)."""
+    import datetime
+    from backend.services.sync_status import set_sync_state
+    from backend.routes.trainer.shared import compute_adherence
+
+    set_sync_state("strava", "error", "token expired")
+    set_sync_state("garmin", "error", "token expired")
+
+    target_date = datetime.date.today().strftime('%Y-%m-%d')
+    _clear_adherence_fixture(target_date)
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO trainer_bookings (plan_id, event_id, workout_date, week) VALUES (?, ?, ?, ?)",
+            (None, None, target_date, 0)
+        )
+        conn.commit()
+
+    result = compute_adherence(days=1)
+
+    assert result["adherence_pct"] is None
+    assert result["reliable"] is False
+    assert "strava" in result["reason"] and "garmin" in result["reason"]
+
+    # Reset to healthy for the tests that follow in this session.
+    set_sync_state("strava", "success")
+    set_sync_state("garmin", "success")
+
+
+def test_adherence_query_failure_does_not_produce_zero(monkeypatch):
+    """A query that raises (not just an empty result) must not produce a 0.0 - it must be
+    treated the same as an unreliable source (#187)."""
+    import contextlib
+    import datetime
+    from backend.database import get_db_connection as real_get_db_connection
+    import backend.routes.trainer.shared as shared_module
+    from backend.services.sync_status import set_sync_state
+
+    set_sync_state("strava", "success")
+    set_sync_state("garmin", "success")
+
+    target_date = datetime.date.today().strftime('%Y-%m-%d')
+    _clear_adherence_fixture(target_date)
+    with real_get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO trainer_bookings (plan_id, event_id, workout_date, week) VALUES (?, ?, ?, ?)",
+            (None, None, target_date, 0)
+        )
+        conn.commit()
+
+    class RaisingCursor:
+        def __init__(self, real_cursor):
+            self._real = real_cursor
+        def execute(self, sql, params=()):
+            if 'strava_activities' in sql or 'garmin_activities' in sql:
+                raise RuntimeError("simulated DB failure")
+            return self._real.execute(sql, params)
+        def fetchall(self):
+            return self._real.fetchall()
+
+    class RaisingConnection:
+        def __init__(self, real_conn):
+            self._real = real_conn
+        def cursor(self):
+            return RaisingCursor(self._real.cursor())
+
+    @contextlib.contextmanager
+    def fake_get_db_connection():
+        with real_get_db_connection() as real_conn:
+            yield RaisingConnection(real_conn)
+
+    monkeypatch.setattr(shared_module, "get_db_connection", fake_get_db_connection)
+
+    result = shared_module.compute_adherence(days=1)
+
+    assert result["adherence_pct"] is None
+    assert result["reliable"] is False
+
+
+def test_adherence_genuine_zero_with_healthy_sync_stays_reliable():
+    """A booked session that really was skipped, with both sources healthy, must still
+    report a real 0.0 - not everything unreliable turns into None (#187)."""
+    import datetime
+    from backend.services.sync_status import set_sync_state
+    from backend.routes.trainer.shared import compute_adherence
+
+    set_sync_state("strava", "success")
+    set_sync_state("garmin", "success")
+
+    target_date = datetime.date.today().strftime('%Y-%m-%d')
+    _clear_adherence_fixture(target_date)
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO trainer_bookings (plan_id, event_id, workout_date, week) VALUES (?, ?, ?, ?)",
+            (None, None, target_date, 0)
+        )
+        conn.commit()
+
+    result = compute_adherence(days=1)
+
+    assert result["reliable"] is True
+    assert result["adherence_pct"] == 0.0

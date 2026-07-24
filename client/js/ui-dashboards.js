@@ -1492,9 +1492,64 @@ FrejaUIController.prototype.loadGarminDashboardUI = async function () {
         if (!res.ok) throw new Error(`HTTP error ${res.status}`);
 
         const logs = await res.json();
+        const cardsContainer = document.getElementById('garmin-hud-cards');
+
         if (logs.length === 0) {
             garminList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[NO HEALTH LOGS FOUND]</div>';
+            if (cardsContainer) cardsContainer.innerHTML = '';
             return;
+        }
+
+        // Render summary HUD cards (Body Battery & Training Readiness)
+        if (cardsContainer) {
+            cardsContainer.innerHTML = '';
+            const latestEntry = logs.find(l => (l.body_battery !== null && l.body_battery !== undefined) || (l.training_readiness !== null && l.training_readiness !== undefined)) || logs[0];
+
+            let cardsHtml = '';
+            // Body Battery Card
+            if (latestEntry && latestEntry.body_battery !== null && latestEntry.body_battery !== undefined) {
+                cardsHtml += `
+                    <div class="trend-metric-card" style="padding: 10px; display: flex; flex-direction: column; gap: 6px; background: rgba(0,0,0,0.3); border: 1px solid var(--color-border); border-radius: 4px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span style="font-size: 9px; color: var(--color-text-muted); font-family: var(--font-display); letter-spacing: 0.5px;"><i class="fa-solid fa-battery-three-quarters" style="color: var(--color-primary); margin-right: 4px;"></i>BODY BATTERY</span>
+                            <span style="font-size: 9px; color: var(--color-text-muted); font-family: var(--font-mono);">${latestEntry.date}</span>
+                        </div>
+                        <div style="display: flex; align-items: baseline; gap: 4px;">
+                            <span style="font-size: 20px; font-weight: bold; color: var(--color-primary); font-family: var(--font-mono);">${latestEntry.body_battery}</span>
+                            <span style="font-size: 10px; color: var(--color-text-muted); font-family: var(--font-mono);">/ 100</span>
+                        </div>
+                    </div>
+                `;
+            }
+
+            // Training Readiness Card
+            if (latestEntry && latestEntry.training_readiness !== null && latestEntry.training_readiness !== undefined) {
+                const lvl = (latestEntry.training_readiness_level || '').toUpperCase();
+                let badgeColor = 'var(--color-primary)';
+                if (lvl === 'PRIME') badgeColor = '#30d158';
+                else if (lvl === 'HIGH') badgeColor = '#00f2fe';
+                else if (lvl === 'MODERATE') badgeColor = '#ffb020';
+                else if (lvl === 'LOW') badgeColor = '#ff3b30';
+
+                const badgeHtml = lvl ? `<span style="font-size: 9px; font-family: var(--font-mono); background: rgba(255,255,255,0.06); border: 1px solid ${badgeColor}; color: ${badgeColor}; padding: 1px 6px; border-radius: 3px; text-transform: uppercase;">${lvl}</span>` : '';
+                const feedbackHtml = latestEntry.training_readiness_feedback ? `<div style="font-size: 10px; color: var(--color-text-muted); font-family: var(--font-sans); line-height: 1.3;">${this.escapeHTML(latestEntry.training_readiness_feedback)}</div>` : '';
+
+                cardsHtml += `
+                    <div class="trend-metric-card" style="padding: 10px; display: flex; flex-direction: column; gap: 6px; background: rgba(0,0,0,0.3); border: 1px solid var(--color-border); border-radius: 4px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span style="font-size: 9px; color: var(--color-text-muted); font-family: var(--font-display); letter-spacing: 0.5px;"><i class="fa-solid fa-bolt" style="color: ${badgeColor}; margin-right: 4px;"></i>TRAINING READINESS</span>
+                            ${badgeHtml}
+                        </div>
+                        <div style="display: flex; align-items: baseline; gap: 4px;">
+                            <span style="font-size: 20px; font-weight: bold; color: ${badgeColor}; font-family: var(--font-mono);">${latestEntry.training_readiness}</span>
+                            <span style="font-size: 10px; color: var(--color-text-muted); font-family: var(--font-mono);">/ 100</span>
+                        </div>
+                        ${feedbackHtml}
+                    </div>
+                `;
+            }
+
+            cardsContainer.innerHTML = cardsHtml;
         }
 
         garminList.innerHTML = "";
@@ -1515,6 +1570,7 @@ FrejaUIController.prototype.loadGarminDashboardUI = async function () {
                 : "";
             const bbInfo = log.body_battery ? ` | BB: ${log.body_battery}` : "";
             const hrvInfo = log.hrv ? ` | HRV: ${log.hrv}ms` : "";
+            const trInfo = (log.training_readiness !== null && log.training_readiness !== undefined) ? ` | Readiness: ${log.training_readiness}` : "";
 
             // A day the watch recorded nothing stores NULL rather than 0, so render it as a
             // dash. Printing the raw value would show "null steps"; printing 0 would claim
@@ -1523,7 +1579,7 @@ FrejaUIController.prototype.loadGarminDashboardUI = async function () {
 
             item.innerHTML = `
                 <div style="flex: 1; color: var(--color-text-bright);">
-                    <span style="color: var(--color-primary);">${log.date}</span>: ${metric(log.steps)} steps | ${metric(log.sleep_hours)}h sleep | ${metric(log.resting_hr)} bpm | ${metric(log.active_calories)} kcal${workoutInfo}${bbInfo}${hrvInfo}
+                    <span style="color: var(--color-primary);">${log.date}</span>: ${metric(log.steps)} steps | ${metric(log.sleep_hours)}h sleep | ${metric(log.resting_hr)} bpm | ${metric(log.active_calories)} kcal${workoutInfo}${bbInfo}${hrvInfo}${trInfo}
                 </div>
                 <button class="garmin-delete-btn" data-date="${log.date}" title="Delete log" style="background: transparent; border: none; color: #ff3b30; cursor: pointer; padding: 2px 6px;">
                     <i class="fa-solid fa-trash-can"></i>
