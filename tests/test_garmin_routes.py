@@ -1069,6 +1069,172 @@ def test_training_readiness_missing_stores_none_without_failing(monkeypatch):
     assert row == (None, None, None)
 
 
+@pytest.mark.asyncio
+async def test_garmin_sync_flow_classifies_auth_error(monkeypatch):
+    """An authentication failure must set the auth_required sync state, not a generic
+    error, so the UI can say 'log in again' rather than a raw exception string (#181)."""
+    import backend.routes.garmin as gm
+    from backend.services.sync_status import get_sync_states
+
+    def raise_auth_error(*a, **k):
+        from garminconnect import GarminConnectAuthenticationError
+        raise GarminConnectAuthenticationError("bad credentials")
+
+    monkeypatch.setattr(gm, "run_garmin_sync_task_blocking", raise_auth_error)
+
+    await gm.run_garmin_sync_flow('a@b.c', 'pw', 1)
+
+    assert get_sync_states()["states"]["garmin"] == "auth_required"
+
+
+@pytest.mark.asyncio
+async def test_garmin_sync_flow_classifies_rate_limit_error(monkeypatch):
+    """A rate-limit failure must not be presented as a credentials problem (#181)."""
+    import backend.routes.garmin as gm
+    from backend.services.sync_status import get_sync_states
+
+    def raise_rate_limit(*a, **k):
+        from garminconnect import GarminConnectTooManyRequestsError
+        raise GarminConnectTooManyRequestsError("slow down")
+
+    monkeypatch.setattr(gm, "run_garmin_sync_task_blocking", raise_rate_limit)
+
+    await gm.run_garmin_sync_flow('a@b.c', 'pw', 1)
+
+    assert get_sync_states()["states"]["garmin"] == "rate_limited"
+
+
+@pytest.mark.asyncio
+async def test_garmin_sync_flow_generic_error_stays_error(monkeypatch):
+    """A plain, unclassified exception must still report the generic 'error' state -
+    preserving existing behavior (#181)."""
+    import backend.routes.garmin as gm
+    from backend.services.sync_status import get_sync_states
+
+    def raise_generic(*a, **k):
+        raise RuntimeError("network blip")
+
+    monkeypatch.setattr(gm, "run_garmin_sync_task_blocking", raise_generic)
+
+    await gm.run_garmin_sync_flow('a@b.c', 'pw', 1)
+
+    assert get_sync_states()["states"]["garmin"] == "error"
+
+
+def test_reauth_requires_credentials(auth_headers):
+    from backend.database import set_api_key
+    set_api_key('freja_garmin_email', '')
+    set_api_key('freja_garmin_password', '')
+    client = TestClient(app)
+    response = client.post("/api/garmin/reauth", headers=auth_headers)
+    assert response.status_code == 400
+
+
+def test_reauth_clears_tokenstore_and_logs_in(auth_headers, monkeypatch, tmp_path):
+    """A successful reauth must clear any existing tokenstore and perform a fresh login (#181)."""
+    import sys
+    import types
+    from backend.database import set_api_key
+    import backend.routes.garmin as gm
+
+    set_api_key('freja_garmin_email', 'a@b.c')
+    set_api_key('freja_garmin_password', 'pw')
+
+    fake_token_dir = tmp_path / ".garminconnect"
+    fake_token_dir.mkdir()
+    (fake_token_dir / "stale_token.json").write_text("{}")
+    monkeypatch.setattr(gm, "_garmin_token_dir", lambda: str(fake_token_dir))
+
+    login_calls = []
+
+    class FakeGarmin:
+        def __init__(self, *a, **k):
+            pass
+        def login(self, **k):
+            login_calls.append(k)
+            return True
+
+    module = types.ModuleType('garminconnect')
+    module.Garmin = FakeGarmin
+    monkeypatch.setitem(sys.modules, 'garminconnect', module)
+
+    client = TestClient(app)
+    response = client.post("/api/garmin/reauth", headers=auth_headers)
+    assert response.status_code == 200
+    assert response.json()["status"] == "success"
+    assert len(login_calls) == 1
+
+
+def test_reauth_failure_is_classified(auth_headers, monkeypatch, tmp_path):
+    """A reauth that fails with an auth-specific exception must classify the sync state,
+    not just report a generic error (#181)."""
+    import sys
+    import types
+    from backend.database import set_api_key
+    import backend.routes.garmin as gm
+    from backend.services.sync_status import get_sync_states
+    from garminconnect import GarminConnectAuthenticationError as RealAuthError
+
+    set_api_key('freja_garmin_email', 'a@b.c')
+    set_api_key('freja_garmin_password', 'pw')
+    monkeypatch.setattr(gm, "_garmin_token_dir", lambda: str(tmp_path / ".garminconnect"))
+
+    class FakeGarmin:
+        def __init__(self, *a, **k):
+            pass
+        def login(self, **k):
+            raise RealAuthError("still bad")
+
+    # The fake module must still expose the real exception classes: both this test's
+    # `raise` and _classify_garmin_error()'s lazy re-import resolve `garminconnect` through
+    # sys.modules, which now points at this fake module rather than the real package.
+    module = types.ModuleType('garminconnect')
+    module.Garmin = FakeGarmin
+    module.GarminConnectAuthenticationError = RealAuthError
+    monkeypatch.setitem(sys.modules, 'garminconnect', module)
+
+    client = TestClient(app)
+    response = client.post("/api/garmin/reauth", headers=auth_headers)
+    assert response.status_code == 400
+    assert get_sync_states()["states"]["garmin"] == "auth_required"
+
+
+def test_token_age_warning_reported_when_stale(auth_headers, monkeypatch, tmp_path):
+    """A cached tokenstore older than the warning threshold must surface as stale (#181)."""
+    import os
+    import time
+    import backend.routes.garmin as gm
+
+    fake_token_dir = tmp_path / ".garminconnect"
+    fake_token_dir.mkdir()
+    token_file = fake_token_dir / "oauth2_token.json"
+    token_file.write_text("{}")
+    old_time = time.time() - (200 * 86400)  # 200 days old
+    os.utime(token_file, (old_time, old_time))
+    monkeypatch.setattr(gm, "_garmin_token_dir", lambda: str(fake_token_dir))
+
+    client = TestClient(app)
+    response = client.get("/api/garmin/credentials", headers=auth_headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["token_age_days"] >= 199
+    assert data["token_stale_warning"] is True
+
+
+def test_token_age_no_warning_when_tokenstore_missing(auth_headers, monkeypatch, tmp_path):
+    """No tokenstore yet (never connected) must not be reported as a stale one (#181)."""
+    import backend.routes.garmin as gm
+
+    monkeypatch.setattr(gm, "_garmin_token_dir", lambda: str(tmp_path / "does_not_exist"))
+
+    client = TestClient(app)
+    response = client.get("/api/garmin/credentials", headers=auth_headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["token_age_days"] is None
+    assert data["token_stale_warning"] is False
+
+
 def test_unparseable_last_sync_does_not_shrink_the_window(auth_headers, monkeypatch):
     """A corrupt timestamp must not narrow every future sync to a single day."""
     from backend.database import set_api_key

@@ -94,6 +94,34 @@ def _index_daily_response(rows, date_keys=('date', 'calendarDate')):
     return indexed
 
 
+def _garmin_token_dir():
+    """The cached-token directory shared by the sync task and /api/garmin/reauth (#181)."""
+    return os.path.join(os.path.dirname(os.path.abspath(PROJECT_ROOT)), '.garminconnect')
+
+
+def _classify_garmin_error(e: Exception) -> str:
+    """Distinguishes an auth failure from a transient one so the UI can say something
+    actionable instead of a raw exception string (#181). An expired token, a rate limit and
+    a network blip used to all surface as the same generic "error" state - which tells the
+    user nothing about whether the fix is "log in again" or "wait a few minutes"."""
+    # Imported separately so one missing/unmockable class doesn't sink the other check.
+    try:
+        from garminconnect import GarminConnectAuthenticationError
+        if isinstance(e, GarminConnectAuthenticationError):
+            return "auth_required"
+    except ImportError:
+        pass
+    try:
+        from garminconnect import GarminConnectTooManyRequestsError
+        if isinstance(e, GarminConnectTooManyRequestsError):
+            # Rate limiting must not be presented as "your credentials are wrong" - and
+            # given the per-day request volume before #178, it was a plausible failure mode.
+            return "rate_limited"
+    except ImportError:
+        pass
+    return "error"
+
+
 def _latest_device_entry(device_map):
     """Picks the freshest entry from a device-keyed dict (Issue #179).
 
@@ -254,7 +282,7 @@ def run_garmin_sync_task_blocking(email, password, days, end_date=None):
     """
     try:
         from garminconnect import Garmin
-        token_dir = os.path.join(os.path.dirname(os.path.abspath(PROJECT_ROOT)), '.garminconnect')
+        token_dir = _garmin_token_dir()
         os.makedirs(token_dir, exist_ok=True)
 
         client = Garmin(email, password)
@@ -666,7 +694,7 @@ async def run_garmin_sync_flow(email, password, days):
             print(f"[GARMIN SYNC] Automatic workout optimization was skipped: {opt_err}")
     except Exception as e:
         print(f"[GARMIN SYNC TASK ERROR]: {e}")
-        set_sync_state("garmin", "error", str(e))
+        set_sync_state("garmin", _classify_garmin_error(e), str(e))
 
 
 @router.get("/api/garmin/sync")
@@ -742,10 +770,74 @@ async def delete_garmin_log(date: str = Query(..., description="Date to delete")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# Garmin tokens last on the order of 6 months (#181); warn once a cached tokenstore
+# approaches that, rather than waiting for the failure.
+TOKEN_STALE_WARNING_DAYS = 150
+
+
+def _garmin_token_age_days():
+    """Age in days of the cached Garmin tokenstore, or None if it doesn't exist yet."""
+    token_dir = _garmin_token_dir()
+    if not os.path.isdir(token_dir):
+        return None
+    try:
+        mtimes = [
+            os.path.getmtime(os.path.join(token_dir, name))
+            for name in os.listdir(token_dir)
+            if os.path.isfile(os.path.join(token_dir, name))
+        ]
+    except OSError:
+        return None
+    if not mtimes:
+        return None
+    return (datetime.datetime.now() - datetime.datetime.fromtimestamp(max(mtimes))).days
+
+
 @router.get("/api/garmin/credentials")
 async def get_garmin_credentials():
     email = get_api_key('freja_garmin_email') or ""
-    return {"email": email}
+    token_age_days = _garmin_token_age_days()
+    return {
+        "email": email,
+        "token_age_days": token_age_days,
+        "token_stale_warning": token_age_days is not None and token_age_days >= TOKEN_STALE_WARNING_DAYS,
+    }
+
+
+@router.post("/api/garmin/reauth")
+async def post_garmin_reauth():
+    """Clears the cached tokenstore and performs a fresh login, so renewing an expired
+    Garmin session is a click in the settings panel rather than deleting a file over
+    SSH (#181)."""
+    email = get_api_key('freja_garmin_email') or ""
+    password = get_api_key('freja_garmin_password') or ""
+    if not email or not password:
+        raise HTTPException(
+            status_code=400,
+            detail="Garmin Connect credentials are missing. Enter the email and password in Settings."
+        )
+
+    token_dir = _garmin_token_dir()
+    try:
+        import shutil
+        if os.path.isdir(token_dir):
+            shutil.rmtree(token_dir)
+        os.makedirs(token_dir, exist_ok=True)
+
+        from garminconnect import Garmin
+        client = Garmin(email, password)
+        # Note: this deliberately does not pass return_on_mfa - an account with 2FA enabled
+        # will fail here with an auth-classified error rather than complete a two-step MFA
+        # flow. The installed client (garminconnect==0.3.6) does support resuming an MFA
+        # login (Garmin(..., return_on_mfa=True) + client.resume_login(client_state, code)),
+        # but that needs holding client_state safely between two HTTP calls and confirming
+        # 2FA is actually enabled on this account first - deferred rather than guessed at.
+        client.login(tokenstore=token_dir)
+        set_sync_state("garmin", "success")
+        return {"status": "success", "message": "Garmin re-authentication succeeded."}
+    except Exception as e:
+        set_sync_state("garmin", _classify_garmin_error(e), str(e))
+        raise HTTPException(status_code=400, detail=f"Garmin re-authentication failed: {e}")
 
 @router.post("/api/garmin/data")
 @router.post("/api/garmin/save")

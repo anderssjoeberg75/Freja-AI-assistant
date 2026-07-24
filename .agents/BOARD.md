@@ -188,21 +188,35 @@ T-014/T-016/T-018/T-019/T-020 each add prompt content) → T-010.**
 
 ### [T-015] Garmin auth: classify token expiry, add re-auth, support MFA
 - Owner: claude
-- Status: todo
+- Status: done (2026-07-24) — MFA explicitly deferred, see below
 - Priority: P2
 - Created-by: anders (GitHub issue #181)
-- Files: `backend/routes/garmin.py`, `backend/services/sync_status.py`, `tests/test_garmin_routes.py`
-- Spec: Catch `garminconnect`'s `GarminConnectAuthenticationError` /
-  `GarminConnectTooManyRequestsError` / `GarminConnectConnectionError` separately from
-  generic errors; new `sync_status` state `auth_required` distinct from transient `error`.
-  `POST /api/garmin/reauth` clears the tokenstore and re-logs in. Token-age warning from the
-  tokenstore file's mtime (~6 month lifetime). MFA two-step flow (first call returns
-  "code required", second submits it) — confirm whether 2FA is actually enabled on the
-  account before building this sub-part; the classification/state work is worth doing
-  regardless. Prerequisite for #176 (writing to the account). Lower priority than the
-  data-quality issues — nothing is broken today.
-- Handoff: T-026 (settings-panel button + MFA field + token-age warning) is blocked on the
-  new `sync_status` states and `/api/garmin/reauth` existing.
+- Files: `backend/routes/garmin.py`, `tests/test_garmin_routes.py`
+- **DONE except MFA (deliberately deferred).** `_classify_garmin_error()` distinguishes
+  `GarminConnectAuthenticationError` → `auth_required` from `GarminConnectTooManyRequestsError`
+  → `rate_limited` from everything else → the existing generic `error` (`sync_status.py`
+  needed no change — `sync_states` already accepts arbitrary state strings). Wired into both
+  `run_garmin_sync_flow`'s error handler and the new `POST /api/garmin/reauth` (clears the
+  tokenstore dir via `_garmin_token_dir()`, now shared with the sync task, and re-logs in).
+  `GET /api/garmin/credentials` now also returns `token_age_days` (from the tokenstore's
+  newest file mtime) and `token_stale_warning` (age ≥ 150 days, approaching Garmin's ~6
+  month lifetime).
+  **MFA not implemented** — the installed `garminconnect==0.3.6` genuinely supports it
+  (`Garmin(..., return_on_mfa=True)` + `client.resume_login(client_state, code)`, confirmed
+  by reading the library source), so this is buildable, not speculative. But it needs (a)
+  confirming 2FA is actually enabled on this Garmin account, which nothing here can check,
+  and (b) a design for holding `client_state` safely across two HTTP calls (in-memory
+  session with a timeout, or similar) — meaningfully bigger than the rest of this issue and
+  explicitly gated by the issue itself ("worth confirming... before building it"). Left as an
+  open follow-up. Without it, a 2FA-enabled account's reauth attempt fails with a
+  classified `auth_required` error rather than completing — a real gap, but a classified
+  one instead of a silent hang.
+  5 new tests: sync-flow classification (auth/rate-limit/generic, 3 tests), reauth
+  clears-and-relogs-in + failure classification (2 tests), token-age warning present/absent
+  (2 tests — 7 total). `pytest` → 369 passed, 3 skipped.
+- Handoff: **T-026 is now unblocked** for the non-MFA parts (reauth button + token-age
+  banner). Its board entry should be trimmed to drop the MFA code-input step, or Antigravity
+  can leave that part out of scope for now — MFA has no backend endpoint to call.
 
 ### [T-016] Fetch per-activity Garmin detail once per new activity
 - Owner: claude
@@ -413,20 +427,27 @@ T-014/T-016/T-018/T-019/T-020 each add prompt content) → T-010.**
 
 ### [T-026] Client: Garmin re-auth UI (settings panel)
 - Owner: antigravity
-- Status: blocked
+- Status: todo — UNBLOCKED 2026-07-24, ready for Antigravity to run (MFA step dropped, see below)
 - Priority: P2
 - Created-by: claude (split from GitHub issue #181)
 - Files: `client/**` (settings panel / sync-status indicator)
-- Blocked by: T-015 (new `sync_status` state `auth_required`, `POST /api/garmin/reauth`)
-- Handoff-notes: Today a Garmin failure shows as a generic "error" with no actionable text.
-  After T-015, the state distinguishes `auth_required` from a transient `error`.
+- Was blocked by: T-015, now `done` — `sync_status` distinguishes `auth_required` /
+  `rate_limited` / `error`; `POST /api/garmin/reauth` and `GET /api/garmin/credentials`'
+  `token_age_days`/`token_stale_warning` are live.
+- Handoff-notes: T-015 deliberately did **not** build MFA (needs confirming 2FA is even
+  enabled on this account, plus a stateful two-call design — see T-015's board note). There
+  is no "MFA code required" response to handle — drop that step from scope. A 2FA-enabled
+  account's reauth attempt will currently just fail with `auth_required`, same as any other
+  auth failure.
 - ▶ Antigravity prompt: "In the settings panel and the sync-status indicator, when Garmin's
-  state is `auth_required` show 'Garmin-inloggningen har gått ut — logga in igen' with a
-  button that calls `POST /api/garmin/reauth`. Keep the generic error path for a plain
-  `error` state. If the backend response indicates an MFA code is required, show a code
-  input and resubmit. Also show a token-age warning banner when the backend flags the token
-  as approaching expiry. Browser-verify each state against the running backend, screenshot,
-  commit and push."
+  sync state is `auth_required` show 'Garmin-inloggningen har gått ut — logga in igen' with
+  a button that calls `POST /api/garmin/reauth`. When the state is `rate_limited` show a
+  distinct message like 'Garmin begränsar just nu — försök igen om en stund' (not the same
+  text as auth_required). Keep the existing generic error path for a plain `error` state.
+  Also show a token-age warning banner when `GET /api/garmin/credentials` returns
+  `token_stale_warning: true`. There is no MFA flow to build - the backend doesn't support
+  it yet, so don't add a code-input step. Browser-verify each state against the running
+  backend, screenshot, commit and push."
 
 ### [T-027] Client: PT-panel strength-log source badge (manual vs Garmin)
 - Owner: antigravity
