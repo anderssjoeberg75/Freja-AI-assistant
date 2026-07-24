@@ -101,7 +101,7 @@ def _stub_garminconnect(monkeypatch, good_date, failing_dates):
             return []
         def get_stats(self, d):
             if d == good_date:
-                return {'totalSteps': 12345, 'activeCalories': 600}
+                return {'activeCalories': 600}
             raise RuntimeError(f"Garmin unavailable for {d}")
         def get_sleep_data(self, d):
             if d == good_date:
@@ -115,10 +115,17 @@ def _stub_garminconnect(monkeypatch, good_date, failing_dates):
             if d == good_date:
                 return {'hrvSummary': {'lastNightAvg': 60}}
             raise RuntimeError(f"Garmin unavailable for {d}")
-        def get_body_battery(self, d):
-            if d == good_date:
-                return [{'bodyBatteryValuesArray': [[0, 90]]}]
-            raise RuntimeError(f"Garmin unavailable for {d}")
+        def get_body_battery(self, *a, **k):
+            # Bulk/ranged call now (#178): returns an entry only for the day that has data,
+            # so a day absent from the list naturally reads as None via .get() - the same
+            # outcome the old per-day RuntimeError produced for a failing date.
+            if good_date is None:
+                return []
+            return [{'date': good_date, 'bodyBatteryValuesArray': [[0, 90]]}]
+        def get_daily_steps(self, *a, **k):
+            if good_date is None:
+                return []
+            return [{'calendarDate': good_date, 'totalSteps': 12345}]
         def get_max_metrics(self, d):
             raise RuntimeError("no vo2max")
         def get_training_status(self, d):
@@ -234,14 +241,16 @@ def test_resync_preserves_existing_value_when_one_metric_fails(monkeypatch):
         def get_activities_by_date(self, *a, **k):
             return []
         def get_stats(self, d):
-            return {'totalSteps': 12345, 'activeCalories': 600}
+            return {'activeCalories': 600}
+        def get_daily_steps(self, *a, **k):
+            return [{'calendarDate': target_date, 'totalSteps': 12345}]
         def get_sleep_data(self, d):
             raise RuntimeError("no sleep data")
         def get_heart_rates(self, d):
             raise RuntimeError("no heart rate data")
         def get_hrv_data(self, d):
             raise RuntimeError("Garmin unavailable for hrv this run")
-        def get_body_battery(self, d):
+        def get_body_battery(self, *a, **k):
             raise RuntimeError("no body battery")
         def get_max_metrics(self, d):
             raise RuntimeError("no vo2max")
@@ -620,6 +629,134 @@ def test_activity_upsert_is_idempotent_across_overlapping_syncs(monkeypatch):
         count = cursor.fetchone()[0]
 
     assert count == 1, "the same Garmin activity_id must not duplicate on a re-sync"
+
+
+def test_ranged_endpoints_called_once_regardless_of_window_length(monkeypatch):
+    """The whole point of #178: body battery and steps must be fetched once for the sync
+    window, not once per day - a 3-day window used to make 3 calls to each endpoint."""
+    import datetime
+    import sys
+    import types
+    from backend.database import get_db_connection
+    from backend.routes.garmin import run_garmin_sync_task_blocking
+
+    today = datetime.date.today()
+    dates = [(today - datetime.timedelta(days=i)).strftime('%Y-%m-%d') for i in range(3)]
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.executemany("DELETE FROM garmin_health WHERE date = ?", [(d,) for d in dates])
+        conn.commit()
+
+    call_counts = {'body_battery': 0, 'daily_steps': 0}
+
+    class FakeGarmin:
+        def __init__(self, *a, **k):
+            pass
+        def login(self, **k):
+            return True
+        def get_activities_by_date(self, *a, **k):
+            return []
+        def get_stats(self, d):
+            return {'activeCalories': 500}
+        def get_body_battery(self, *a, **k):
+            call_counts['body_battery'] += 1
+            return [{'date': d, 'bodyBatteryValuesArray': [[0, 80]]} for d in dates]
+        def get_daily_steps(self, *a, **k):
+            call_counts['daily_steps'] += 1
+            return [{'calendarDate': d, 'totalSteps': 8000} for d in dates]
+        def get_sleep_data(self, d):
+            raise RuntimeError("no sleep")
+        def get_heart_rates(self, d):
+            raise RuntimeError("no hr")
+        def get_hrv_data(self, d):
+            raise RuntimeError("no hrv")
+        def get_max_metrics(self, d):
+            raise RuntimeError("no vo2max")
+        def get_training_status(self, d):
+            raise RuntimeError("no training status")
+        def get_training_readiness(self, d):
+            raise RuntimeError("no readiness")
+
+    module = types.ModuleType('garminconnect')
+    module.Garmin = FakeGarmin
+    monkeypatch.setitem(sys.modules, 'garminconnect', module)
+
+    run_garmin_sync_task_blocking('a@b.c', 'pw', 3)
+
+    assert call_counts['body_battery'] == 1
+    assert call_counts['daily_steps'] == 1
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT date, steps, body_battery FROM garmin_health WHERE date IN (?, ?, ?)",
+            tuple(dates)
+        )
+        rows = {r[0]: (r[1], r[2]) for r in cursor.fetchall()}
+
+    for d in dates:
+        assert rows[d] == (8000, 80), f"{d} did not get its bulk-fetched steps/body_battery"
+
+
+def test_bulk_metric_failure_degrades_to_none_without_failing_the_sync(monkeypatch):
+    """A failing bulk call (body battery) must blank that one metric for the whole window,
+    not raise and abort a sync where other metrics succeeded (#178)."""
+    import datetime
+    import sys
+    import types
+    from backend.database import get_db_connection
+    from backend.routes.garmin import run_garmin_sync_task_blocking
+
+    today = datetime.date.today()
+    target_date = today.strftime('%Y-%m-%d')
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM garmin_health WHERE date = ?", (target_date,))
+        conn.commit()
+
+    class FakeGarmin:
+        def __init__(self, *a, **k):
+            pass
+        def login(self, **k):
+            return True
+        def get_activities_by_date(self, *a, **k):
+            return []
+        def get_stats(self, d):
+            return {'activeCalories': 500}
+        def get_body_battery(self, *a, **k):
+            raise RuntimeError("Garmin body battery endpoint unavailable")
+        def get_daily_steps(self, *a, **k):
+            return [{'calendarDate': target_date, 'totalSteps': 7000}]
+        def get_sleep_data(self, d):
+            raise RuntimeError("no sleep")
+        def get_heart_rates(self, d):
+            raise RuntimeError("no hr")
+        def get_hrv_data(self, d):
+            raise RuntimeError("no hrv")
+        def get_max_metrics(self, d):
+            raise RuntimeError("no vo2max")
+        def get_training_status(self, d):
+            raise RuntimeError("no training status")
+        def get_training_readiness(self, d):
+            raise RuntimeError("no readiness")
+
+    module = types.ModuleType('garminconnect')
+    module.Garmin = FakeGarmin
+    monkeypatch.setitem(sys.modules, 'garminconnect', module)
+
+    # Must not raise despite the body-battery bulk call failing entirely.
+    run_garmin_sync_task_blocking('a@b.c', 'pw', 1)
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT steps, body_battery FROM garmin_health WHERE date = ?", (target_date,)
+        )
+        row = cursor.fetchone()
+
+    assert row == (7000, None)
 
 
 def test_unparseable_last_sync_does_not_shrink_the_window(auth_headers, monkeypatch):

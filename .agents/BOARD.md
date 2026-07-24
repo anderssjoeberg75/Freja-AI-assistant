@@ -114,18 +114,30 @@ T-014/T-016/T-018/T-019/T-020 each add prompt content) → T-010.**
 
 ### [T-012] Cut Garmin sync request volume via date-ranged endpoints
 - Owner: claude
-- Status: todo
+- Status: done (2026-07-24)
 - Priority: P1
 - Created-by: anders (GitHub issue #178)
-- Files: `backend/routes/garmin.py` (~156-275)
-- Spec: `get_body_battery`, `get_daily_steps`, `get_weekly_intensity_minutes`,
-  `get_weekly_stress` already accept date ranges but are called once per day (~210
-  requests/30-day sync). Hoist them before the per-day loop into date-keyed dicts;
-  `get_stats`/sleep/HRV/training-status stay per-day (no ranged variant). Preserve: (1)
-  per-metric `try/except` degrading to `{}` on bulk failure, never aborting the sync: (2)
-  the "reset every field to `None` per day" contract at ~126-152 — a date missing from a
-  bulk response must yield `None`, never the previous day's value. Tests per Work-to-do list
-  in the issue.
+- Files: `backend/routes/garmin.py`, `tests/test_garmin_routes.py`
+- **DONE, with a scope correction against the issue text.** Inspected the installed
+  `garminconnect==0.3.6` source directly rather than trusting the issue's endpoint list at
+  face value: `get_body_battery(startdate, enddate)` and `get_daily_steps(start, end)` do
+  return one entry **per day** (confirmed via the library's typed models — `BodyBatteryEntry.date`,
+  daily steps' `calendarDate`) and are now hoisted once before the per-day loop via a new
+  `_index_daily_response()` helper. But `get_weekly_stress`/`get_weekly_intensity_minutes`
+  — despite the issue calling them "verified present" replacements — turned out from the
+  library's own docstrings to return one **aggregate per week** (`calendarDate` = week
+  start, a single `value`/`moderateValue`/`vigorousValue`), not per-day figures. Using them
+  as drop-in replacements for the daily `stress_avg`/`stress_max`/`intensity_minutes`
+  columns would have silently produced wrong per-day numbers, so those three stay on the
+  per-day `get_stats()` call as before. Net result: body battery + steps collapse from
+  ~2×30 to 2 requests per 30-day sync; stress/intensity/sleep/HRV/training-status remain
+  per-day (no verified daily-ranged endpoint for them). Preserved both required properties:
+  each bulk call has its own `try/except` degrading to `{}` (never aborts the sync), and a
+  date missing from a bulk response yields `None` via `.get()`, identically to a failed
+  per-day call. Updated the 3 existing fake-Garmin-client tests whose stubs used the old
+  single-date `get_body_battery`/`get_stats(totalSteps)` shape, plus 2 new tests (ranged
+  endpoints called exactly once regardless of window length; a bulk failure degrades to
+  `None` without failing the sync). `pytest` → 356 passed, 3 skipped.
 
 ### [T-013] Capture Garmin's own training load (CTL/ATL/TSB/ACWR)
 - Owner: claude

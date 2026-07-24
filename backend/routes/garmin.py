@@ -72,6 +72,28 @@ def _map_garmin_type(type_key):
     return GARMIN_TYPE_MAPPING.get(type_key, type_key.replace('_', ' ').capitalize())
 
 
+def _index_daily_response(rows, date_keys=('date', 'calendarDate')):
+    """Indexes a Garmin ranged-endpoint response by its per-entry date (Issue #178).
+
+    Tries each key in `date_keys` in order per entry, since different endpoints name their
+    date field differently (confirmed from the installed client's typed models:
+    `get_body_battery` entries use plain `date`; steps-style daily endpoints use
+    `calendarDate`). Returns `{}` on anything that isn't a list of dicts, so a bulk-call
+    failure degrades to "every date in the window misses" rather than raising - the caller's
+    `.get(date_str)` on a date absent from the dict then yields `None`, exactly like a failed
+    per-day call used to, preserving the "reset every field per day" contract."""
+    indexed = {}
+    if not isinstance(rows, list):
+        return indexed
+    for entry in rows:
+        if not isinstance(entry, dict):
+            continue
+        d = next((entry.get(key) for key in date_keys if entry.get(key)), None)
+        if d:
+            indexed[str(d)[:10]] = entry
+    return indexed
+
+
 def _upsert_garmin_activities(cursor, activities):
     """Upserts every fetched activity into garmin_activities, keyed on Garmin's activity_id.
 
@@ -233,6 +255,33 @@ def run_garmin_sync_task_blocking(email, password, days, end_date=None):
             if start_time_local:
                 activities_by_date.setdefault(start_time_local[:10], []).append(act)
 
+        # Body battery and steps genuinely have date-ranged endpoints returning one entry
+        # per day, so both are fetched once for the whole window instead of once per day -
+        # removing (days_to_sync - 1) requests each (Issue #178). Verified against the
+        # installed client: get_weekly_stress/get_weekly_intensity_minutes were also
+        # considered, but their name is accurate - they return one aggregate per *week*
+        # (`calendarDate` = week start), not per day, so they cannot replace the daily
+        # stress_avg/stress_max/intensity_minutes columns without losing granularity; those
+        # stay on the per-day get_stats() call below. Each bulk call gets its own try/except
+        # degrading to {}, mirroring the per-day try/except pattern so one bulk failure only
+        # blanks that metric for the window rather than aborting the sync.
+        bb_by_date = {}
+        try:
+            bb_by_date = _index_daily_response(
+                client.get_body_battery(dates_to_sync[0], dates_to_sync[-1]), date_keys=('date',)
+            )
+        except Exception as bb_range_err:
+            print(f"Error fetching body battery range: {bb_range_err}")
+
+        steps_by_date = {}
+        try:
+            steps_by_date = _index_daily_response(
+                client.get_daily_steps(dates_to_sync[0], dates_to_sync[-1]),
+                date_keys=('calendarDate', 'date'),
+            )
+        except Exception as steps_range_err:
+            print(f"Error fetching daily steps range: {steps_range_err}")
+
         # Tracks whether ANY per-day metric call succeeded for ANY day in the window. If the
         # whole run fails silently (expired session, Garmin rate-limiting/lockout mid-run),
         # every field for every day stays None and the per-day try/excepts swallow it, so
@@ -284,21 +333,30 @@ def run_garmin_sync_task_blocking(email, password, days, end_date=None):
                 try:
                     stats = client.get_stats(date_str)
                     if stats:
-                        steps = int(stats.get('totalSteps', 0) or 0)
                         active_calories = int(stats.get('activeCalories', 0) or 0)
                         # All-day stress. Garmin returns -1 (no data) / -2 (too little data)
                         # when there is no valid reading, so only keep non-negative values.
+                        # No verified date-ranged endpoint returns this per day (#178) -
+                        # get_weekly_stress is a weekly aggregate, not a daily one - so this
+                        # stays a per-day call.
                         avg_s = stats.get('averageStressLevel')
                         max_s = stats.get('maxStressLevel')
                         stress_avg = int(avg_s) if isinstance(avg_s, (int, float)) and avg_s >= 0 else None
                         stress_max = int(max_s) if isinstance(max_s, (int, float)) and max_s >= 0 else None
                         # Intensity minutes toward the weekly goal: vigorous counts double,
-                        # the same weighting Garmin displays.
+                        # the same weighting Garmin displays. Same reasoning as stress above -
+                        # get_weekly_intensity_minutes is weekly, not daily.
                         mod = stats.get('moderateIntensityMinutes') or 0
                         vig = stats.get('vigorousIntensityMinutes') or 0
                         intensity_minutes = int(mod) + 2 * int(vig)
                 except Exception as stats_err:
                     print(f"Error fetching stats for {date_str}: {stats_err}")
+                # Steps come from the ranged get_daily_steps call fetched once above (#178),
+                # not from get_stats - a miss here yields None via .get(), same as a failed
+                # per-day call would have.
+                day_steps = steps_by_date.get(date_str)
+                if day_steps:
+                    steps = int(day_steps.get('totalSteps') or day_steps.get('steps') or 0)
                 try:
                     sleep_data = client.get_sleep_data(date_str)
                     if sleep_data:
@@ -348,15 +406,14 @@ def run_garmin_sync_task_blocking(email, password, days, end_date=None):
                     ))
 
                 try:
-                    bb_data = client.get_body_battery(date_str)
-                    if bb_data and isinstance(bb_data, list):
-                        day_bb = bb_data[0]
+                    # Fetched once for the whole window above (#178), not per day.
+                    day_bb = bb_by_date.get(date_str)
+                    if day_bb:
                         # Extract the maximum value from bodyBatteryValuesArray (list of [timestamp, value] pairs)
-                        bb_values = [v[1] for v in day_bb.get('bodyBatteryValuesArray', []) if isinstance(v, list) and len(v) > 1 and v[1] is not None]
+                        bb_values = [v[1] for v in (day_bb.get('bodyBatteryValuesArray') or []) if isinstance(v, list) and len(v) > 1 and v[1] is not None]
                         body_battery = max(bb_values) if bb_values else day_bb.get('highest')
-                        print(f"[Garmin Sync] Extracted body_battery = {body_battery} for {date_str}")
                 except Exception as bb_err:
-                    print(f"Error fetching body battery for {date_str}: {bb_err}")
+                    print(f"Error extracting body battery for {date_str}: {bb_err}")
                 try:
                     hrv_data = client.get_hrv_data(date_str)
                     if hrv_data and isinstance(hrv_data, dict):
