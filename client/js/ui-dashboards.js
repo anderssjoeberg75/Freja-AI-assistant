@@ -1533,16 +1533,20 @@ FrejaUIController.prototype.renderTrainerPlanDetails = function (planId, adviceT
                         <i class="fa-solid fa-calendar-plus"></i> BOOK SESSIONS
                     </button>
                 </div>
-                <!-- Take the plan out of Freja: same start date drives both exports. -->
-                <div style="display: flex; gap: 8px; align-items: center; border-top: 1px dashed rgba(0, 242, 254, 0.15); padding-top: 8px;">
+                <!-- Take the plan out of Freja: same start date drives exports & watch push. -->
+                <div style="display: flex; gap: 8px; align-items: center; border-top: 1px dashed rgba(0, 242, 254, 0.15); padding-top: 8px; flex-wrap: wrap;">
                     <span style="font-size: 9px; color: var(--color-text-muted); font-family: var(--font-display); letter-spacing: 0.5px; flex: 1;">EXPORTERA PLANEN</span>
-                    <button id="btn-trainer-export-ics" class="hud-btn btn-secondary" style="height: 30px; font-family: var(--font-display); font-size: 10px; padding: 0 12px; display: flex; align-items: center; gap: 5px;">
+                    <button id="btn-trainer-export-ics" class="hud-btn btn-secondary" style="height: 30px; font-family: var(--font-display); font-size: 10px; padding: 0 10px; display: flex; align-items: center; gap: 4px;">
                         <i class="fa-solid fa-calendar-days"></i> .ICS
                     </button>
-                    <button id="btn-trainer-export-pdf" class="hud-btn btn-secondary" style="height: 30px; font-family: var(--font-display); font-size: 10px; padding: 0 12px; display: flex; align-items: center; gap: 5px;">
+                    <button id="btn-trainer-export-pdf" class="hud-btn btn-secondary" style="height: 30px; font-family: var(--font-display); font-size: 10px; padding: 0 10px; display: flex; align-items: center; gap: 4px;">
                         <i class="fa-solid fa-file-pdf"></i> PDF
                     </button>
+                    <button id="btn-trainer-push-garmin" class="hud-btn btn-primary" style="height: 30px; font-family: var(--font-display); font-size: 10px; padding: 0 10px; display: flex; align-items: center; gap: 4px; background: rgba(0, 242, 254, 0.15); border-color: var(--color-primary);">
+                        <i class="fa-solid fa-stopwatch"></i> SKICKA TILL KLOCKAN
+                    </button>
                 </div>
+                <div id="trainer-push-garmin-results" style="display: none; margin-top: 6px; padding: 8px 10px; background: rgba(0, 0, 0, 0.3); border: 1px solid var(--color-border); border-radius: 4px; font-size: 11px; font-family: var(--font-mono);"></div>
             </div>
 
         </div>
@@ -1678,6 +1682,79 @@ FrejaUIController.prototype.renderTrainerPlanDetails = function (planId, adviceT
     };
     wireExport('btn-trainer-export-ics', 'ics', 'ICS');
     wireExport('btn-trainer-export-pdf', 'pdf', 'PDF');
+
+    // Garmin watch workout push handler (Issue #176 / T-024)
+    const pushBtn = outputDiv.querySelector('#btn-trainer-push-garmin');
+    const resultsDiv = outputDiv.querySelector('#trainer-push-garmin-results');
+    if (pushBtn) {
+        pushBtn.addEventListener('click', async () => {
+            soundSynth.playClick();
+            const confirmed = window.confirm("Vill du skicka alla träningspass i denna plan till din Garmin-klocka? Detta lägger till riktiga pass i din Garmin Connect-kalender.");
+            if (!confirmed) return;
+
+            const startDateInput = outputDiv.querySelector('#trainer-book-start-date');
+            const startDate = startDateInput ? startDateInput.value : '';
+
+            pushBtn.disabled = true;
+            const origHtml = pushBtn.innerHTML;
+            pushBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> SKICKAR...`;
+
+            if (resultsDiv) {
+                resultsDiv.style.display = 'block';
+                resultsDiv.innerHTML = '<div style="color: var(--color-text-muted);"><i class="fa-solid fa-spinner fa-spin"></i> Skickar träningspass till Garmin Connect...</div>';
+            }
+
+            try {
+                const res = await fetch('/api/garmin/workouts/push', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        plan_id: planId,
+                        start_date: startDate
+                    })
+                });
+
+                const data = await res.json();
+                if (!res.ok) {
+                    throw new Error(data.detail || `HTTP ${res.status}`);
+                }
+
+                const sessionResults = data.results || data.pushed || [];
+                let html = `<div style="font-family: var(--font-display); font-size: 10px; color: var(--color-primary); margin-bottom: 6px;">GARMIN PUSH RESULTAT (${data.pushed_count || sessionResults.filter(r => r.pushed).length} / ${sessionResults.length} SKICKADE):</div>`;
+
+                if (sessionResults.length === 0) {
+                    html += `<div style="color: var(--color-text-muted);">${data.message || 'Inga träningspass skickades.'}</div>`;
+                } else {
+                    html += '<ul style="list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 4px;">';
+                    sessionResults.forEach(r => {
+                        const isOk = r.pushed || r.status === 'pushed' || r.success;
+                        const icon = isOk ? '<span style="color: #30d158;">✅</span>' : '<span style="color: #ff3b30;">❌</span>';
+                        const reasonStr = (r.reason || r.error) ? ` (${r.reason || r.error})` : '';
+                        const dateStr = r.workout_date || r.date || '';
+                        const titleStr = r.title || r.workout || 'Träningspass';
+                        html += `<li style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed rgba(255,255,255,0.05); padding-bottom: 2px;">
+                            <span>${icon} <strong>${dateStr}</strong>: ${this.escapeHTML(titleStr)}</span>
+                            <span style="font-size: 10px; color: ${isOk ? '#30d158' : '#ff3b30'};">${isOk ? 'Skickat' : 'Misslyckades'}${this.escapeHTML(reasonStr)}</span>
+                        </li>`;
+                    });
+                    html += '</ul>';
+                }
+
+                if (resultsDiv) resultsDiv.innerHTML = html;
+                this.writeLog(`GARMIN WORKOUT PUSH COMPLETED (Plan #${planId})`, "sys");
+                soundSynth.playNotify();
+            } catch (err) {
+                if (resultsDiv) {
+                    resultsDiv.innerHTML = `<div style="color: #ff3b30;"><i class="fa-solid fa-circle-exclamation"></i> Skicka misslyckades: ${this.escapeHTML(err.message)}</div>`;
+                }
+                this.writeLog(`GARMIN WORKOUT PUSH FAILED: ${err.message}`, "err");
+                soundSynth.playError();
+            } finally {
+                pushBtn.disabled = false;
+                pushBtn.innerHTML = origHtml;
+            }
+        });
+    }
 };
 
 FrejaUIController.prototype.loadGarminDashboardUI = async function () {
