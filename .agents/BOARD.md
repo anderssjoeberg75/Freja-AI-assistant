@@ -711,6 +711,9 @@ only picks up the follow-on UI/settings piece once a backend is live, same as T-
 for Garmin. Both turned out buildable without waiting on anyone: Polar via its official
 self-serve OAuth2 API, Coros via a username/password unofficial API mirroring the Garmin
 pattern (see T-033's 2026-07-25 update — Coros's branded-partner program isn't the path).
+**Split for parallel building (2026-07-25):** Claude takes T-032 (Polar), Antigravity takes
+T-033 (Coros) — a deliberate one-off exception to the usual backend-is-Claude's-lane rule, so
+both land at the same time instead of queued.
 
 ### [T-032] Backend: Polar AccessLink integration (activity, sleep, recovery)
 - Owner: claude
@@ -767,10 +770,15 @@ pattern (see T-033's 2026-07-25 update — Coros's branded-partner program isn't
   written above (official OAuth2) stays the plan, unchanged.
 
 ### [T-033] Backend: Coros integration
-- Owner: claude
+- Owner: antigravity
 - Status: todo
 - Priority: P3
 - Created-by: anders
+- **Deliberate exception to the usual lane split (2026-07-25):** this is backend Python, normally
+  Claude's lane like Garmin/Strava/Withings — Anders asked to split the two providers so both
+  are built in parallel: Antigravity takes Coros (unofficial username/password API, this task),
+  Claude takes Polar (T-032, official OAuth2). Claude still owns correctness/security review of
+  whatever lands here per `.agents/COLLABORATION.md`.
 - **Correction to this task's earlier version (2026-07-25):** the original research only found
   Coros's *branded third-party partner* program (`Submit an API Application`, case-by-case
   approval, no public docs) and stopped there. Anders asked to dig further, specifically
@@ -818,6 +826,64 @@ pattern (see T-033's 2026-07-25 update — Coros's branded-partner program isn't
   - The original branded-partner-program route (`Submit an API Application`) is no longer the
     recommended path now that 1 and 2 exist without an approval wait; leaving the finding here
     for the record but not pursuing it.
+- ▶ Antigravity prompt: "Build a Coros integration in `backend/routes/coros.py` (new), mirroring
+  the shape of `backend/routes/garmin.py`: username/password login (no OAuth client to register),
+  a background sync task, new SQLAlchemy models in `backend/models.py`
+  (`coros_activities`, `coros_health` — copy the column patterns already used for
+  `GarminActivity`/`garmin_health`), and `GET`/settings wiring consistent with
+  `backend/routes/settings.py`.
+
+  This is an **unofficial, reverse-engineered API** (Coros publishes no public docs for it) —
+  the endpoint list below comes from reading the open-source `cygnusb/coros-mcp` project's
+  `coros_api.py`, not from official documentation or an independently-tested account, so
+  verify each response shape defensively (same pattern `garmin.py` already uses for
+  Garmin's own undocumented endpoints — degrade to `None`/skip on an unexpected shape, never
+  crash the sync) and open `github.com/cygnusb/coros-mcp` and `github.com/CuberL/coros-mcp`
+  yourself to cross-check before trusting a field name below:
+
+  - **Login** — `POST https://teameuapi.coros.com/account/login` (region-specific host; `eu`
+    is right for a Swedish account — `teameuapi`/`teamusapi`/`teamasia`/`teamcn` for others).
+    Body: `{account, accountType, pwd}` where `pwd` is the **MD5 hash** of the password, not
+    plaintext. Response: `data.accessToken`, `data.userId`. Store the email/password via
+    `set_api_key()` (`freja_coros_email`, `freja_coros_password`) — same secret-storage
+    mechanism already used for Strava/Withings client secrets — so the sync can silently
+    re-login when the token expires, same pattern as Garmin's re-auth (T-015). Token is valid
+    ~24h (`TOKEN_TTL_MS`); attach it to every later request as header `accessToken: <token>`
+    plus `yfheader: {"userId": <userId>}` (JSON-encoded).
+  - **Activity list** — `GET /activity/query?startDay=&endDay=&pageNumber=&size=` →
+    `data.dataList` (or `data.list`), each with `labelId` (use as the activity id), `name`,
+    `sportType`, `startTime`, `endTime`, `totalTime`, `distance`, `avgHr`, `maxHr`, `calorie`,
+    `trainingLoad`, `avgPower`, `np`, `ascent`/`totalAscent`, `descent`/`totalDescent`.
+  - **Activity detail** — `POST /activity/detail/query` (form body: `labelId`, `userId`,
+    `sportType`) → `data` (large payload; the reference project strips `graphList`/
+    `frequencyList`/`gpsLightDuration` before storing — probably worth doing the same to avoid
+    bloating the DB with raw sample streams nothing here consumes yet).
+  - **Sleep** — different host: `POST https://apieu.coros.com/coros/data/statistic/daily`
+    (needs the access token **both** as a query param `accessToken` and header `accesstoken`
+    — note the lowercase header name, different from the other endpoints' `accessToken`).
+    Body: `{allDeviceSleep, dataType: [...], startTime, endTime, statisticType}`. Response:
+    `data.statisticData.dayDataList[]`, each `happenDay` + `sleepData.{totalSleepTime,
+    deepTime, lightTime, eyeTime, wakeTime, shortSleepTime, avgHeartRate, minHeartRate,
+    maxHeartRate}`. A `result` of `"1019"` means the token expired — re-login and retry once,
+    don't fail the whole sync on it.
+  - **HRV** — `GET /dashboard/query` → `data.summaryInfo.sleepHrvData.sleepHrvList[]`, each
+    `happenDay` + `avgSleepHrv`/`sleepHrvBase`/`sleepHrvSd`.
+  - **Resting HR / training load** — `GET /analyse/dayDetail/query?startDay=&endDay=` (Coros
+    supports up to ~24 weeks per call) → `data.dayList[]`, each `happenDay` +
+    `rhr`/`trainingLoad`/`trainingLoadRatio`/`tiredRateNew`/`ati`/`cti`/`performance`.
+  - **VO2max / threshold / stamina** — `GET /analyse/query` → `data.t7dayList[]` (rolling
+    ~28-day window), each with `vo2max`/`lthr`/`ltsp`/`staminaLevel`/`staminaLevel7d`.
+  - Every endpoint returns a top-level `result` code; `\"0000\"` means success, anything else
+    is an error — raise/log with the raw code preserved (so a future token-expiry or
+    rate-limit code can be told apart later, same reasoning as Garmin's
+    `_classify_garmin_error()` in T-015) rather than swallowing it into a generic failure.
+  - Add a settings card (client-side, same PT-panel location as the Garmin/Strava/Withings
+    cards moved in commit `6427c58`) with email/password fields and a 'Connect Coros' /
+    sync-status indicator — this is the one piece of this task that actually is your normal
+    lane, so it's fine to build end-to-end without a separate hand-off.
+  - Write tests mirroring `tests/test_garmin_routes.py`'s shape (fake Coros client, a
+    successful sync stores rows, a bad login is classified not just failed, a malformed
+    response degrades gracefully). Run the full suite, commit, push."
 
 ---
 
