@@ -163,7 +163,7 @@ def calculate_trends():
         except Exception as e:
             print(f"Error fetching Garmin health data for trends: {e}")
         try:
-            cursor.execute('SELECT heart_pulse FROM withings_measurements ORDER BY date DESC LIMIT 21')
+            cursor.execute('SELECT heart_pulse, weight FROM withings_measurements ORDER BY date DESC LIMIT 21')
             withings_rows = cursor.fetchall()
         except Exception as e:
             print(f"Error fetching Withings measurements for trends: {e}")
@@ -197,6 +197,10 @@ def calculate_trends():
     recent_bbs = [v for r in garmin_rows[:7] if (v := _reading(r[3])) is not None]
     baseline_bbs = [v for r in garmin_rows[7:] if (v := _reading(r[3])) is not None]
 
+    # Weight: Withings primary.
+    recent_weights = [v for r in withings_rows[:7] if len(r) > 1 and (v := _reading(r[1])) is not None]
+    baseline_weights = [v for r in withings_rows[7:] if len(r) > 1 and (v := _reading(r[1])) is not None]
+
     rhr_recent_avg = _avg(recent_rhrs)
     rhr_baseline_avg = _avg(baseline_rhrs)
     hrv_recent_avg = _avg(recent_hrvs)
@@ -205,6 +209,8 @@ def calculate_trends():
     stress_baseline_avg = _avg(baseline_stresses)
     bb_recent_avg = _avg(recent_bbs)
     bb_baseline_avg = _avg(baseline_bbs)
+    weight_recent_avg = _avg(recent_weights)
+    weight_baseline_avg = _avg(baseline_weights)
 
     rhr_change_pct = None
     if rhr_recent_avg and rhr_baseline_avg:
@@ -222,6 +228,10 @@ def calculate_trends():
     if bb_recent_avg and bb_baseline_avg:
         bb_change_pct = ((bb_recent_avg - bb_baseline_avg) / bb_baseline_avg) * 100
 
+    weight_change_pct = None
+    if weight_recent_avg and weight_baseline_avg:
+        weight_change_pct = ((weight_recent_avg - weight_baseline_avg) / weight_baseline_avg) * 100
+
     return {
         "rhr_recent_avg": rhr_recent_avg,
         "rhr_baseline_avg": rhr_baseline_avg,
@@ -235,6 +245,9 @@ def calculate_trends():
         "bb_recent_avg": bb_recent_avg,
         "bb_baseline_avg": bb_baseline_avg,
         "bb_change_pct": bb_change_pct,
+        "weight_recent_avg": weight_recent_avg,
+        "weight_baseline_avg": weight_baseline_avg,
+        "weight_change_pct": weight_change_pct,
     }
 
 
@@ -1038,7 +1051,7 @@ MAX_TREND_DAYS = 180  # Longest window the trend chart may request
 
 
 def get_health_series(days: int = 28) -> list:
-    """Returns a day-by-day RHR/HRV series for the trend charts, oldest first.
+    """Returns a day-by-day RHR/HRV/Stress/Weight series for the trend charts, oldest first.
 
     `calculate_trends()` only yields aggregates, which cannot be plotted. This reads the
     same sources: Garmin per day, with Withings' pulse filling in resting HR on days
@@ -1052,33 +1065,40 @@ def get_health_series(days: int = 28) -> list:
         cursor = conn.cursor()
         try:
             cursor.execute(
-                'SELECT date, resting_hr, hrv FROM garmin_health WHERE date >= ? ORDER BY date ASC',
+                'SELECT date, resting_hr, hrv, stress_avg FROM garmin_health WHERE date >= ? ORDER BY date ASC',
                 (cutoff,)
             )
-            for date_str, rhr, hrv in cursor.fetchall():
+            for date_str, rhr, hrv, stress in cursor.fetchall():
                 if not date_str:
                     continue
-                by_date[date_str[:10]] = {
-                    "date": date_str[:10], "rhr": _reading(rhr), "hrv": _reading(hrv)
+                key = date_str[:10]
+                by_date[key] = {
+                    "date": key,
+                    "rhr": _reading(rhr),
+                    "hrv": _reading(hrv),
+                    "stress": _reading(stress),
+                    "weight": None
                 }
         except Exception as e:
             print(f"[TRAINER TRENDS] Error reading Garmin health series: {e}")
         try:
             cursor.execute(
-                'SELECT date, heart_pulse FROM withings_measurements WHERE date >= ? ORDER BY date ASC',
+                'SELECT date, heart_pulse, weight FROM withings_measurements WHERE date >= ? ORDER BY date ASC',
                 (cutoff,)
             )
-            for date_str, pulse in cursor.fetchall():
+            for date_str, pulse, weight in cursor.fetchall():
                 if not date_str:
                     continue
                 key = date_str[:10]
-                entry = by_date.setdefault(key, {"date": key, "rhr": None, "hrv": None})
+                entry = by_date.setdefault(key, {"date": key, "rhr": None, "hrv": None, "stress": None, "weight": None})
                 if entry.get("rhr") is None:
                     entry["rhr"] = _reading(pulse)
+                if entry.get("weight") is None:
+                    entry["weight"] = _reading(weight)
         except Exception as e:
             print(f"[TRAINER TRENDS] Error reading Withings series: {e}")
 
-    return [by_date[k] for k in sorted(by_date) if by_date[k].get("rhr") is not None or by_date[k].get("hrv") is not None]
+    return [by_date[k] for k in sorted(by_date) if any(by_date[k][x] is not None for x in ("rhr", "hrv", "stress", "weight"))]
 
 
 async def _clear_bookings(rows) -> int:

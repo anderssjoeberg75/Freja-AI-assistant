@@ -1424,6 +1424,23 @@ FrejaUIController.prototype.loadTrainerTrendsUI = async function () {
             goodDirection: 'up'
         });
 
+        const weightCard = this.buildTrendCard({
+            label: 'VIKT (WEIGHT)',
+            points: pointsFor('weight'),
+            unit: ' kg',
+            color: '#30d158',
+            changePct: trends.weight_change_pct,
+            goodDirection: 'down'
+        });
+        const stressCard = this.buildTrendCard({
+            label: 'STRESSNIVÅ (STRESS)',
+            points: pointsFor('stress'),
+            unit: ' / 100',
+            color: '#ff9f0a',
+            changePct: trends.stress_change_pct,
+            goodDirection: 'down'
+        });
+
         const planned = adherence.planned || 0;
         const completed = adherence.completed || 0;
         const pct = adherence.adherence_pct;
@@ -1473,6 +1490,10 @@ FrejaUIController.prototype.loadTrainerTrendsUI = async function () {
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
                 ${rhrCard}
                 ${hrvCard}
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                ${weightCard}
+                ${stressCard}
             </div>
             ${hrZonesCard}
             ${adherenceCard}

@@ -708,8 +708,9 @@ flows storing a refresh token via `set_api_key()`/`get_api_key()`, a `/api/<prov
 route, and a `run_<provider>_sync_task` background sync). Per `.agents/COLLABORATION.md`, new
 backend Python integrations are Claude's lane (as all of T-011..T-020 above were) — Antigravity
 only picks up the follow-on UI/settings piece once a backend is live, same as T-024..T-031 did
-for Garmin. These two are **not symmetric**: Polar is self-serve today; Coros requires an
-external approval Anders has to request himself before any code can be written.
+for Garmin. Both turned out buildable without waiting on anyone: Polar via its official
+self-serve OAuth2 API, Coros via a username/password unofficial API mirroring the Garmin
+pattern (see T-033's 2026-07-25 update — Coros's branded-partner program isn't the path).
 
 ### [T-032] Backend: Polar AccessLink integration (activity, sleep, recovery)
 - Owner: claude
@@ -756,32 +757,67 @@ external approval Anders has to request himself before any code can be written.
   "Connect Polar" button, modeled on the existing Garmin/Strava/Withings cards moved to the PT
   GUI in commit `6427c58`) is Antigravity's follow-up once `freja_polar_client_id`/`_secret`
   exist as settings keys and `/api/polar/callback` is live.
+- **Follow-up check (2026-07-25): is there a Garmin-style unofficial route for Polar too?**
+  No — checked and ruled out. The one unofficial username/password client
+  (`github.com/campbellr/flow-client`) pre-dates AccessLink, was **archived by its own author in
+  2021**, has no sleep/daily-activity data, and its README tells readers to use the official API
+  instead. Unlike Garmin (which has no good public API, forcing `garminconnect`'s
+  username/password approach), Polar's official AccessLink is already self-serve with no
+  approval wait — there's no reason to take on unofficial-API breakage risk here. T-032 as
+  written above (official OAuth2) stays the plan, unchanged.
 
-### [T-033] Coros integration — blocked on an external application, not a coding task yet
-- Owner: anders (manual step — nobody else can do this)
+### [T-033] Backend: Coros integration
+- Owner: claude
 - Status: todo
 - Priority: P3
 - Created-by: anders
-- **Coros has no self-serve developer registration.** Unlike Polar/Garmin/Strava/Withings,
-  there is no public OAuth client-registration portal. Access is granted case-by-case: submit
-  an application via COROS's own support flow
-  (https://support.coros.com/hc/en-us/articles/17085887816340-Submit-an-API-Application) and
-  COROS decides whether to grant it based on "market size, how the data will be used, and
-  other factors" — they explicitly state they can't approve every applicant. No published
-  timeline for a decision.
-  - Everything found in the community (`github.com/xballoy/coros-api`,
-    `github.com/NYT87/coros-connect`) is against Coros Training Hub's **non-public** API
-    ("could break anytime", explicitly not for production use) — not a foundation to build on.
-    The legitimate integrations that exist (TrainingPeaks, MyProCoach) go through a direct
-    partnership with Coros, not a documented public API surface.
-  - **DoD for this task:** Anders submits the application through the link above, describing
-    Freja (personal training-data assistant, single-user use case). Once/if Coros approves and
-    sends real API docs + credentials, file a new backend task (Claude's lane) scoped against
-    whatever they actually hand over — the shape (OAuth2 vs API-key/HMAC, endpoint paths,
-    webhook vs poll) is unknown until then, so no implementation task can be written yet.
-  - Do not build against the reverse-engineered Training Hub API — it's explicitly
-    unsupported and would carry the same "could break anytime" risk directly into Freja's
-    sync layer.
+- **Correction to this task's earlier version (2026-07-25):** the original research only found
+  Coros's *branded third-party partner* program (`Submit an API Application`, case-by-case
+  approval, no public docs) and stopped there. Anders asked to dig further, specifically
+  whether an unofficial route exists parallel to Garmin's. It does — **two** viable paths were
+  found, neither of which needs Coros's approval:
+  1. **Official Coros remote MCP server** — `https://mcp.coros.com/mcp`
+     (per `support.coros.com`'s own guide, "COROS MCP: A Guide to Connecting Your Training Data
+     to AI"). A normal consumer Coros account signs in via an OAuth browser popup the first time
+     an MCP client connects; no developer application, no approval wait. Read-only, 15 tools
+     across profile/hardware, activities, daily health (steps, HR, stress, sleep incl.
+     REM/deep/light split), HRV/recovery/training-load/VO2max/race-predictions (EvoLab), and
+     the training calendar. Deliberately excludes GPS routes, raw HR/pace/power streams, and
+     lap splits — this is a summary-level feed, not a full activity-detail export. Write access
+     is "signposted as a near-term update," not available yet.
+     **Architectural catch: this is a real gap, not a small one.** Freja's backend has
+     **no MCP-client capability at all** (confirmed: `backend/services/tool_registry/` is a
+     bespoke tool-calling system, unrelated to the MCP protocol) — everything else in
+     `backend/routes/{garmin,strava,withings}.py` is plain OAuth2 + REST. Consuming
+     `mcp.coros.com` would mean building a generic MCP-client integration in the backend, a
+     meaningfully bigger lift than one more OAuth route, and it's a capability nothing else here
+     needs yet. Worth doing only if Freja wants MCP-client support as a reusable capability, not
+     just for Coros.
+  2. **Unofficial Coros API (Training Hub), reverse-engineered — the direct Garmin parallel.**
+     Two actively-maintained open-source MCP servers build on it: `github.com/cygnusb/coros-mcp`
+     and `github.com/CuberL/coros-mcp`. Auth is a plain **username/password login** against Coros
+     Training Hub credentials (`training-hub.coros.com` for the web API, `apieu.coros.com`
+     mentioned specifically for sleep data) — exactly the `garminconnect` pattern already used
+     in `garmin.py` (login with real credentials, no OAuth client registration, store a session/
+     token rather than a client_id+secret). Exposes activities (with laps/power zones), sleep,
+     HRV, resting HR, training load, VO2max, and workout create/schedule. Explicit risk callouts
+     from the maintainers: "the API may change at any time without notice, use at your own
+     risk," and logging in via the mobile-API path **logs the user's phone out of the Coros
+     app** each time — a real UX cost to weigh, same category of risk as Garmin's account/token
+     churn (T-015).
+  - **Recommendation:** build against path 2 (unofficial Training Hub API) first — it fits the
+    existing integration shape (`backend/routes/coros.py`, username/password stored via
+    `set_api_key()`, a `run_coros_sync_task`, same as `garmin.py`) with no new architecture and
+    no external wait. Read `cygnusb/coros-mcp`'s and `CuberL/coros-mcp`'s source for the actual
+    endpoint paths/payload shapes before writing `coros.py` — this reply only confirmed the auth
+    mechanism and base hosts, not exact field names (same "field-name caveat" honesty already
+    applied to several Garmin endpoints above, e.g. T-017/T-019/T-020).
+  - Path 1 (official MCP) is a legitimate alternative if Anders would rather avoid
+    reverse-engineered-API risk, but only once/if Freja gets general MCP-client support — track
+    that as a separate, larger decision, not folded into this task.
+  - The original branded-partner-program route (`Submit an API Application`) is no longer the
+    recommended path now that 1 and 2 exist without an approval wait; leaving the finding here
+    for the record but not pursuing it.
 
 ---
 
