@@ -1452,10 +1452,7 @@ FrejaUIController.prototype.loadTrainerTrendsUI = async function () {
 
         let adherenceCard = '';
         if (planned === 0) {
-            adherenceCard = `<div class="trend-metric-card" style="padding: 10px;">
-                   <div style="font-size: 9px; color: var(--color-text-muted); font-family: var(--font-display); letter-spacing: 0.5px;">ADHERENCE (PLANNED VS COMPLETED)</div>
-                   <div style="font-size: 11px; color: var(--color-text-muted); font-family: var(--font-mono); padding: 8px 0;">[NO BOOKED SESSIONS IN THIS WINDOW]</div>
-               </div>`;
+            adherenceCard = '';
         } else if (isUnreliable) {
             adherenceCard = `<div class="trend-metric-card" style="padding: 10px; display: flex; flex-direction: column; gap: 8px; border: 1px solid rgba(255, 176, 32, 0.3); background: rgba(255, 176, 32, 0.05);">
                    <div style="display: flex; justify-content: space-between; align-items: baseline;">
