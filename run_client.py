@@ -96,6 +96,8 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             body = self.rfile.read(content_length) if content_length > 0 else None
 
             headers = {k: v for k, v in self.headers.items() if k.lower() not in ("host", "content-length")}
+            headers["X-Forwarded-Host"] = self.headers.get("Host", f"localhost:{PORT}")
+            headers["X-Forwarded-Proto"] = "http"
 
             # Auto-inject valid access token from local DB if header is missing or masked
             token = headers.get("X-Freja-Token", "")

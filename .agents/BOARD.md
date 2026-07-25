@@ -700,6 +700,91 @@ T-014/T-016/T-018/T-019/T-020 each add prompt content) → T-010.**
 
 ---
 
+## Polar / Coros integrations — researched 2026-07-25
+
+Anders asked what it takes to connect Polar and Coros, matching the existing Garmin/Strava/
+Withings pattern (`backend/routes/{garmin,strava,withings}.py`, all OAuth2 authorization-code
+flows storing a refresh token via `set_api_key()`/`get_api_key()`, a `/api/<provider>/callback`
+route, and a `run_<provider>_sync_task` background sync). Per `.agents/COLLABORATION.md`, new
+backend Python integrations are Claude's lane (as all of T-011..T-020 above were) — Antigravity
+only picks up the follow-on UI/settings piece once a backend is live, same as T-024..T-031 did
+for Garmin. These two are **not symmetric**: Polar is self-serve today; Coros requires an
+external approval Anders has to request himself before any code can be written.
+
+### [T-032] Backend: Polar AccessLink integration (activity, sleep, recovery)
+- Owner: claude
+- Status: todo
+- Priority: P3
+- Created-by: anders
+- Files (expected, mirroring `withings.py`): `backend/routes/polar.py` (new), `backend/models.py`,
+  `backend/database.py`, `backend/routes/settings.py`, `backend/routes/trainer/shared.py` (if
+  folded into `unified_sessions()`/training-load prompts like Garmin/Strava), `tests/test_polar_routes.py` (new)
+- **Registration (self-serve, no approval wait):**
+  1. Create/use a Polar Flow account, then register as a third-party developer at
+     https://admin.polaraccesslink.com (sign in with the Polar Flow account).
+  2. "Create client" → fill in application/service info → register the redirect URI
+     (`https://<backend-host>/api/polar/callback`, matching the Garmin/Strava/Withings
+     callback pattern already in `origins.py`'s allow-list) → save the issued OAuth2
+     **client_id** / **client_secret**. Store them as `freja_polar_client_id` /
+     `freja_polar_client_secret` via `set_api_key()`, same as
+     `freja_{strava,withings}_client_{id,secret}`.
+- **OAuth2 flow (authorization-code, same shape as `withings.py`'s callback):**
+  - Authorize: `GET https://auth.polar.com/oauth/authorize?client_id=…&response_type=code&scope=…`
+  - Token: `POST https://auth.polar.com/oauth/token` (client_id/secret + code) →
+    access token valid **12 hours**, refresh token for renewal — store the refresh token as
+    `freja_polar_refresh_token`, same pattern as `freja_strava_refresh_token`.
+  - Needed scopes: `activity:read`, `sleep:read`, `training_sessions:read`,
+    `continuous_samples:read`, `profile:read` (request only what's actually consumed).
+- **Important divergence from Garmin/Strava/Withings — verify before implementing:**
+  AccessLink is reportedly **not** a plain "GET data since date" API like Withings. From the
+  v4 overview alone it wasn't possible to confirm whether a one-time `POST /v3/users`
+  registration step is required after the OAuth handshake before any data becomes readable,
+  or whether historical data is pulled via a transaction-create/list/commit sequence rather
+  than a single GET. **Do not assume the Withings-style single-GET shape carries over — pull
+  the current official AccessLink v3/v4 API reference before writing `polar.py` and confirm
+  the actual read sequence.**
+- **Data available once connected:** daily activity summaries (steps, MET samples), training
+  sessions (routes + stats), sleep (phases/cycles/score), Nightly Recharge (HRV, breathing
+  rate — recovery data Garmin doesn't have an exact analogue for), continuous HR samples,
+  fitness tests (VO2 max, orthostatic), sports profiles, calendar notes/feelings/weight.
+- **Rate limits:** 3,000 req/15 min and 100,000 req/24h per client_id; a 429 means back off,
+  same handling pattern as Garmin's `GarminConnectTooManyRequestsError` classification (T-015).
+- Suggested scope for a first pass: mirror Withings exactly (OAuth callback + refresh-token
+  storage + a periodic pull of activity/sleep/recovery into new tables) rather than chasing
+  every endpoint category at once.
+- Handoff (blocked until this lands): a Polar settings-panel card (client id/secret fields +
+  "Connect Polar" button, modeled on the existing Garmin/Strava/Withings cards moved to the PT
+  GUI in commit `6427c58`) is Antigravity's follow-up once `freja_polar_client_id`/`_secret`
+  exist as settings keys and `/api/polar/callback` is live.
+
+### [T-033] Coros integration — blocked on an external application, not a coding task yet
+- Owner: anders (manual step — nobody else can do this)
+- Status: todo
+- Priority: P3
+- Created-by: anders
+- **Coros has no self-serve developer registration.** Unlike Polar/Garmin/Strava/Withings,
+  there is no public OAuth client-registration portal. Access is granted case-by-case: submit
+  an application via COROS's own support flow
+  (https://support.coros.com/hc/en-us/articles/17085887816340-Submit-an-API-Application) and
+  COROS decides whether to grant it based on "market size, how the data will be used, and
+  other factors" — they explicitly state they can't approve every applicant. No published
+  timeline for a decision.
+  - Everything found in the community (`github.com/xballoy/coros-api`,
+    `github.com/NYT87/coros-connect`) is against Coros Training Hub's **non-public** API
+    ("could break anytime", explicitly not for production use) — not a foundation to build on.
+    The legitimate integrations that exist (TrainingPeaks, MyProCoach) go through a direct
+    partnership with Coros, not a documented public API surface.
+  - **DoD for this task:** Anders submits the application through the link above, describing
+    Freja (personal training-data assistant, single-user use case). Once/if Coros approves and
+    sends real API docs + credentials, file a new backend task (Claude's lane) scoped against
+    whatever they actually hand over — the shape (OAuth2 vs API-key/HMAC, endpoint paths,
+    webhook vs poll) is unknown until then, so no implementation task can be written yet.
+  - Do not build against the reverse-engineered Training Hub API — it's explicitly
+    unsupported and would carry the same "could break anytime" risk directly into Freja's
+    sync layer.
+
+---
+
 ## Done
 
 - **[T-001]** Unify LLM providers behind `llm_client` — DONE (commit `5358ffd`). Ollama-first, Gemini-fallback facade; trainer routes + learning_service + codex_service all route through it. `pytest -k "trainer or gemini or learning or codex"` → 74 passed.

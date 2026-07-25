@@ -29,7 +29,9 @@ async def get_withings_callback(request: Request, code: str = Query("", descript
         if not client_id or not client_secret:
             return HTMLResponse('<h3>Error: The Withings Client ID or Client Secret is missing from the F.R.E.J.A. database. Save them in Settings first.</h3>', status_code=400)
             
-        redirect_uri = str(request.url).split('?')[0]
+        forwarded_host = request.headers.get("x-forwarded-host") or request.headers.get("host") or "localhost:5000"
+        forwarded_proto = request.headers.get("x-forwarded-proto") or "http"
+        redirect_uri = f"{forwarded_proto}://{forwarded_host}{request.url.path}"
         token_url = 'https://wbsapi.withings.net/v2/oauth2'
         payload = {
             'action': 'requesttoken',
