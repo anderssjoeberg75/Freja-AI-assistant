@@ -109,6 +109,13 @@ async def get_withings_callback(request: Request, code: str = Query("", descript
                 <p>Auktoriseringen lyckades och din Refresh Token har sparats i F.R.E.J.A.</p>
                 <button onclick="window.close()">STÄNG FLIKEN</button>
             </div>
+            <script>
+                try {
+                    if (window.opener && window.opener.syncKeysFromServer) {
+                        window.opener.syncKeysFromServer();
+                    }
+                } catch(e) {}
+            </script>
         </body>
         </html>
         """

@@ -827,6 +827,7 @@ FrejaUIController.prototype.bindEvents = function () {
     if (btnWithings && modalWithings && btnCloseWithings) {
         btnWithings.addEventListener('click', () => {
             soundSynth.playClick();
+            if (window.syncKeysFromServer) window.syncKeysFromServer();
             modalWithings.classList.add('active');
 
             // Pre-fill today's date if empty

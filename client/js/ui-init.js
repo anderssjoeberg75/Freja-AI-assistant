@@ -178,7 +178,37 @@ FrejaUIController.prototype.initializeUI = function() {
             window.open(oauthUrl, '_blank');
         });
     }
-    updateWithingsLink();
+    window.syncKeysFromServer = async function() {
+        try {
+            const token = localStorage.getItem('freja_access_token') || "";
+            const headers = {};
+            if (token) headers['X-Freja-Token'] = token;
+            const res = await fetch('/api/keys?unmask=true', { headers });
+            if (res.ok) {
+                const keys = await res.json();
+                const setKey = (id, keyName) => {
+                    if (keys[keyName]) {
+                        localStorage.setItem(keyName, keys[keyName]);
+                        const input = document.getElementById(id);
+                        if (input) input.value = keys[keyName];
+                    }
+                };
+                setKey('input-withings-client-id', 'freja_withings_client_id');
+                setKey('input-withings-client-secret', 'freja_withings_client_secret');
+                setKey('input-withings-refresh-token', 'freja_withings_refresh_token');
+                setKey('input-strava-client-id', 'freja_strava_client_id');
+                setKey('input-strava-client-secret', 'freja_strava_client_secret');
+                setKey('input-strava-refresh-token', 'freja_strava_refresh_token');
+                setKey('input-garmin-email', 'freja_garmin_email');
+                setKey('input-google-calendar-client-id', 'freja_google_calendar_client_id');
+                setKey('input-google-calendar-client-secret', 'freja_google_calendar_client_secret');
+                setKey('input-google-calendar-refresh-token', 'freja_google_calendar_refresh_token');
+            }
+        } catch(e) {
+            console.warn("Could not sync keys from server:", e);
+        }
+    };
+    window.syncKeysFromServer();
 
     const googleClientId = localStorage.getItem("freja_google_calendar_client_id") || "";
     const googleClientSecret = localStorage.getItem("freja_google_calendar_client_secret") || "";
