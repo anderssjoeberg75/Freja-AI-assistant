@@ -448,67 +448,15 @@
     <div class="hud-modal" id="modal-garmin">
         <div class="modal-content glass-morphic">
             <div class="modal-header">
-                <h2><i class="fa-solid fa-heart-pulse"></i> GARMIN FIT DASHBOARD</h2>
+                <h2><i class="fa-solid fa-heart-pulse"></i> GARMIN ACCOUNT &amp; SYNC</h2>
                 <button class="modal-close" id="btn-close-garmin">&times;</button>
             </div>
             <div class="modal-body" style="display: flex; flex-direction: column; gap: 15px;">
                 <!-- Sync Status & Reauth Banner -->
                 <div id="garmin-status-banner" style="display: none;"></div>
 
-                <!-- Summary HUD Cards (Body Battery, Training Readiness) -->
-                <div id="garmin-hud-cards" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px;"></div>
-
-                <!-- Form for entering data -->
-                <div class="garmin-form" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--color-border); border-radius: 4px; padding: 12px;">
-                    <div style="grid-column: span 2; display: flex; flex-direction: column; gap: 4px;">
-                        <label for="garmin-input-date" style="font-size: 11px; color: var(--color-text-muted);">Datum</label>
-                        <input type="date" id="garmin-input-date" class="hud-input" style="height: 32px; font-size: 12px; font-family: var(--font-mono);">
-                    </div>
-                    <div style="display: flex; flex-direction: column; gap: 4px;">
-                        <label for="garmin-input-steps" style="font-size: 11px; color: var(--color-text-muted);">Steg</label>
-                        <input type="number" id="garmin-input-steps" placeholder="t.ex. 10000" class="hud-input" style="height: 32px; font-size: 12px;">
-                    </div>
-                    <div style="display: flex; flex-direction: column; gap: 4px;">
-                        <label for="garmin-input-sleep" style="font-size: 11px; color: var(--color-text-muted);">Sleep (hours)</label>
-                        <input type="number" step="0.1" id="garmin-input-sleep" placeholder="t.ex. 7.5" class="hud-input" style="height: 32px; font-size: 12px;">
-                    </div>
-                    <div style="display: flex; flex-direction: column; gap: 4px;">
-                        <label for="garmin-input-hr" style="font-size: 11px; color: var(--color-text-muted);">Resting heart rate (BPM)</label>
-                        <input type="number" id="garmin-input-hr" placeholder="t.ex. 58" class="hud-input" style="height: 32px; font-size: 12px;">
-                    </div>
-                    <div style="display: flex; flex-direction: column; gap: 4px;">
-                        <label for="garmin-input-calories" style="font-size: 11px; color: var(--color-text-muted);">Active calories</label>
-                        <input type="number" id="garmin-input-calories" placeholder="t.ex. 400" class="hud-input" style="height: 32px; font-size: 12px;">
-                    </div>
-                    <div style="display: flex; flex-direction: column; gap: 4px;">
-                        <label for="garmin-input-workout-type" style="font-size: 11px; color: var(--color-text-muted);">Workout type</label>
-                        <input type="text" id="garmin-input-workout-type" placeholder="e.g. Löpning" class="hud-input" style="height: 32px; font-size: 12px;">
-                    </div>
-                    <div style="display: flex; flex-direction: column; gap: 4px;">
-                        <label for="garmin-input-workout-duration" style="font-size: 11px; color: var(--color-text-muted);">Tid (minuter)</label>
-                        <input type="number" id="garmin-input-workout-duration" placeholder="t.ex. 45" class="hud-input" style="height: 32px; font-size: 12px;">
-                    </div>
-                    <div style="display: flex; flex-direction: column; gap: 4px;">
-                        <label for="garmin-input-body-battery" style="font-size: 11px; color: var(--color-text-muted);">Body Battery (max)</label>
-                        <input type="number" id="garmin-input-body-battery" placeholder="t.ex. 85" class="hud-input" style="height: 32px; font-size: 12px;">
-                    </div>
-                    <div style="display: flex; flex-direction: column; gap: 4px;">
-                        <label for="garmin-input-hrv" style="font-size: 11px; color: var(--color-text-muted);">HRV (Snitt ms)</label>
-                        <input type="number" id="garmin-input-hrv" placeholder="t.ex. 65" class="hud-input" style="height: 32px; font-size: 12px;">
-                    </div>
-                    <button id="btn-save-garmin-manual" class="hud-btn btn-primary" style="grid-column: span 2; height: 34px; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-floppy-disk"></i> SAVE DAILY LOG</button>
-                </div>
-                
-                <!-- List of recent logs -->
-                <div class="garmin-list-container" style="display: flex; flex-direction: column; flex: 1; min-height: 200px; max-height: 250px;">
-                    <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); margin-bottom: 8px; letter-spacing: 1px;">HISTORY (LASTASTE 10 DAGARNA)</h3>
-                    <div class="garmin-list" id="garmin-list" style="flex: 1; overflow-y: auto; background: rgba(0,0,0,0.3); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px;">
-                        <div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Loading history...</div>
-                    </div>
-                </div>
-
                 <!-- Garmin Account & Permission Settings -->
-                <details class="garmin-api-details" style="border: 1px solid var(--color-border); border-radius: 4px; background: rgba(0, 0, 0, 0.2); padding: 8px 12px; margin-top: 10px;">
+                <details open class="garmin-api-details" style="border: 1px solid var(--color-border); border-radius: 4px; background: rgba(0, 0, 0, 0.2); padding: 8px 12px; margin-top: 10px;">
                     <summary style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); cursor: pointer; user-select: none; outline: none; letter-spacing: 1px;">
                         <i class="fa-solid fa-user-gear" style="margin-right: 6px;"></i> GARMIN ACCOUNT SETTINGS
                     </summary>
@@ -548,71 +496,12 @@
     <div class="hud-modal" id="modal-strava">
         <div class="modal-content glass-morphic">
             <div class="modal-header">
-                <h2><i class="fa-solid fa-person-running"></i> STRAVA ACTIVITY DASHBOARD</h2>
+                <h2><i class="fa-solid fa-person-running"></i> STRAVA ACCOUNT &amp; SYNC</h2>
                 <button class="modal-close" id="btn-close-strava">&times;</button>
             </div>
             <div class="modal-body" style="display: flex; flex-direction: column; gap: 15px;">
-                <!-- Form for entering data -->
-                <div class="strava-form" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--color-border); border-radius: 4px; padding: 12px;">
-                    <div style="grid-column: span 2; display: flex; flex-direction: column; gap: 4px;">
-                        <label for="strava-input-name" style="font-size: 11px; color: var(--color-text-muted);">Activity name</label>
-                        <input type="text" id="strava-input-name" placeholder="e.g. Morgonlöpning" class="hud-input" style="height: 32px; font-size: 12px;">
-                    </div>
-                    <div style="display: flex; flex-direction: column; gap: 4px;">
-                        <label for="strava-input-date" style="font-size: 11px; color: var(--color-text-muted);">Date</label>
-                        <input type="date" id="strava-input-date" class="hud-input" style="height: 32px; font-size: 12px; font-family: var(--font-mono);">
-                    </div>
-                    <div style="display: flex; flex-direction: column; gap: 4px;">
-                        <label for="strava-input-type" style="font-size: 11px; color: var(--color-text-muted);">Workout type</label>
-                        <!-- The option VALUES stay Swedish: they are persisted to
-                             strava_activities.type and matched by the pace-vs-speed logic in
-                             backend/routes/strava.py. Only the visible labels are English. -->
-                        <select id="strava-input-type" class="hud-select" style="height: 32px; font-size: 12px; padding: 0 8px;">
-                            <option value="Löpning">Running</option>
-                            <option value="Cykling">Cycling</option>
-                            <option value="Simning">Swimming</option>
-                            <option value="Styrketräning">Strength training</option>
-                            <option value="Promenad">Walking</option>
-                            <option value="Yoga">Yoga</option>
-                        </select>
-                    </div>
-                    <div style="display: flex; flex-direction: column; gap: 4px;">
-                        <label for="strava-input-distance" style="font-size: 11px; color: var(--color-text-muted);">Distans (meter)</label>
-                        <input type="number" id="strava-input-distance" placeholder="t.ex. 5000" class="hud-input" style="height: 32px; font-size: 12px;">
-                    </div>
-                    <div style="display: flex; flex-direction: column; gap: 4px;">
-                        <label for="strava-input-duration" style="font-size: 11px; color: var(--color-text-muted);">Tid (sekunder)</label>
-                        <input type="number" id="strava-input-duration" placeholder="t.ex. 1800" class="hud-input" style="height: 32px; font-size: 12px;">
-                    </div>
-                    <div style="display: flex; flex-direction: column; gap: 4px;">
-                        <label for="strava-input-elevation" style="font-size: 11px; color: var(--color-text-muted);">Elevation gain (m)</label>
-                        <input type="number" id="strava-input-elevation" placeholder="t.ex. 45" class="hud-input" style="height: 32px; font-size: 12px;">
-                    </div>
-                    <div style="display: flex; flex-direction: column; gap: 4px;">
-                        <label for="strava-input-avg-hr" style="font-size: 11px; color: var(--color-text-muted);">Snittpuls (BPM)</label>
-                        <input type="number" id="strava-input-avg-hr" placeholder="t.ex. 145" class="hud-input" style="height: 32px; font-size: 12px;">
-                    </div>
-                    <div style="display: flex; flex-direction: column; gap: 4px;">
-                        <label for="strava-input-max-hr" style="font-size: 11px; color: var(--color-text-muted);">Maxpuls (BPM)</label>
-                        <input type="number" id="strava-input-max-hr" placeholder="t.ex. 165" class="hud-input" style="height: 32px; font-size: 12px;">
-                    </div>
-                    <div style="display: flex; flex-direction: column; gap: 4px;">
-                        <label for="strava-input-calories" style="font-size: 11px; color: var(--color-text-muted);">Kalorier (kcal)</label>
-                        <input type="number" id="strava-input-calories" placeholder="t.ex. 350" class="hud-input" style="height: 32px; font-size: 12px;">
-                    </div>
-                    <button id="btn-save-strava-manual" class="hud-btn btn-primary" style="grid-column: span 2; height: 34px; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-floppy-disk"></i> SAVE WORKOUT</button>
-                </div>
-                
-                <!-- List of recent activities -->
-                <div class="strava-list-container" style="display: flex; flex-direction: column; flex: 1; min-height: 200px; max-height: 250px;">
-                    <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); margin-bottom: 8px; letter-spacing: 1px;">HISTORY (LASTASTE AKTIVITETERNA)</h3>
-                    <div class="strava-list" id="strava-list" style="flex: 1; overflow-y: auto; background: rgba(0,0,0,0.3); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px;">
-                        <div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Loading history...</div>
-                    </div>
-                </div>
-
                 <!-- Strava API Config Accordion/Collapsible -->
-                <details class="strava-api-details" style="border: 1px solid var(--color-border); border-radius: 4px; background: rgba(0, 0, 0, 0.2); padding: 8px 12px; margin-top: 10px;">
+                <details open class="strava-api-details" style="border: 1px solid var(--color-border); border-radius: 4px; background: rgba(0, 0, 0, 0.2); padding: 8px 12px; margin-top: 10px;">
                     <summary style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); cursor: pointer; user-select: none; outline: none; letter-spacing: 1px;">
                         <i class="fa-solid fa-key" style="margin-right: 6px;"></i> STRAVA API-KONFIGURATION
                     </summary>
@@ -681,45 +570,12 @@
     <div class="hud-modal" id="modal-withings">
         <div class="modal-content glass-morphic">
             <div class="modal-header">
-                <h2><i class="fa-solid fa-weight-scale"></i> WITHINGS HEALTH DASHBOARD</h2>
+                <h2><i class="fa-solid fa-weight-scale"></i> WITHINGS ACCOUNT &amp; SYNC</h2>
                 <button class="modal-close" id="btn-close-withings">&times;</button>
             </div>
             <div class="modal-body" style="display: flex; flex-direction: column; gap: 15px;">
-                <!-- Form for entering data -->
-                <div class="withings-form" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--color-border); border-radius: 4px; padding: 12px;">
-                    <div style="grid-column: span 2; display: flex; flex-direction: column; gap: 4px;">
-                        <label for="withings-input-date" style="font-size: 11px; color: var(--color-text-muted);">Datum</label>
-                        <input type="date" id="withings-input-date" class="hud-input" style="height: 32px; font-size: 12px; font-family: var(--font-mono);">
-                    </div>
-                    <div style="display: flex; flex-direction: column; gap: 4px;">
-                        <label for="withings-input-weight" style="font-size: 11px; color: var(--color-text-muted);">Vikt (kg)</label>
-                        <input type="number" step="0.1" id="withings-input-weight" placeholder="t.ex. 78.5" class="hud-input" style="height: 32px; font-size: 12px;">
-                    </div>
-                    <div style="display: flex; flex-direction: column; gap: 4px;">
-                        <label for="withings-input-fat" style="font-size: 11px; color: var(--color-text-muted);">Fettprocent (%)</label>
-                        <input type="number" step="0.1" id="withings-input-fat" placeholder="t.ex. 18.2" class="hud-input" style="height: 32px; font-size: 12px;">
-                    </div>
-                    <div style="display: flex; flex-direction: column; gap: 4px;">
-                        <label for="withings-input-bone" style="font-size: 11px; color: var(--color-text-muted);">Benmassa (kg)</label>
-                        <input type="number" step="0.1" id="withings-input-bone" placeholder="t.ex. 3.4" class="hud-input" style="height: 32px; font-size: 12px;">
-                    </div>
-                    <div style="display: flex; flex-direction: column; gap: 4px;">
-                        <label for="withings-input-pulse" style="font-size: 11px; color: var(--color-text-muted);">Puls (BPM)</label>
-                        <input type="number" id="withings-input-pulse" placeholder="t.ex. 56" class="hud-input" style="height: 32px; font-size: 12px;">
-                    </div>
-                    <button id="btn-save-withings-manual" class="hud-btn btn-primary" style="grid-column: span 2; height: 34px; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-floppy-disk"></i> SAVE MEASUREMENT</button>
-                </div>
-                
-                <!-- List of recent measurements -->
-                <div class="withings-list-container" style="display: flex; flex-direction: column; flex: 1; min-height: 200px; max-height: 250px;">
-                    <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); margin-bottom: 8px; letter-spacing: 1px;">HISTORY (LATEST MEASUREMENTS)</h3>
-                    <div class="withings-list" id="withings-list" style="flex: 1; overflow-y: auto; background: rgba(0,0,0,0.3); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px;">
-                        <div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Loading history...</div>
-                    </div>
-                </div>
-
                 <!-- Withings API Configuration -->
-                <details class="withings-api-details" style="border: 1px solid var(--color-border); border-radius: 4px; background: rgba(0, 0, 0, 0.2); padding: 8px 12px; margin-top: 10px;">
+                <details open class="withings-api-details" style="border: 1px solid var(--color-border); border-radius: 4px; background: rgba(0, 0, 0, 0.2); padding: 8px 12px; margin-top: 10px;">
                     <summary style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); cursor: pointer; user-select: none; outline: none; letter-spacing: 1px;">
                         <i class="fa-solid fa-key" style="margin-right: 6px;"></i> WITHINGS API-KONFIGURATION
                     </summary>
@@ -1008,6 +864,148 @@
 
                 <!-- Garmin Benchmarks & Records Card (T-030) -->
                 <div id="trainer-benchmarks-container" style="display: none; margin-top: 10px;"></div>
+
+                <!-- Garmin Health Data & Daily Logs -->
+                <div class="trainer-garmin-box trainer-card-box">
+                    <span style="font-size: 11px; color: var(--color-primary); font-family: var(--font-display); letter-spacing: 0.5px;"><i class="fa-solid fa-heart-pulse"></i> GARMIN HEALTH &amp; DAILY LOGS</span>
+                    <div id="garmin-hud-cards" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-top: 5px;"></div>
+                    <div class="garmin-form" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--color-border); border-radius: 4px; padding: 12px; margin-top: 5px;">
+                        <div style="grid-column: span 2; display: flex; flex-direction: column; gap: 4px;">
+                            <label for="garmin-input-date" style="font-size: 11px; color: var(--color-text-muted);">Datum</label>
+                            <input type="date" id="garmin-input-date" class="hud-input" style="height: 32px; font-size: 12px; font-family: var(--font-mono);">
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <label for="garmin-input-steps" style="font-size: 11px; color: var(--color-text-muted);">Steg</label>
+                            <input type="number" id="garmin-input-steps" placeholder="t.ex. 10000" class="hud-input" style="height: 32px; font-size: 12px;">
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <label for="garmin-input-sleep" style="font-size: 11px; color: var(--color-text-muted);">Sleep (hours)</label>
+                            <input type="number" step="0.1" id="garmin-input-sleep" placeholder="t.ex. 7.5" class="hud-input" style="height: 32px; font-size: 12px;">
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <label for="garmin-input-hr" style="font-size: 11px; color: var(--color-text-muted);">Resting heart rate (BPM)</label>
+                            <input type="number" id="garmin-input-hr" placeholder="t.ex. 58" class="hud-input" style="height: 32px; font-size: 12px;">
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <label for="garmin-input-calories" style="font-size: 11px; color: var(--color-text-muted);">Active calories</label>
+                            <input type="number" id="garmin-input-calories" placeholder="t.ex. 400" class="hud-input" style="height: 32px; font-size: 12px;">
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <label for="garmin-input-workout-type" style="font-size: 11px; color: var(--color-text-muted);">Workout type</label>
+                            <input type="text" id="garmin-input-workout-type" placeholder="e.g. Löpning" class="hud-input" style="height: 32px; font-size: 12px;">
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <label for="garmin-input-workout-duration" style="font-size: 11px; color: var(--color-text-muted);">Tid (minuter)</label>
+                            <input type="number" id="garmin-input-workout-duration" placeholder="t.ex. 45" class="hud-input" style="height: 32px; font-size: 12px;">
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <label for="garmin-input-body-battery" style="font-size: 11px; color: var(--color-text-muted);">Body Battery (max)</label>
+                            <input type="number" id="garmin-input-body-battery" placeholder="t.ex. 85" class="hud-input" style="height: 32px; font-size: 12px;">
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <label for="garmin-input-hrv" style="font-size: 11px; color: var(--color-text-muted);">HRV (Snitt ms)</label>
+                            <input type="number" id="garmin-input-hrv" placeholder="t.ex. 65" class="hud-input" style="height: 32px; font-size: 12px;">
+                        </div>
+                        <button id="btn-save-garmin-manual" class="hud-btn btn-primary" style="grid-column: span 2; height: 34px; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-floppy-disk"></i> SAVE DAILY LOG</button>
+                    </div>
+                    <div class="garmin-list-container" style="display: flex; flex-direction: column; flex: 1; min-height: 180px; max-height: 250px; margin-top: 8px;">
+                        <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); margin-bottom: 8px; letter-spacing: 1px;">HISTORY (LASTASTE 10 DAGARNA)</h3>
+                        <div class="garmin-list" id="garmin-list" style="flex: 1; overflow-y: auto; background: rgba(0,0,0,0.3); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px;">
+                            <div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Loading history...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Strava Activities -->
+                <div class="trainer-strava-box trainer-card-box">
+                    <span style="font-size: 11px; color: var(--color-primary); font-family: var(--font-display); letter-spacing: 0.5px;"><i class="fa-solid fa-person-running"></i> STRAVA ACTIVITIES</span>
+                    <div class="strava-form" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--color-border); border-radius: 4px; padding: 12px; margin-top: 5px;">
+                        <div style="grid-column: span 2; display: flex; flex-direction: column; gap: 4px;">
+                            <label for="strava-input-name" style="font-size: 11px; color: var(--color-text-muted);">Activity name</label>
+                            <input type="text" id="strava-input-name" placeholder="e.g. Morgonlöpning" class="hud-input" style="height: 32px; font-size: 12px;">
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <label for="strava-input-date" style="font-size: 11px; color: var(--color-text-muted);">Date</label>
+                            <input type="date" id="strava-input-date" class="hud-input" style="height: 32px; font-size: 12px; font-family: var(--font-mono);">
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <label for="strava-input-type" style="font-size: 11px; color: var(--color-text-muted);">Workout type</label>
+                            <select id="strava-input-type" class="hud-select" style="height: 32px; font-size: 12px; padding: 0 8px;">
+                                <option value="Löpning">Running</option>
+                                <option value="Cykling">Cycling</option>
+                                <option value="Simning">Swimming</option>
+                                <option value="Styrketräning">Strength training</option>
+                                <option value="Promenad">Walking</option>
+                                <option value="Yoga">Yoga</option>
+                            </select>
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <label for="strava-input-distance" style="font-size: 11px; color: var(--color-text-muted);">Distans (meter)</label>
+                            <input type="number" id="strava-input-distance" placeholder="t.ex. 5000" class="hud-input" style="height: 32px; font-size: 12px;">
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <label for="strava-input-duration" style="font-size: 11px; color: var(--color-text-muted);">Tid (sekunder)</label>
+                            <input type="number" id="strava-input-duration" placeholder="t.ex. 1800" class="hud-input" style="height: 32px; font-size: 12px;">
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <label for="strava-input-elevation" style="font-size: 11px; color: var(--color-text-muted);">Elevation gain (m)</label>
+                            <input type="number" id="strava-input-elevation" placeholder="t.ex. 45" class="hud-input" style="height: 32px; font-size: 12px;">
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <label for="strava-input-avg-hr" style="font-size: 11px; color: var(--color-text-muted);">Snittpuls (BPM)</label>
+                            <input type="number" id="strava-input-avg-hr" placeholder="t.ex. 145" class="hud-input" style="height: 32px; font-size: 12px;">
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <label for="strava-input-max-hr" style="font-size: 11px; color: var(--color-text-muted);">Maxpuls (BPM)</label>
+                            <input type="number" id="strava-input-max-hr" placeholder="t.ex. 165" class="hud-input" style="height: 32px; font-size: 12px;">
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <label for="strava-input-calories" style="font-size: 11px; color: var(--color-text-muted);">Kalorier (kcal)</label>
+                            <input type="number" id="strava-input-calories" placeholder="t.ex. 350" class="hud-input" style="height: 32px; font-size: 12px;">
+                        </div>
+                        <button id="btn-save-strava-manual" class="hud-btn btn-primary" style="grid-column: span 2; height: 34px; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-floppy-disk"></i> SAVE WORKOUT</button>
+                    </div>
+                    <div class="strava-list-container" style="display: flex; flex-direction: column; flex: 1; min-height: 180px; max-height: 250px; margin-top: 8px;">
+                        <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); margin-bottom: 8px; letter-spacing: 1px;">HISTORY (LASTASTE AKTIVITETERNA)</h3>
+                        <div class="strava-list" id="strava-list" style="flex: 1; overflow-y: auto; background: rgba(0,0,0,0.3); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px;">
+                            <div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Loading history...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Withings Health Measurements -->
+                <div class="trainer-withings-box trainer-card-box">
+                    <span style="font-size: 11px; color: var(--color-primary); font-family: var(--font-display); letter-spacing: 0.5px;"><i class="fa-solid fa-weight-scale"></i> WITHINGS HEALTH MEASUREMENTS</span>
+                    <div class="withings-form" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--color-border); border-radius: 4px; padding: 12px; margin-top: 5px;">
+                        <div style="grid-column: span 2; display: flex; flex-direction: column; gap: 4px;">
+                            <label for="withings-input-date" style="font-size: 11px; color: var(--color-text-muted);">Datum</label>
+                            <input type="date" id="withings-input-date" class="hud-input" style="height: 32px; font-size: 12px; font-family: var(--font-mono);">
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <label for="withings-input-weight" style="font-size: 11px; color: var(--color-text-muted);">Vikt (kg)</label>
+                            <input type="number" step="0.1" id="withings-input-weight" placeholder="t.ex. 78.5" class="hud-input" style="height: 32px; font-size: 12px;">
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <label for="withings-input-fat" style="font-size: 11px; color: var(--color-text-muted);">Fettprocent (%)</label>
+                            <input type="number" step="0.1" id="withings-input-fat" placeholder="t.ex. 18.2" class="hud-input" style="height: 32px; font-size: 12px;">
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <label for="withings-input-bone" style="font-size: 11px; color: var(--color-text-muted);">Benmassa (kg)</label>
+                            <input type="number" step="0.1" id="withings-input-bone" placeholder="t.ex. 3.4" class="hud-input" style="height: 32px; font-size: 12px;">
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <label for="withings-input-pulse" style="font-size: 11px; color: var(--color-text-muted);">Puls (BPM)</label>
+                            <input type="number" id="withings-input-pulse" placeholder="t.ex. 56" class="hud-input" style="height: 32px; font-size: 12px;">
+                        </div>
+                        <button id="btn-save-withings-manual" class="hud-btn btn-primary" style="grid-column: span 2; height: 34px; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-floppy-disk"></i> SAVE MEASUREMENT</button>
+                    </div>
+                    <div class="withings-list-container" style="display: flex; flex-direction: column; flex: 1; min-height: 180px; max-height: 250px; margin-top: 8px;">
+                        <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); margin-bottom: 8px; letter-spacing: 1px;">HISTORY (LATEST MEASUREMENTS)</h3>
+                        <div class="withings-list" id="withings-list" style="flex: 1; overflow-y: auto; background: rgba(0,0,0,0.3); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px;">
+                            <div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Loading history...</div>
+                        </div>
+                    </div>
+                </div>
 
                 <!-- Strength Log (progressive overload) -->
                 <div class="trainer-strength-form trainer-card-box">

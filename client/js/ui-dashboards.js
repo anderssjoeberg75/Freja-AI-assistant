@@ -153,6 +153,10 @@ FrejaUIController.prototype.loadTrainerDashboardUI = async function () {
     this.loadInjuryLogUI();
     this.loadTrainerTrendsUI();
     this.loadGarminBenchmarksUI();
+    // Populate Garmin, Strava, and Withings dashboards in PT GUI
+    this.loadGarminDashboardUI();
+    this.loadStravaDashboardUI();
+    this.loadWithingsDashboardUI();
     // Populate weekly workouts list
     this.loadWeeklyWorkoutsUI();
 

@@ -158,7 +158,7 @@ def calculate_trends():
     with get_db_connection() as conn:
         cursor = conn.cursor()
         try:
-            cursor.execute('SELECT resting_hr, hrv FROM garmin_health ORDER BY date DESC LIMIT 21')
+            cursor.execute('SELECT resting_hr, hrv, stress_avg, body_battery FROM garmin_health ORDER BY date DESC LIMIT 21')
             garmin_rows = cursor.fetchall()
         except Exception as e:
             print(f"Error fetching Garmin health data for trends: {e}")
@@ -187,14 +187,24 @@ def calculate_trends():
         recent_rhrs = g_recent_rhr or w_recent_rhr
         baseline_rhrs = g_base_rhr or w_base_rhr
 
-    # HRV: Garmin only (Withings does not provide it).
+    # HRV, Stress, Body Battery: Garmin only.
     recent_hrvs = [v for r in garmin_rows[:7] if (v := _reading(r[1])) is not None]
     baseline_hrvs = [v for r in garmin_rows[7:] if (v := _reading(r[1])) is not None]
+
+    recent_stresses = [v for r in garmin_rows[:7] if (v := _reading(r[2])) is not None]
+    baseline_stresses = [v for r in garmin_rows[7:] if (v := _reading(r[2])) is not None]
+
+    recent_bbs = [v for r in garmin_rows[:7] if (v := _reading(r[3])) is not None]
+    baseline_bbs = [v for r in garmin_rows[7:] if (v := _reading(r[3])) is not None]
 
     rhr_recent_avg = _avg(recent_rhrs)
     rhr_baseline_avg = _avg(baseline_rhrs)
     hrv_recent_avg = _avg(recent_hrvs)
     hrv_baseline_avg = _avg(baseline_hrvs)
+    stress_recent_avg = _avg(recent_stresses)
+    stress_baseline_avg = _avg(baseline_stresses)
+    bb_recent_avg = _avg(recent_bbs)
+    bb_baseline_avg = _avg(baseline_bbs)
 
     rhr_change_pct = None
     if rhr_recent_avg and rhr_baseline_avg:
@@ -204,13 +214,27 @@ def calculate_trends():
     if hrv_recent_avg and hrv_baseline_avg:
         hrv_change_pct = ((hrv_recent_avg - hrv_baseline_avg) / hrv_baseline_avg) * 100
 
+    stress_change_pct = None
+    if stress_recent_avg and stress_baseline_avg:
+        stress_change_pct = ((stress_recent_avg - stress_baseline_avg) / stress_baseline_avg) * 100
+
+    bb_change_pct = None
+    if bb_recent_avg and bb_baseline_avg:
+        bb_change_pct = ((bb_recent_avg - bb_baseline_avg) / bb_baseline_avg) * 100
+
     return {
         "rhr_recent_avg": rhr_recent_avg,
         "rhr_baseline_avg": rhr_baseline_avg,
         "rhr_change_pct": rhr_change_pct,
         "hrv_recent_avg": hrv_recent_avg,
         "hrv_baseline_avg": hrv_baseline_avg,
-        "hrv_change_pct": hrv_change_pct
+        "hrv_change_pct": hrv_change_pct,
+        "stress_recent_avg": stress_recent_avg,
+        "stress_baseline_avg": stress_baseline_avg,
+        "stress_change_pct": stress_change_pct,
+        "bb_recent_avg": bb_recent_avg,
+        "bb_baseline_avg": bb_baseline_avg,
+        "bb_change_pct": bb_change_pct,
     }
 
 
