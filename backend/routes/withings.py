@@ -6,6 +6,7 @@ from backend.services.http_client import shared_client
 import random
 import time
 from fastapi import APIRouter, HTTPException, Query, Request, BackgroundTasks
+from fastapi.responses import HTMLResponse
 from backend.database import get_db_connection, get_api_key, set_api_key
 from backend.services.sync_status import set_sync_state
 from backend.services.time_utils import today_local
@@ -15,6 +16,96 @@ MAX_SYNC_DAYS = 365  # Sanity cap on the sync window; Withings has no per-day AP
                       # but an unbounded value still produces pathological date windows.
 
 router = APIRouter()
+
+@router.get("/api/withings/callback", response_class=HTMLResponse)
+async def get_withings_callback(request: Request, code: str = Query("", description="Authorization code")):
+    code = code.strip()
+    if not code:
+        return HTMLResponse('<h3>Error: No authorization code was found in the request.</h3>', status_code=400)
+    try:
+        client_id = get_api_key('freja_withings_client_id') or ""
+        client_secret = get_api_key('freja_withings_client_secret') or ""
+
+        if not client_id or not client_secret:
+            return HTMLResponse('<h3>Error: The Withings Client ID or Client Secret is missing from the F.R.E.J.A. database. Save them in Settings first.</h3>', status_code=400)
+            
+        redirect_uri = str(request.url).split('?')[0]
+        token_url = 'https://wbsapi.withings.net/v2/oauth2'
+        payload = {
+            'action': 'requesttoken',
+            'grant_type': 'authorization_code',
+            'client_id': client_id,
+            'client_secret': client_secret,
+            'code': code,
+            'redirect_uri': redirect_uri
+        }
+        
+        async with shared_client() as client:
+            res = await client.post(token_url, data=payload, timeout=10.0)
+            res.raise_for_status()
+            res_data = res.json()
+
+        if res_data.get('status') != 0:
+            err_msg = res_data.get('error', 'Unknown error from Withings API')
+            return HTMLResponse(f'<h3>Error from Withings API: {err_msg}</h3>', status_code=400)
+
+        body = res_data.get('body', {})
+        new_refresh_token = body.get('refresh_token')
+        if not new_refresh_token:
+            raise Exception('Could not read refresh_token from Withings response.')
+
+        set_api_key('freja_withings_refresh_token', new_refresh_token)
+
+        success_html = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Withings-auktorisering Lyckades</title>
+            <style>
+                body {
+                    background-color: #0b0f19;
+                    color: #00f0ff;
+                    font-family: 'Share Tech Mono', monospace;
+                    text-align: center;
+                    padding-top: 100px;
+                }
+                .container {
+                    border: 1px solid #00f0ff;
+                    padding: 40px;
+                    display: inline-block;
+                    background-color: rgba(0, 240, 255, 0.05);
+                    box-shadow: 0 0 20px rgba(0, 240, 255, 0.2);
+                    border-radius: 8px;
+                }
+                h1 { font-size: 24px; margin-bottom: 20px; text-shadow: 0 0 10px #00f0ff; }
+                p { color: #8892b0; font-size: 16px; }
+                button {
+                    background: transparent;
+                    border: 1px solid #00f0ff;
+                    color: #00f0ff;
+                    padding: 10px 20px;
+                    margin-top: 20px;
+                    cursor: pointer;
+                    font-family: inherit;
+                }
+                button:hover {
+                    background: #00f0ff;
+                    color: #0b0f19;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>SYSTEM UPLINK: WITHINGS CONNECTED</h1>
+                <p>Auktoriseringen lyckades och din Refresh Token har sparats i F.R.E.J.A.</p>
+                <button onclick="window.close()">STÄNG FLIKEN</button>
+            </div>
+        </body>
+        </html>
+        """
+        return HTMLResponse(success_html)
+    except Exception as e:
+        return HTMLResponse(f'<h3>Auktoriseringsfel: {str(e)}</h3>', status_code=500)
 
 @router.get("/api/withings/data")
 async def get_withings_data(days: int = Query(7, description="Number of days to retrieve")):

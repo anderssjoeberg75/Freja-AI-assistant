@@ -148,6 +148,38 @@ FrejaUIController.prototype.initializeUI = function() {
     const inputWithingsRefreshToken = document.getElementById('input-withings-refresh-token');
     if (inputWithingsRefreshToken) inputWithingsRefreshToken.value = withingsRefreshToken;
 
+    // Dynamically build and update Withings authorize link
+    const updateWithingsLink = () => {
+        const clientId = inputWithingsClientId ? inputWithingsClientId.value.trim() : "";
+        const authLink = document.getElementById('lnk-withings-authorize');
+        if (authLink) {
+            if (clientId) {
+                authLink.style.display = 'block';
+            } else {
+                authLink.style.display = 'none';
+            }
+        }
+    };
+    if (inputWithingsClientId) {
+        inputWithingsClientId.addEventListener('input', updateWithingsLink);
+        inputWithingsClientId.addEventListener('change', updateWithingsLink);
+    }
+    const authLinkWithings = document.getElementById('lnk-withings-authorize');
+    if (authLinkWithings) {
+        authLinkWithings.addEventListener('click', (e) => {
+            e.preventDefault();
+            const clientId = inputWithingsClientId ? inputWithingsClientId.value.trim() : "";
+            if (!clientId) {
+                alert("Please enter a Client ID first.");
+                return;
+            }
+            const redirectUri = window.location.origin + '/api/withings/callback';
+            const oauthUrl = `https://account.withings.com/oauth2_user/authorize2?response_type=code&client_id=${clientId}&state=freja&scope=user.metrics,user.activity&redirect_uri=${encodeURIComponent(redirectUri)}`;
+            window.open(oauthUrl, '_blank');
+        });
+    }
+    updateWithingsLink();
+
     const googleClientId = localStorage.getItem("freja_google_calendar_client_id") || "";
     const googleClientSecret = localStorage.getItem("freja_google_calendar_client_secret") || "";
     const googleRefreshToken = localStorage.getItem("freja_google_calendar_refresh_token") || "";
