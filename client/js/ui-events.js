@@ -1518,6 +1518,27 @@ FrejaUIController.prototype.bindEvents = function () {
             console.log("[FREJA CLIENT] Opening Personal Trainer Dashboard (fullscreen mode)");
             soundSynth.playClick();
             modalTrainer.classList.add('active');
+
+            const trainerViewSelect = document.getElementById('trainer-view-select');
+            const overviewPage = document.getElementById('trainer-page-overview');
+            const withingsPage = document.getElementById('trainer-page-withings');
+            const settingsPage = document.getElementById('trainer-page-settings');
+            const currentView = trainerViewSelect ? trainerViewSelect.value : 'overview';
+
+            if (currentView === 'withings') {
+                if (overviewPage) overviewPage.style.display = 'none';
+                if (withingsPage) withingsPage.style.display = 'flex';
+                if (settingsPage) settingsPage.style.display = 'none';
+            } else if (currentView === 'settings') {
+                if (overviewPage) overviewPage.style.display = 'none';
+                if (withingsPage) withingsPage.style.display = 'none';
+                if (settingsPage) settingsPage.style.display = 'flex';
+            } else {
+                if (overviewPage) overviewPage.style.display = 'flex';
+                if (withingsPage) withingsPage.style.display = 'none';
+                if (settingsPage) settingsPage.style.display = 'none';
+            }
+
             if (typeof self.loadTrainerDashboardUI === 'function') {
                 self.loadTrainerDashboardUI();
             } else if (window.uiController && typeof window.uiController.loadTrainerDashboardUI === 'function') {
@@ -1536,24 +1557,38 @@ FrejaUIController.prototype.bindEvents = function () {
             btnCloseTrainerFooter.addEventListener('click', closeTrainerHandler);
         }
 
-        // Dropdown menu switcher for PT Dashboard (Overview, Daily Check-In, Settings)
+        // Dropdown menu switcher for PT Dashboard (Overview, Daily Check-In, Withings Hälsa, Settings)
         const trainerViewSelect = document.getElementById('trainer-view-select');
         if (trainerViewSelect) {
             trainerViewSelect.addEventListener('change', (e) => {
                 soundSynth.playClick();
                 const view = e.target.value;
                 const overviewPage = document.getElementById('trainer-page-overview');
+                const withingsPage = document.getElementById('trainer-page-withings');
                 const settingsPage = document.getElementById('trainer-page-settings');
+
                 if (view === 'checkin') {
                     if (overviewPage) overviewPage.style.display = 'flex';
+                    if (withingsPage) withingsPage.style.display = 'none';
                     if (settingsPage) settingsPage.style.display = 'none';
                     trainerViewSelect.value = 'overview';
                     self.runTrainerCheckin();
+                } else if (view === 'withings') {
+                    if (overviewPage) overviewPage.style.display = 'none';
+                    if (withingsPage) withingsPage.style.display = 'flex';
+                    if (settingsPage) settingsPage.style.display = 'none';
+                    if (typeof self.loadWithingsDashboardUI === 'function') {
+                        self.loadWithingsDashboardUI();
+                    } else if (window.uiController && typeof window.uiController.loadWithingsDashboardUI === 'function') {
+                        window.uiController.loadWithingsDashboardUI();
+                    }
                 } else if (view === 'settings') {
                     if (overviewPage) overviewPage.style.display = 'none';
+                    if (withingsPage) withingsPage.style.display = 'none';
                     if (settingsPage) settingsPage.style.display = 'flex';
                 } else {
                     if (overviewPage) overviewPage.style.display = 'flex';
+                    if (withingsPage) withingsPage.style.display = 'none';
                     if (settingsPage) settingsPage.style.display = 'none';
                 }
             });
