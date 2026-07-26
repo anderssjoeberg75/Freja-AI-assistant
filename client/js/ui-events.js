@@ -1536,7 +1536,7 @@ FrejaUIController.prototype.bindEvents = function () {
             btnCloseTrainerFooter.addEventListener('click', closeTrainerHandler);
         }
 
-        // Dropdown menu switcher for PT Dashboard (Träningsöversikt vs Inställningar)
+        // Dropdown menu switcher for PT Dashboard (Overview, Daily Check-In, Settings)
         const trainerViewSelect = document.getElementById('trainer-view-select');
         if (trainerViewSelect) {
             trainerViewSelect.addEventListener('change', (e) => {
@@ -1544,7 +1544,12 @@ FrejaUIController.prototype.bindEvents = function () {
                 const view = e.target.value;
                 const overviewPage = document.getElementById('trainer-page-overview');
                 const settingsPage = document.getElementById('trainer-page-settings');
-                if (view === 'settings') {
+                if (view === 'checkin') {
+                    if (overviewPage) overviewPage.style.display = 'flex';
+                    if (settingsPage) settingsPage.style.display = 'none';
+                    trainerViewSelect.value = 'overview';
+                    self.runTrainerCheckin();
+                } else if (view === 'settings') {
                     if (overviewPage) overviewPage.style.display = 'none';
                     if (settingsPage) settingsPage.style.display = 'flex';
                 } else {

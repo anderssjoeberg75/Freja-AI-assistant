@@ -753,25 +753,24 @@
     </div    <!-- PERSONAL TRAINER DASHBOARD MODAL -->
     <div class="hud-modal" id="modal-trainer">
         <div class="modal-content glass-morphic">
-            <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; gap: 15px;">
-                <div style="display: flex; align-items: center; gap: 15px; flex: 1;">
-                    <h2 style="margin: 0; white-space: nowrap;"><i class="fa-solid fa-dumbbell"></i> COGNITIVE PERSONAL TRAINER</h2>
-                    <select id="trainer-view-select" class="hud-select" style="height: 32px; font-family: var(--font-display); font-size: 11px; padding: 0 10px; border-radius: 4px; background: rgba(0, 240, 255, 0.08); color: var(--color-primary); border: 1px solid var(--color-primary); cursor: pointer; outline: none;">
-                        <option value="overview">📊 Träningsöversikt</option>
-                        <option value="settings">⚙️ Inställningar</option>
-                    </select>
-                </div>
+            <div class="modal-header">
+                <h2><i class="fa-solid fa-dumbbell"></i> COGNITIVE PERSONAL TRAINER</h2>
                 <button class="modal-close" id="btn-close-trainer">&times;</button>
             </div>
             <div class="modal-body">
-                <!-- PAGE 1: TRÄNINGSÖVERSIKT -->
+                <!-- PAGE 1: OVERVIEW -->
                 <div id="trainer-page-overview" class="trainer-page-view" style="display: flex; width: 100%; gap: 15px;">
                 <div class="trainer-left-panel">
                     <!-- Daily Check-in -->
                 <div class="trainer-checkin" style="display: flex; flex-direction: column; gap: 8px; background: rgba(0, 242, 254, 0.05); border: 1px solid rgba(0, 242, 254, 0.15); border-radius: 4px; padding: 12px;">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <span style="font-size: 11px; color: var(--color-primary); font-family: var(--font-display); letter-spacing: 0.5px;"><i class="fa-solid fa-sun"></i> DAILY CHECK-IN</span>
-                        <button id="btn-trainer-checkin" class="hud-btn btn-primary" style="height: 30px; font-family: var(--font-display); font-size: 10px; padding: 0 12px; display: flex; align-items: center; gap: 5px;"><i class="fa-solid fa-heart-pulse"></i> CHECK IN</button>
+                        <select id="trainer-view-select" class="hud-select" style="height: 30px; font-family: var(--font-display); font-size: 11px; padding: 0 10px; border-radius: 4px; background: rgba(0, 240, 255, 0.1); color: var(--color-primary); border: 1px solid var(--color-primary); cursor: pointer; outline: none;">
+                            <option value="overview">📊 Overview</option>
+                            <option value="checkin">❤️ Daily Check-In</option>
+                            <option value="settings">⚙️ Settings</option>
+                        </select>
+                        <button id="btn-trainer-checkin" style="display: none;"></button>
                     </div>
                 </div>
 
