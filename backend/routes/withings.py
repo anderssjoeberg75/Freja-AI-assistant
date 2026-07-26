@@ -11,9 +11,7 @@ from backend.database import get_db_connection, get_api_key, set_api_key
 from backend.services.sync_status import set_sync_state
 from backend.services.time_utils import today_local
 
-MAX_SYNC_DAYS = 365  # Sanity cap on the sync window; Withings has no per-day API cost here
-                      # (this route makes 3 fixed calls total, not one per day like Garmin),
-                      # but an unbounded value still produces pathological date windows.
+MAX_SYNC_DAYS = 3650  # 10 years historical sync limit (matching Strava's 3650 days)
 
 router = APIRouter()
 

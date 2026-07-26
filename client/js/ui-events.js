@@ -919,9 +919,9 @@ FrejaUIController.prototype.bindEvents = function () {
     if (btnSyncWithingsAll) {
         btnSyncWithingsAll.addEventListener('click', async () => {
             soundSynth.playClick();
-            self.writeLog("INITIATING WITHINGS HISTORICAL SYNCHRONIZATION (365 DAYS)", "sys");
+            self.writeLog("INITIATING WITHINGS HISTORICAL SYNCHRONIZATION (10 YEARS) WITH OVERWRITE", "sys");
             try {
-                const res = await fetch('/api/withings/sync?days=365');
+                const res = await fetch('/api/withings/sync?days=3650');
                 const resData = await res.json();
                 if (res.ok && resData.status === 'syncing') {
                     self.pollSyncStatus('withings');
