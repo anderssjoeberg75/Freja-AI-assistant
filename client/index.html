@@ -750,16 +750,22 @@
                 <button id="btn-refresh-telegram" class="hud-btn btn-primary" style="flex: 1; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-arrows-rotate"></i> REFRESH LOGS</button>
             </div>
         </div>
-    </div>
-
-    <!-- PERSONAL TRAINER DASHBOARD MODAL -->
+    </div    <!-- PERSONAL TRAINER DASHBOARD MODAL -->
     <div class="hud-modal" id="modal-trainer">
         <div class="modal-content glass-morphic">
-            <div class="modal-header">
-                <h2><i class="fa-solid fa-dumbbell"></i> COGNITIVE PERSONAL TRAINER</h2>
+            <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; gap: 15px;">
+                <div style="display: flex; align-items: center; gap: 15px; flex: 1;">
+                    <h2 style="margin: 0; white-space: nowrap;"><i class="fa-solid fa-dumbbell"></i> COGNITIVE PERSONAL TRAINER</h2>
+                    <select id="trainer-view-select" class="hud-select" style="height: 32px; font-family: var(--font-display); font-size: 11px; padding: 0 10px; border-radius: 4px; background: rgba(0, 240, 255, 0.08); color: var(--color-primary); border: 1px solid var(--color-primary); cursor: pointer; outline: none;">
+                        <option value="overview">📊 Träningsöversikt</option>
+                        <option value="settings">⚙️ Inställningar</option>
+                    </select>
+                </div>
                 <button class="modal-close" id="btn-close-trainer">&times;</button>
             </div>
             <div class="modal-body">
+                <!-- PAGE 1: TRÄNINGSÖVERSIKT -->
+                <div id="trainer-page-overview" class="trainer-page-view" style="display: flex; width: 100%; gap: 15px;">
                 <div class="trainer-left-panel">
                     <!-- Daily Check-in -->
                 <div class="trainer-checkin" style="display: flex; flex-direction: column; gap: 8px; background: rgba(0, 242, 254, 0.05); border: 1px solid rgba(0, 242, 254, 0.15); border-radius: 4px; padding: 12px;">
@@ -837,7 +843,7 @@
 
                 <!-- Configuration Form / Onboarding Profile -->
                 <div class="trainer-profile-form trainer-card-box">
-                    <span style="font-size: 11px; color: var(--color-primary); font-family: var(--font-display); letter-spacing: 0.5px;"><i class="fa-solid fa-user-gear"></i> TRAINING PROFILE & ONBOARDING</span>
+                    <span style="font-size: 11px; color: var(--color-primary); font-family: var(--font-display); letter-spacing: 0.5px;"><i class="fa-solid fa-user-gear"></i> TRAINING PROFILE &amp; ONBOARDING</span>
                     
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
                         <div style="display: flex; flex-direction: column; gap: 4px;">
@@ -1061,18 +1067,6 @@
                     <div id="trainer-injury-list" style="display: flex; flex-direction: column; gap: 4px; max-height: 180px; overflow-y: auto;"></div>
                 </div>
 
-                <!-- PT Settings -->
-                <div class="trainer-settings trainer-card-box">
-                    <span style="font-size: 11px; color: var(--color-primary); font-family: var(--font-display); letter-spacing: 0.5px;"><i class="fa-solid fa-sliders"></i> PT SETTINGS</span>
-                    <label style="display: flex; align-items: flex-start; gap: 8px; font-size: 12px; color: var(--color-text); cursor: pointer;">
-                        <input type="checkbox" id="chk-trainer-auto-adjust" checked style="margin-top: 2px;">
-                        <span>Automatically adjust upcoming sessions from new Garmin data (sleep, HRV and recovery)</span>
-                    </label>
-                    <p style="font-size: 10px; color: var(--color-text-muted); margin: 0; line-height: 1.4;">F.R.E.J.A. reads your latest recovery data and reduces duration/intensity, or inserts active rest, when your body needs it - so the sessions match your goal without overtraining or injury.</p>
-                    <button id="btn-trainer-optimize" class="hud-btn btn-primary" style="height: 34px; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-wand-sparkles"></i> OPTIMIZE UPCOMING SESSIONS NOW</button>
-                    <div id="trainer-optimize-output" style="display: none; background: rgba(0, 0, 0, 0.4); border: 1px solid var(--color-border); border-radius: 4px; padding: 12px; font-family: var(--font-sans); font-size: 13px; line-height: 1.5; color: var(--color-text); max-height: 300px; overflow-y: auto;"></div>
-                </div>
-
                 <!-- Output section for generated program -->
                 <div id="trainer-plan-output-container" style="display: none; flex-direction: column; gap: 5px;">
                     <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); letter-spacing: 1px;">LATEST GENERATED PROGRAM</h3>
@@ -1095,7 +1089,24 @@
                             <div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">No history loaded...</div>
                         </div>
                     </div>
-                    <!-- The PT panel used to carry its own "CHAT WITH FREJA" box. It was a second,
+                </div>
+                </div> <!-- End of trainer-page-overview -->
+
+                <!-- PAGE 2: INSTÄLLNINGAR -->
+                <div id="trainer-page-settings" class="trainer-page-view" style="display: none; flex-direction: column; width: 100%; gap: 15px; padding: 5px 0;">
+                    <!-- PT Settings -->
+                    <div class="trainer-settings trainer-card-box" style="display: flex; flex-direction: column; gap: 12px; background: rgba(0, 0, 0, 0.25); border: 1px solid var(--color-border); border-radius: 6px; padding: 16px;">
+                        <span style="font-size: 12px; color: var(--color-primary); font-family: var(--font-display); letter-spacing: 0.5px; display: flex; align-items: center; gap: 8px;"><i class="fa-solid fa-sliders"></i> PT SETTINGS</span>
+                        <label style="display: flex; align-items: flex-start; gap: 10px; font-size: 12px; color: var(--color-text); cursor: pointer;">
+                            <input type="checkbox" id="chk-trainer-auto-adjust" checked style="margin-top: 3px; accent-color: var(--color-primary);">
+                            <span>Automatically adjust upcoming sessions from new Garmin data (sleep, HRV and recovery)</span>
+                        </label>
+                        <p style="font-size: 11px; color: var(--color-text-muted); margin: 0; line-height: 1.5;">F.R.E.J.A. reads your latest recovery data and reduces duration/intensity, or inserts active rest, when your body needs it - so the sessions match your goal without overtraining or injury.</p>
+                        <button id="btn-trainer-optimize" class="hud-btn btn-primary" style="height: 36px; font-family: var(--font-display); font-size: 11px; display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 5px;"><i class="fa-solid fa-wand-magic-sparkles"></i> OPTIMIZE UPCOMING SESSIONS NOW</button>
+                        <div id="trainer-optimize-output" style="display: none; background: rgba(0, 0, 0, 0.4); border: 1px solid var(--color-border); border-radius: 4px; padding: 12px; font-family: var(--font-sans); font-size: 13px; line-height: 1.5; color: var(--color-text); max-height: 300px; overflow-y: auto;"></div>
+                    </div>
+                </div>
+            </div>             <!-- The PT panel used to carry its own "CHAT WITH FREJA" box. It was a second,
                          weaker chat: separate history, no tool access, and no memory of the main
                          conversation. Since the main chat now gets the live training program
                          injected into its system prompt (/api/trainer/context), asking Freja about

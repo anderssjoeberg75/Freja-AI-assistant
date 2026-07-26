@@ -1535,6 +1535,24 @@ FrejaUIController.prototype.bindEvents = function () {
         if (btnCloseTrainerFooter) {
             btnCloseTrainerFooter.addEventListener('click', closeTrainerHandler);
         }
+
+        // Dropdown menu switcher for PT Dashboard (Träningsöversikt vs Inställningar)
+        const trainerViewSelect = document.getElementById('trainer-view-select');
+        if (trainerViewSelect) {
+            trainerViewSelect.addEventListener('change', (e) => {
+                soundSynth.playClick();
+                const view = e.target.value;
+                const overviewPage = document.getElementById('trainer-page-overview');
+                const settingsPage = document.getElementById('trainer-page-settings');
+                if (view === 'settings') {
+                    if (overviewPage) overviewPage.style.display = 'none';
+                    if (settingsPage) settingsPage.style.display = 'flex';
+                } else {
+                    if (overviewPage) overviewPage.style.display = 'flex';
+                    if (settingsPage) settingsPage.style.display = 'none';
+                }
+            });
+        }
     }
 
     // Toggle Neural Learning Modal
