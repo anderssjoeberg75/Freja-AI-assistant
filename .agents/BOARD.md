@@ -877,13 +877,33 @@ both land at the same time instead of queued.
     is an error — raise/log with the raw code preserved (so a future token-expiry or
     rate-limit code can be told apart later, same reasoning as Garmin's
     `_classify_garmin_error()` in T-015) rather than swallowing it into a generic failure.
-  - Add a settings card (client-side, same PT-panel location as the Garmin/Strava/Withings
-    cards moved in commit `6427c58`) with email/password fields and a 'Connect Coros' /
-    sync-status indicator — this is the one piece of this task that actually is your normal
-    lane, so it's fine to build end-to-end without a separate hand-off.
   - Write tests mirroring `tests/test_garmin_routes.py`'s shape (fake Coros client, a
     successful sync stores rows, a bad login is classified not just failed, a malformed
     response degrades gracefully). Run the full suite, commit, push."
+
+### [T-034] Backend & UI: Fitbit Web API integration (activities, sleep, heart rate, recovery)
+- Owner: antigravity
+- Status: todo
+- Priority: P3
+- Created-by: anders
+- Files (expected): `backend/routes/fitbit.py` (new), `backend/models.py`, `backend/database.py`, `backend/routes/settings.py`, `backend/routes/trainer/shared.py`, `client/index.html`, `client/js/ui-init.js`, `client/js/ui-events.js`, `tests/test_fitbit_routes.py` (new)
+- **Architecture**: Fitbit Web API (Official REST API + OAuth 2.0). Matches the exact design pattern of `withings.py` and `strava.py`.
+- **OAuth2 Flow (Authorization Code)**:
+  - App registration at https://dev.fitbit.com/apps (self-serve) → `freja_fitbit_client_id` and `freja_fitbit_client_secret`.
+  - Callback endpoint: `GET /api/fitbit/callback`.
+  - Authorization URL: `GET https://www.fitbit.com/oauth2/authorize?client_id=…&response_type=code&scope=activity%20heartrate%20sleep%20profile`
+  - Token exchange: `POST https://api.fitbit.com/oauth2/token` → store `access_token` and `freja_fitbit_refresh_token`.
+- **REST Endpoints & Data Retrieval**:
+  - Daily Activity Summary (steps, calories, distance): `GET /1/user/-/activities/date/{date}.json`
+  - Sleep Metrics (duration, deep, REM, light sleep): `GET /1.2/user/-/sleep/date/{date}.json`
+  - Heart Rate / Resting HR: `GET /1/user/-/activities/heart/date/{date}/1d.json`
+- **Database & PT Engine Integration**:
+  - New table `fitbit_health` in SQLite via `backend/database.py` and `backend/models.py`.
+  - Background sync task `POST /api/fitbit/sync`.
+  - Fold resting HR and sleep hours into `recompute_health_baselines` and `get_trainer_context` alongside Garmin/Withings.
+- **Client UI & Tests**:
+  - Settings fields & connect button in PT GUI (`client/index.html`, `client/js/ui-events.js`).
+  - Unit tests in `tests/test_fitbit_routes.py`.
 
 ---
 
