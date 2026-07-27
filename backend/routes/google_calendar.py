@@ -113,30 +113,7 @@ async def run_google_calendar_sync_task():
             )
 
         if not access_token or access_token == "MOCK_ACCESS_TOKEN":
-            # Mock Sync: Just ensure seed data exists and matches current date context
-            with get_db_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("SELECT COUNT(*) FROM google_calendar_events")
-                if cursor.fetchone()[0] == 0:
-                    seed_today = today_local()
-                    today_str = seed_today.strftime('%Y-%m-%d')
-                    tomorrow_str = (seed_today + datetime.timedelta(days=1)).strftime('%Y-%m-%d')
-                    in_three_days_str = (seed_today + datetime.timedelta(days=3)).strftime('%Y-%m-%d')
-                    
-                    # Demo events, only inserted when the table is empty, so the calendar
-                    # dashboard is not blank before a real Google account is connected.
-                    # Written in Swedish because they stand in for the user's own entries.
-                    calendar_seed = [
-                        ("Möte med Sven", "Gå igenom kvartalsrapporten och planera nästa sprint.", f"{today_str}T10:00:00", f"{today_str}T11:00:00", "Konferensrum A"),
-                        ("Lunch med Maria", "Diskutera det nya designförslaget för gränssnittet.", f"{today_str}T12:00:00", f"{today_str}T13:00:00", "Gondolen"),
-                        ("Designgenomgång", "Gå igenom feedback från användartester.", f"{tomorrow_str}T14:00:00", f"{tomorrow_str}T15:30:00", "Teams-möte"),
-                        ("Läkarbesök", "Årlig hälsokontroll.", f"{in_three_days_str}T08:30:00", f"{in_three_days_str}T09:15:00", "Vårdcentralen City")
-                    ]
-                    cursor.executemany('''
-                        INSERT INTO google_calendar_events (summary, description, start_time, end_time, location)
-                        VALUES (?, ?, ?, ?, ?)
-                    ''', calendar_seed)
-                    conn.commit()
+            # If Google Calendar is not connected or mock token is present, finish without inserting fake seed data
             set_sync_state("google_calendar", "success")
             return
 

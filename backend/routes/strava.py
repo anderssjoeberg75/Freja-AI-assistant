@@ -117,40 +117,11 @@ async def run_strava_sync_task(client_id, client_secret, refresh_token, days: in
         # insert below, once the activities are actually in hand.
 
         if client_id == '123456' or refresh_token in ('refreshtokentoken', 'MOCK_REFRESH_TOKEN'):
-            # Demo mode: seed the dashboard with plausible activities so the HUD is not empty
-            # before real credentials are configured. Activity names/types are Swedish because
-            # they are displayed to the user exactly as a real synced activity would be.
-            with get_db_connection() as conn:
-                cursor = conn.cursor()
-                if overwrite:
+            if overwrite:
+                with get_db_connection() as conn:
+                    cursor = conn.cursor()
                     cursor.execute("DELETE FROM strava_activities")
-                today = datetime.date.today()
-                mock_activities = [
-                    (-1, 'Morgonlöpning i parken', 'Löpning', (today - datetime.timedelta(days=1)).strftime('%Y-%m-%d'), 8500.0, 2800, 2950, 45.0, 3.03, 4.2, 148.0, 172.0, 620.0),
-                    (-2, 'Kvällscykling', 'Cykling', (today - datetime.timedelta(days=3)).strftime('%Y-%m-%d'), 25000.0, 3600, 3800, 120.0, 6.94, 11.2, 135.0, 155.0, 780.0),
-                    (-3, 'Styrkepass - Ben & Bål', 'Styrketräning', (today - datetime.timedelta(days=5)).strftime('%Y-%m-%d'), 0.0, 2700, 3200, 0.0, 0.0, 0.0, 118.0, 145.0, 350.0),
-                    (-4, 'Snabbdistans Löpning', 'Löpning', (today - datetime.timedelta(days=8)).strftime('%Y-%m-%d'), 5200.0, 1750, 1800, 25.0, 2.97, 4.0, 142.0, 168.0, 380.0),
-                    (-5, 'Aktiv återhämtning Promenad', 'Promenad', (today - datetime.timedelta(days=11)).strftime('%Y-%m-%d'), 4000.0, 3000, 3100, 15.0, 1.33, 1.8, 98.0, 115.0, 220.0)
-                ]
-                for act in mock_activities:
-                    cursor.execute('''
-                        INSERT INTO strava_activities (id, name, type, date, distance, moving_time, elapsed_time, total_elevation_gain, average_speed, max_speed, average_heartrate, max_heartrate, calories)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        ON CONFLICT(id) DO UPDATE SET
-                            name = excluded.name,
-                            type = excluded.type,
-                            date = excluded.date,
-                            distance = excluded.distance,
-                            moving_time = excluded.moving_time,
-                            elapsed_time = excluded.elapsed_time,
-                            total_elevation_gain = excluded.total_elevation_gain,
-                            average_speed = excluded.average_speed,
-                            max_speed = excluded.max_speed,
-                            average_heartrate = excluded.average_heartrate,
-                            max_heartrate = excluded.max_heartrate,
-                            calories = excluded.calories
-                    ''', act)
-                conn.commit()
+                    conn.commit()
             set_sync_state("strava", "success")
             return
             
@@ -394,51 +365,10 @@ async def get_strava_activity_details(id: str = Query(..., description="ID of ac
     if not activity_id:
         raise HTTPException(status_code=400, detail="Activity ID is missing.")
         
-    def serve_mock_details():
-        mock_details = {
-            'id': int(activity_id) if (activity_id.isdigit() or (activity_id.startswith('-') and activity_id[1:].isdigit())) else 987654321,
-            'name': 'Morgonlöpning i skogen',
-            'type': 'Run',
-            'start_date_local': '2026-06-07T08:15:00Z',
-            'distance_meters': 10000.0,
-            'moving_time_seconds': 3000,
-            'elapsed_time_seconds': 3120,
-            'total_elevation_gain_meters': 150.0,
-            'average_speed_m_s': 3.33,
-            'max_speed_m_s': 4.5,
-            'formatted_speed': '5:00 min/km',
-            'average_heartrate': 152.0,
-            'max_heartrate': 174.0,
-            'calories': 780.0,
-            'description': 'Skönt tempo, kändes lite tungt i början men flöt på bra efter 3 km.',
-            'laps': [
-                {'lap_index': 1, 'name': 'Lap 1', 'distance_meters': 1000.0, 'elapsed_time_seconds': 310, 'moving_time_seconds': 310, 'average_speed_m_s': 3.22, 'average_heartrate': 138.0, 'max_heartrate': 145.0},
-                {'lap_index': 2, 'name': 'Lap 2', 'distance_meters': 1000.0, 'elapsed_time_seconds': 305, 'moving_time_seconds': 305, 'average_speed_m_s': 3.28, 'average_heartrate': 144.0, 'max_heartrate': 150.0},
-                {'lap_index': 3, 'name': 'Lap 3', 'distance_meters': 1000.0, 'elapsed_time_seconds': 300, 'moving_time_seconds': 300, 'average_speed_m_s': 3.33, 'average_heartrate': 149.0, 'max_heartrate': 155.0},
-                {'lap_index': 4, 'name': 'Lap 4', 'distance_meters': 1000.0, 'elapsed_time_seconds': 298, 'moving_time_seconds': 298, 'average_speed_m_s': 3.36, 'average_heartrate': 152.0, 'max_heartrate': 158.0},
-                {'lap_index': 5, 'name': 'Lap 5', 'distance_meters': 1000.0, 'elapsed_time_seconds': 295, 'moving_time_seconds': 295, 'average_speed_m_s': 3.39, 'average_heartrate': 155.0, 'max_heartrate': 160.0},
-                {'lap_index': 6, 'name': 'Lap 6', 'distance_meters': 1000.0, 'elapsed_time_seconds': 302, 'moving_time_seconds': 302, 'average_speed_m_s': 3.31, 'average_heartrate': 154.0, 'max_heartrate': 162.0},
-                {'lap_index': 7, 'name': 'Lap 7', 'distance_meters': 1000.0, 'elapsed_time_seconds': 300, 'moving_time_seconds': 300, 'average_speed_m_s': 3.33, 'average_heartrate': 156.0, 'max_heartrate': 161.0},
-                {'lap_index': 8, 'name': 'Lap 8', 'distance_meters': 1000.0, 'elapsed_time_seconds': 295, 'moving_time_seconds': 295, 'average_speed_m_s': 3.39, 'average_heartrate': 158.0, 'max_heartrate': 165.0},
-                {'lap_index': 9, 'name': 'Lap 9', 'distance_meters': 1000.0, 'elapsed_time_seconds': 300, 'moving_time_seconds': 300, 'average_speed_m_s': 3.33, 'average_heartrate': 160.0, 'max_heartrate': 168.0},
-                {'lap_index': 10, 'name': 'Lap 10', 'distance_meters': 1000.0, 'elapsed_time_seconds': 295, 'moving_time_seconds': 295, 'average_speed_m_s': 3.39, 'average_heartrate': 162.0, 'max_heartrate': 174.0}
-            ],
-            'heart_rate_zones': [
-                {'zone': 1, 'min_value': 0, 'max_value': 115, 'time_in_zone_seconds': 120},
-                {'zone': 2, 'min_value': 115, 'max_value': 133, 'time_in_zone_seconds': 480},
-                {'zone': 3, 'min_value': 133, 'max_value': 152, 'time_in_zone_seconds': 1400},
-                {'zone': 4, 'min_value': 152, 'max_value': 171, 'time_in_zone_seconds': 880},
-                {'zone': 5, 'min_value': 171, 'max_value': 220, 'time_in_zone_seconds': 120}
-            ],
-            'power_zones': []
-        }
-        return mock_details
-
     try:
-        is_mock_id = activity_id.startswith('-')
         access_token = await get_strava_access_token()
-        if access_token == 'MOCK_ACCESS_TOKEN' or is_mock_id:
-            return serve_mock_details()
+        if not access_token or access_token == 'MOCK_ACCESS_TOKEN':
+            raise HTTPException(status_code=400, detail="Strava access token is not available.")
             
         try:
             act_url = f"https://www.strava.com/api/v3/activities/{activity_id}"
@@ -560,23 +490,10 @@ async def get_strava_activity_details(id: str = Query(..., description="ID of ac
 
 @router.get("/api/strava/athlete_stats")
 async def get_strava_athlete_stats():
-    mock_stats = {
-        'biggest_ride_distance': 125000.0,
-        'biggest_climb_elevation_gain': 1450.0,
-        'recent_ride_totals': {'count': 4, 'distance': 180000.0, 'moving_time': 25200, 'elapsed_time': 28800, 'elevation_gain': 2200.0, 'achievement_count': 8},
-        'recent_run_totals': {'count': 12, 'distance': 96000.0, 'moving_time': 32400, 'elapsed_time': 33000, 'elevation_gain': 850.0, 'achievement_count': 14},
-        'recent_swim_totals': {'count': 2, 'distance': 4000.0, 'moving_time': 5400, 'elapsed_time': 6000, 'elevation_gain': 0.0, 'achievement_count': 1},
-        'ytd_ride_totals': {'count': 24, 'distance': 1200000.0, 'moving_time': 172800, 'elapsed_time': 190000, 'elevation_gain': 12500.0, 'achievement_count': 35},
-        'ytd_run_totals': {'count': 78, 'distance': 680000.0, 'moving_time': 248400, 'elapsed_time': 252000, 'elevation_gain': 6200.0, 'achievement_count': 92},
-        'ytd_swim_totals': {'count': 15, 'distance': 32000.0, 'moving_time': 43200, 'elapsed_time': 45000, 'elevation_gain': 0.0, 'achievement_count': 12},
-        'all_ride_totals': {'count': 150, 'distance': 7500000.0, 'moving_time': 1080000, 'elapsed_time': 1150000, 'elevation_gain': 78000.0},
-        'all_run_totals': {'count': 450, 'distance': 380000.0, 'moving_time': 1400000, 'elapsed_time': 1420000, 'elevation_gain': 35000.0},
-        'all_swim_totals': {'count': 80, 'distance': 180000.0, 'moving_time': 250000, 'elapsed_time': 260000, 'elevation_gain': 0.0}
-    }
     try:
         access_token = await get_strava_access_token()
-        if access_token == 'MOCK_ACCESS_TOKEN':
-            return mock_stats
+        if not access_token or access_token == 'MOCK_ACCESS_TOKEN':
+            raise HTTPException(status_code=400, detail="Strava access token is not available.")
         try:
             athlete_url = "https://www.strava.com/api/v3/athlete"
             async with shared_client() as client:

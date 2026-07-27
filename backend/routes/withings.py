@@ -161,46 +161,6 @@ async def get_withings_data(days: int = Query(7, description="Number of days to 
 async def run_withings_sync_task(client_id, client_secret, refresh_token, days: int = 30):
     try:
         if client_id == 'withings123' or refresh_token in ('refreshtokentoken', 'MOCK_REFRESH_TOKEN'):
-            with get_db_connection() as conn:
-                cursor = conn.cursor()
-                today = today_local()
-                for i in range(days):
-                    day_date = today - datetime.timedelta(days=i)
-                    date_str = day_date.strftime('%Y-%m-%d')
-                    weight = round(78.5 + random.uniform(-0.5, 0.5), 2)
-                    fat_ratio = round(18.2 + random.uniform(-0.3, 0.3), 2)
-                    bone_mass = 3.4
-                    heart_pulse = int(55 + random.uniform(-4, 6))
-                    sleep_dur = random.randint(24000, 31000)
-                    sleep_deep = int(sleep_dur * random.uniform(0.22, 0.3))
-                    sleep_rem = int(sleep_dur * random.uniform(0.12, 0.18))
-                    sleep_score = random.randint(75, 92)
-                    steps = random.randint(5000, 12000)
-                    dist = round(steps * 0.72, 1)
-                    cals = round(steps * 0.05, 1)
-                    elev = round(random.uniform(5, 35), 1)
-                    cursor.execute('''
-                        INSERT INTO withings_measurements (
-                            date, weight, fat_ratio, bone_mass, heart_pulse, 
-                            sleep_duration, sleep_deep, sleep_rem, steps, 
-                            distance, calories, elevation, sleep_score
-                        )
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        ON CONFLICT(date) DO UPDATE SET
-                            weight = excluded.weight,
-                            fat_ratio = excluded.fat_ratio,
-                            bone_mass = excluded.bone_mass,
-                            heart_pulse = excluded.heart_pulse,
-                            sleep_duration = excluded.sleep_duration,
-                            sleep_deep = excluded.sleep_deep,
-                            sleep_rem = excluded.sleep_rem,
-                            steps = excluded.steps,
-                            distance = excluded.distance,
-                            calories = excluded.calories,
-                            elevation = excluded.elevation,
-                            sleep_score = excluded.sleep_score
-                    ''', (date_str, weight, fat_ratio, bone_mass, heart_pulse, sleep_dur, sleep_deep, sleep_rem, steps, dist, cals, elev, sleep_score))
-                conn.commit()
             set_sync_state("withings", "success")
             return
             

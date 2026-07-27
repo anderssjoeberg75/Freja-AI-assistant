@@ -370,8 +370,25 @@ def test_trainer_optimize_keeps_when_recovered(auth_headers, monkeypatch):
     assert end_time.startswith(f"{today}T08:40")  # unchanged
 
 
+def _seed_trainer_health_data():
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        today = datetime.date.today()
+        seed_data = [
+            (today - datetime.timedelta(days=1), 10450, 7.5, 58, 450, 'Löpning', 45, 80, 65, 12, 'Productive'),
+            (today - datetime.timedelta(days=2), 8200, 6.8, 60, 200, None, 0, 75, 62, 0, 'Maintaining'),
+            (today - datetime.timedelta(days=3), 12100, 8.2, 57, 600, 'Cykling', 60, 85, 66, 18, 'Productive')
+        ]
+        cursor.executemany('''
+            INSERT OR REPLACE INTO garmin_health (date, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', [(d.strftime('%Y-%m-%d'), s, sl, r, c, wt, wd, bb, h, rt, ts) for d, s, sl, r, c, wt, wd, bb, h, rt, ts in seed_data])
+        conn.commit()
+
+
 def test_trainer_baselines_refresh(auth_headers):
     """Forcing a baseline refresh averages the seeded Garmin data into the profile."""
+    _seed_trainer_health_data()
     client = TestClient(app)
     response = client.post(
         "/api/trainer/baselines/refresh", json={"force": True}, headers=auth_headers
@@ -392,6 +409,7 @@ def test_trainer_baselines_refresh(auth_headers):
 
 def test_trainer_baselines_weekly_cadence(auth_headers):
     """A non-forced recompute right after a forced one is skipped (weekly cadence)."""
+    _seed_trainer_health_data()
     import backend.routes.trainer as tm
     # Force once so baselines_updated_at is fresh.
     tm.recompute_health_baselines(force=True)
@@ -475,6 +493,7 @@ def test_trainer_booking_includes_exercises(auth_headers):
 
 def test_trainer_trends_endpoint(auth_headers):
     """The chart endpoint returns a plottable series plus baselines and adherence (Issue #36)."""
+    _seed_trainer_health_data()
     client = TestClient(app)
     response = client.get("/api/trainer/trends?days=28", headers=auth_headers)
     assert response.status_code == 200
