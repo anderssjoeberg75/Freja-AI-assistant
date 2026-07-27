@@ -40,15 +40,17 @@ logs/
 backend/cache/
 graphify-out/
 
-# IDE, Agent local settings and temporary specs
+# IDE, Agent files & dev tooling (not required to run Freja application)
 .vscode/
 .idea/
 .claude/
+.agents/
+CLAUDE.md
+open-antigravity.bat
+docs/
 .DS_Store
 Thumbs.db
 
-# Generated codex artifacts & code audit logs
-docs/code_audit_*.md
-docs/superpowers/
+# Generated codex artifacts & backups
 *.bak
 *.codex_backup*
