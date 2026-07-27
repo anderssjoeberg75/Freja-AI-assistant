@@ -1,11 +1,27 @@
-# SQLite databases (contains secret tokens/keys)
+# SQLite databases & runtime storage (contain secret tokens/keys)
+*.db
+*.sqlite
+*.sqlite3
+*.db-shm
+*.db-wal
 keys.db
 freja.db
 database.db
-*.db-shm
-*.db-wal
+keys.db.bak-*
+*.db.bak-*
+migration_to_server/
 
-# Python
+# Secret keys, envs and local state
+.freja_secret.key
+.env
+.env.*
+facebook_state.json
+.garminconnect/
+.telegram_bot.lock
+downloads/
+scratch/
+
+# Python caches, virtual environments & test output
 __pycache__/
 *.pyc
 *.pyo
@@ -16,34 +32,23 @@ htmlcov/
 test_venv/
 .venv/
 venv/
+env/
+*.log
+logs/
 
-# OS/System
+# Backend runtime cache & graphify local output
+backend/cache/
+graphify-out/
+
+# IDE, Agent local settings and temporary specs
+.vscode/
+.idea/
+.claude/
 .DS_Store
 Thumbs.db
 
-# Workspace / temp / caches
-scratch/
-.garminconnect/
-.telegram_bot.lock
-backend/cache/
-
-# Secret keys and local state/downloads
-facebook_state.json
-downloads/
-.freja_secret.key
-.env
-.env.*
-
-# Generated codex artifacts (audit reports, auto-fix backups)
+# Generated codex artifacts & code audit logs
 docs/code_audit_*.md
+docs/superpowers/
 *.bak
 *.codex_backup*
-
-# Database backups and migration bundles (contain secrets - never commit)
-keys.db.bak-*
-*.db.bak-*
-migration_to_server/
-
-# Graphify knowledge graph (generated locally; rebuilt via git hooks, no need to commit)
-graphify-out/
-
