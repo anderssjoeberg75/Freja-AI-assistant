@@ -1722,6 +1722,10 @@ FrejaUIController.prototype.bindEvents = function () {
                     } else if (window.uiController && typeof window.uiController.loadWithingsDashboardUI === 'function') {
                         window.uiController.loadWithingsDashboardUI();
                     }
+                } else if (view === 'fitbit') {
+                    closePtSubModals();
+                    const modalFitbit = document.getElementById('modal-fitbit');
+                    if (modalFitbit) modalFitbit.classList.add('active');
                 } else if (view === 'settings') {
                     if (modalTrainerWithings) modalTrainerWithings.classList.remove('active');
                     if (modalTrainerSettings) modalTrainerSettings.classList.add('active');
