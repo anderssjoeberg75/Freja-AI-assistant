@@ -193,3 +193,52 @@ async def generate_json(prompt: str, schema: dict = None, system_instruction: st
     if not text:
         raise Exception("Ollama returned an empty response.")
     return parse_llm_json(text)
+
+
+def gemini_tools_to_ollama(declarations: list) -> list:
+    """Translates Gemini `functionDeclarations` into Ollama's OpenAI-style `tools` list.
+
+    The codebase authors every tool schema once, in Gemini's dialect (uppercase `type`
+    values); this converts each declaration to the shape Ollama's /api/chat `tools` field
+    expects, reusing `_to_json_schema` for the parameter schema. A declaration without
+    `parameters` becomes an empty object schema (a no-argument tool)."""
+    tools = []
+    for decl in declarations:
+        params = decl.get("parameters")
+        params = _to_json_schema(params) if params else {"type": "object", "properties": {}}
+        tools.append({
+            "type": "function",
+            "function": {
+                "name": decl.get("name"),
+                "description": decl.get("description", ""),
+                "parameters": params,
+            },
+        })
+    return tools
+
+
+async def chat_with_tools(messages: list, tools: list, *, temperature: float = 0.5,
+                          timeout: float = 30.0, max_tokens: int = 2048) -> dict:
+    """Runs one Ollama /api/chat turn with tool calling enabled and returns the raw
+    `message` object (which carries `content` and, when the model calls a tool,
+    `tool_calls`). The caller drives the multi-turn tool loop; keeping this a single
+    request mirrors generate_text's request shape and stays easy to test."""
+    payload = {
+        "model": get_ollama_model(),
+        "messages": messages,
+        "tools": tools,
+        "stream": False,
+        "keep_alive": get_ollama_keep_alive(),
+        "options": {
+            "temperature": temperature,
+            "num_ctx": get_ollama_num_ctx(),
+            "num_predict": max_tokens,
+        },
+    }
+    url = f"{get_ollama_base_url()}/api/chat"
+    async with shared_client() as client:
+        resp = await client.post(url, json=payload, timeout=timeout)
+        resp.raise_for_status()
+        resp_json = resp.json()
+
+    return resp_json.get("message", {})

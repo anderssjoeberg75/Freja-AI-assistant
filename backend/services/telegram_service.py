@@ -2,6 +2,7 @@
 
 import asyncio
 import html
+import json
 import os
 import re
 import datetime
@@ -175,6 +176,75 @@ async def query_gemini_with_tools(contents, api_key, system_prompt):
     # Swedish: delivered straight to the user's Telegram chat (matches Freja's persona).
     return "F.R.E.J.A. avbröt konversationen: för många funktionsanrop (loop limit nådd)."
 
+
+def _gemini_contents_to_ollama_messages(contents, system_prompt):
+    """Converts the bot's Gemini-shaped history (role/parts) into Ollama chat messages.
+
+    Runs once at the start of the Ollama tool loop; the loop then appends assistant and
+    tool messages in Ollama's own shape. Text-only turns are all the incoming history holds
+    (raw function payloads are never cached back into it), so only the text is carried over."""
+    messages = [{"role": "system", "content": system_prompt}]
+    for turn in contents:
+        parts = turn.get("parts", [])
+        text = "".join(p.get("text", "") for p in parts if isinstance(p, dict))
+        if not text:
+            continue
+        role = turn.get("role", "user")
+        messages.append({
+            "role": "assistant" if role in ("model", "assistant") else "user",
+            "content": text,
+        })
+    return messages
+
+
+async def _telegram_tool_loop_ollama(contents, system_prompt):
+    """Ollama counterpart to query_gemini_with_tools: runs the conversational tool loop
+    against the local Ollama server, so the Telegram bot obeys the provider selector on
+    Ollama too. Up to 5 turns - each yields either text (returned) or tool calls, which are
+    executed behind the SAME permission gate as the Gemini arm and fed back. The returned
+    strings go straight to the user's chat, so they are written in Swedish."""
+    from backend.services import ollama_client
+    from backend.routes.tools import is_tool_execution_authorized
+
+    tools = ollama_client.gemini_tools_to_ollama(TOOL_DECLARATIONS)
+    messages = _gemini_contents_to_ollama_messages(contents, system_prompt)
+
+    for _ in range(5):
+        message = await ollama_client.chat_with_tools(messages, tools)
+        messages.append(message)
+
+        tool_calls = message.get("tool_calls") or []
+        if not tool_calls:
+            # Swedish: delivered straight to the user's Telegram chat.
+            return message.get("content", "") or "Inget svar returnerades från Ollama."
+
+        for call in tool_calls:
+            fn = call.get("function", {})
+            func_name = fn.get("name")
+            func_args = fn.get("arguments", {})
+            # Ollama returns arguments as a dict on recent builds, a JSON string on older ones.
+            if isinstance(func_args, str):
+                try:
+                    func_args = json.loads(func_args or "{}")
+                except json.JSONDecodeError:
+                    func_args = {}
+
+            if not is_tool_execution_authorized(func_name, func_args):
+                print(f"[TELEGRAM BOT] Tool execution denied: {func_name} (unauthorized)")
+                result = {"error": f"Tool execution unauthorized: {func_name} is disabled by the owner."}
+            else:
+                result = await execute_tool(func_name, func_args)
+
+            messages.append({
+                "role": "tool",
+                "tool_name": func_name,
+                "content": json.dumps(result),
+            })
+
+    # Swedish: delivered straight to the user's Telegram chat (matches the Gemini arm).
+    return "F.R.E.J.A. avbröt konversationen: för många funktionsanrop (loop limit nådd)."
+
+
 telegram_lock_file = None
 
 async def telegram_worker_loop():
@@ -279,12 +349,18 @@ async def telegram_worker_loop():
                         print(f"[TELEGRAM] Error saving user message to database: {db_err}")
 
                     gemini_key = get_gemini_api_key()
-                    if not gemini_key:
+                    # The bot now obeys the freja_llm_provider selector via llm_client._dispatch
+                    # below, so it can run on Ollama alone. Only refuse when NEITHER engine can
+                    # serve - mirrors gemini_proxy.py's guard. get_provider_status is cached (~10s).
+                    from backend.services import llm_client as _llm_client
+                    provider_status = await _llm_client.get_provider_status()
+                    ollama_ok = bool((provider_status.get("providers", {}).get("ollama") or {}).get("ok"))
+                    if not gemini_key and not ollama_ok:
                         await send_telegram_message(
                             token,
                             chat_id,
                             # Swedish: this text is delivered to the user in the chat.
-                            "Fel: Gemini API-nyckel saknas i serverns databas. Konfigurera den i Inställningar."
+                            "Fel: Ingen LLM-leverantör är tillgänglig. Kontrollera Ollama-servern eller lägg in en Gemini-nyckel i Inställningar."
                         )
                         continue
                         
@@ -367,26 +443,36 @@ async def telegram_worker_loop():
 
                     # The same authoritative backend block the HUD chat gets, so Freja's account
                     # of her own setup does not depend on which surface she is answering from.
-                    # This path calls Gemini directly (it needs Gemini's tool-calling loop), so
-                    # the engine line says Gemini rather than echoing the operator's preference.
+                    # The per-provider runtime line is appended inside each _dispatch arm below,
+                    # so it names whichever engine actually serves this turn (reusing the cached
+                    # provider_status already fetched by the guard above).
                     try:
-                        from backend.services import llm_client, system_context, gemini_client
-                        provider_status = await llm_client.get_provider_status()
+                        from backend.services import system_context
                         system_prompt += system_context.build_backend_context_block(
                             provider_status, client_status, client_status.get("client_os", "Unknown")
-                        )
-                        system_prompt += system_context.build_runtime_provider_line(
-                            "gemini", gemini_client.get_gemini_model()
                         )
                     except Exception as ctx_err:
                         print(f"[TELEGRAM BOT] Could not add the backend context block: {ctx_err}")
 
+                    # Route the bot's tool loop through the same provider selector the HUD chat
+                    # uses: pinned Gemini/Ollama run only that engine, auto fails over. Each arm
+                    # appends its own runtime provider line so Freja names the engine that answered.
+                    base_system_prompt = system_prompt
+                    from backend.services import system_context, gemini_client, ollama_client
+                    convo = chat_histories[chat_id]
+
+                    async def _gemini_arm():
+                        sp = base_system_prompt + system_context.build_runtime_provider_line(
+                            "gemini", gemini_client.get_gemini_model())
+                        return await query_gemini_with_tools(convo, gemini_key, sp)
+
+                    async def _ollama_arm():
+                        sp = base_system_prompt + system_context.build_runtime_provider_line(
+                            "ollama", ollama_client.get_ollama_model())
+                        return await _telegram_tool_loop_ollama(convo, sp)
+
                     try:
-                        reply_text = await query_gemini_with_tools(
-                            chat_histories[chat_id],
-                            gemini_key,
-                            system_prompt
-                        )
+                        reply_text = await _llm_client._dispatch("telegram chat", _ollama_arm, _gemini_arm)
                     except Exception as e:
                         print(f"[TELEGRAM] Response generation failed: {e}")
                         reply_text = f"Ett fel uppstod vid generering av svar: {str(e)}"
