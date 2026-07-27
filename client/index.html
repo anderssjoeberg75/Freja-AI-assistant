@@ -621,6 +621,54 @@
         </div>
     </div>
 
+    <!-- FITBIT HEALTH DASHBOARD MODAL -->
+    <div class="hud-modal" id="modal-fitbit">
+        <div class="modal-content glass-morphic">
+            <div class="modal-header">
+                <h2><i class="fa-solid fa-heart-pulse"></i> FITBIT ACCOUNT &amp; SYNC</h2>
+                <button class="modal-close" id="btn-close-fitbit">&times;</button>
+            </div>
+            <div class="modal-body" style="display: flex; flex-direction: column; gap: 15px;">
+                <!-- Fitbit API Configuration -->
+                <details open class="fitbit-api-details" style="border: 1px solid var(--color-border); border-radius: 4px; background: rgba(0, 0, 0, 0.2); padding: 8px 12px; margin-top: 10px;">
+                    <summary style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); cursor: pointer; user-select: none; outline: none; letter-spacing: 1px;">
+                        <i class="fa-solid fa-key" style="margin-right: 6px;"></i> FITBIT API-KONFIGURATION
+                    </summary>
+                    <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 10px;">
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <label for="input-fitbit-client-id" style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary);">Fitbit Client ID</label>
+                            <input type="text" id="input-fitbit-client-id" placeholder="Enter the Fitbit Client ID..." class="hud-input" style="height: 32px; font-size: 12px;" autocomplete="one-time-code">
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <label for="input-fitbit-client-secret" style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary);">Fitbit Client Secret</label>
+                            <div class="input-password-container">
+                                <input type="password" id="input-fitbit-client-secret" placeholder="Enter the Fitbit Client Secret..." class="hud-input" style="height: 32px; font-size: 12px; flex: 1;" autocomplete="one-time-code">
+                                <button type="button" id="btn-toggle-fitbit-secret" class="btn-toggle-input" style="height: 32px;"><i class="fa-solid fa-eye"></i></button>
+                            </div>
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <label for="input-fitbit-refresh-token" style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary);">Fitbit Refresh Token</label>
+                            <div class="input-password-container">
+                                <input type="password" id="input-fitbit-refresh-token" placeholder="Enter the Fitbit Refresh Token..." class="hud-input" style="height: 32px; font-size: 12px; flex: 1;" autocomplete="one-time-code">
+                                <button type="button" id="btn-toggle-fitbit-token" class="btn-toggle-input" style="height: 32px;"><i class="fa-solid fa-eye"></i></button>
+                            </div>
+                            <a id="lnk-fitbit-authorize" href="#" target="_blank" class="hud-link" style="display: none; margin-top: 6px; font-size: 11px; text-decoration: underline; color: #00f0ff;">
+                                <i class="fa-solid fa-key"></i> Authorize Fitbit (Koppla Fitbit-konto)
+                            </a>
+                        </div>
+                        <button id="btn-save-fitbit-api" class="hud-btn btn-primary" style="height: 32px; font-family: var(--font-display); font-size: 11px; margin-top: 5px;">
+                            <i class="fa-solid fa-floppy-disk"></i> SAVE API SETTINGS
+                        </button>
+                    </div>
+                </details>
+            </div>
+            <div class="modal-footer" style="display: flex; gap: 10px;">
+                <button id="btn-sync-fitbit-dashboard" class="hud-btn btn-primary" style="flex: 1; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-arrows-rotate"></i> SYNC DEVICE</button>
+                <button id="btn-sync-fitbit-all" class="hud-btn btn-primary" style="flex: 1; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-clock-rotate-left"></i> FETCH ALL HISTORY</button>
+            </div>
+        </div>
+    </div>
+
     <!-- GOOGLE CALENDAR DASHBOARD MODAL -->
     <div class="hud-modal" id="modal-google-calendar">
         <div class="modal-content glass-morphic">

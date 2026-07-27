@@ -61,6 +61,9 @@ KEY_ALIASES = {
     'withings_client_id': 'freja_withings_client_id',
     'withings_client_secret': 'freja_withings_client_secret',
     'withings_refresh_token': 'freja_withings_refresh_token',
+    'fitbit_client_id': 'freja_fitbit_client_id',
+    'fitbit_client_secret': 'freja_fitbit_client_secret',
+    'fitbit_refresh_token': 'freja_fitbit_refresh_token',
     'google_calendar_client_id': 'freja_google_calendar_client_id',
     'google_calendar_client_secret': 'freja_google_calendar_client_secret',
     'google_calendar_refresh_token': 'freja_google_calendar_refresh_token',
@@ -221,6 +224,7 @@ def init_db():
     cursor.execute("CREATE INDEX IF NOT EXISTS ix_trainer_plans_date ON trainer_plans (date)")
     cursor.execute("CREATE INDEX IF NOT EXISTS ix_trainer_injury_logs_date ON trainer_injury_logs (date)")
     cursor.execute("CREATE INDEX IF NOT EXISTS ix_trainer_strength_logs_date ON trainer_strength_logs (date)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS ix_fitbit_health_date ON fitbit_health (date)")
 
     # Clean up legacy demo/seed rows if present in the database so fake test data
     # (e.g. "Lunch med Maria", "Läkarbesök", dummy Strava activities) never persists.

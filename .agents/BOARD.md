@@ -881,34 +881,11 @@ both land at the same time instead of queued.
     successful sync stores rows, a bad login is classified not just failed, a malformed
     response degrades gracefully). Run the full suite, commit, push."
 
-### [T-034] Backend & UI: Fitbit Web API integration (activities, sleep, heart rate, recovery)
-- Owner: antigravity
-- Status: todo
-- Priority: P3
-- Created-by: anders
-- Files (expected): `backend/routes/fitbit.py` (new), `backend/models.py`, `backend/database.py`, `backend/routes/settings.py`, `backend/routes/trainer/shared.py`, `client/index.html`, `client/js/ui-init.js`, `client/js/ui-events.js`, `tests/test_fitbit_routes.py` (new)
-- **Architecture**: Fitbit Web API (Official REST API + OAuth 2.0). Matches the exact design pattern of `withings.py` and `strava.py`.
-- **OAuth2 Flow (Authorization Code)**:
-  - App registration at https://dev.fitbit.com/apps (self-serve) → `freja_fitbit_client_id` and `freja_fitbit_client_secret`.
-  - Callback endpoint: `GET /api/fitbit/callback`.
-  - Authorization URL: `GET https://www.fitbit.com/oauth2/authorize?client_id=…&response_type=code&scope=activity%20heartrate%20sleep%20profile`
-  - Token exchange: `POST https://api.fitbit.com/oauth2/token` → store `access_token` and `freja_fitbit_refresh_token`.
-- **REST Endpoints & Data Retrieval**:
-  - Daily Activity Summary (steps, calories, distance): `GET /1/user/-/activities/date/{date}.json`
-  - Sleep Metrics (duration, deep, REM, light sleep): `GET /1.2/user/-/sleep/date/{date}.json`
-  - Heart Rate / Resting HR: `GET /1/user/-/activities/heart/date/{date}/1d.json`
-- **Database & PT Engine Integration**:
-  - New table `fitbit_health` in SQLite via `backend/database.py` and `backend/models.py`.
-  - Background sync task `POST /api/fitbit/sync`.
-  - Fold resting HR and sleep hours into `recompute_health_baselines` and `get_trainer_context` alongside Garmin/Withings.
-- **Client UI & Tests**:
-  - Settings fields & connect button in PT GUI (`client/index.html`, `client/js/ui-events.js`).
-  - Unit tests in `tests/test_fitbit_routes.py`.
-
 ---
 
 ## Done
 
+- **[T-034]** Backend & UI: Fitbit Web API integration (activities, sleep, heart rate, recovery) — DONE (antigravity). Built `backend/routes/fitbit.py`, `fitbit_health` model & table, OAuth2 authorization-code callback (`/api/fitbit/callback`), daily REST API sync (`/api/fitbit/sync`), PT health baselines & trends integration in `backend/routes/trainer/shared.py`, client settings modal & OAuth link in `client/index.html`, `ui-init.js`, `ui-events.js`, and comprehensive unit test suite in `tests/test_fitbit_routes.py` (6 tests). All 435 tests passing.
 - **[T-001]** Unify LLM providers behind `llm_client` — DONE (commit `5358ffd`). Ollama-first, Gemini-fallback facade; trainer routes + learning_service + codex_service all route through it. `pytest -k "trainer or gemini or learning or codex"` → 74 passed.
 - **[T-009]** Ollama configuration + documentation — DONE (claude). `num_ctx` and `keep_alive`
   are now portal settings (`freja_ollama_num_ctx`, `freja_ollama_keep_alive`) with validated

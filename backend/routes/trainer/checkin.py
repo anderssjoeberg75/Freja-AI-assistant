@@ -335,7 +335,7 @@ Rules for the briefing:
             "required": ["sleep_summary", "recovery_summary", "yesterday_status", "todays_plan", "recommendation", "adjust_workout", "closing_question", "briefing"]
         }
         briefing_data = await llm_client.generate_json(
-            prompt_content, schema, temperature=0.3, max_tokens=1500, timeout=GEMINI_TIMEOUT_SECONDS
+            prompt_content, schema, temperature=0.3, max_tokens=2500, timeout=GEMINI_TIMEOUT_SECONDS
         )
         # Which provider actually served this briefing (Ollama first, Gemini fallback),
         # surfaced so the client can show an "active provider" indicator.

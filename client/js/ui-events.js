@@ -978,6 +978,124 @@ FrejaUIController.prototype.bindEvents = function () {
         });
     }
 
+    const btnToggleFitbitSecret = document.getElementById('btn-toggle-fitbit-secret');
+    const inputFitbitSecret = document.getElementById('input-fitbit-client-secret');
+    if (btnToggleFitbitSecret && inputFitbitSecret) {
+        btnToggleFitbitSecret.addEventListener('click', () => {
+            soundSynth.playClick();
+            if (inputFitbitSecret.type === 'password') {
+                inputFitbitSecret.type = 'text';
+                btnToggleFitbitSecret.innerHTML = '<i class="fa-solid fa-eye-slash"></i>';
+            } else {
+                inputFitbitSecret.type = 'password';
+                btnToggleFitbitSecret.innerHTML = '<i class="fa-solid fa-eye"></i>';
+            }
+        });
+    }
+
+    const btnToggleFitbitToken = document.getElementById('btn-toggle-fitbit-token');
+    const inputFitbitToken = document.getElementById('input-fitbit-refresh-token');
+    if (btnToggleFitbitToken && inputFitbitToken) {
+        btnToggleFitbitToken.addEventListener('click', () => {
+            soundSynth.playClick();
+            if (inputFitbitToken.type === 'password') {
+                inputFitbitToken.type = 'text';
+                btnToggleFitbitToken.innerHTML = '<i class="fa-solid fa-eye-slash"></i>';
+            } else {
+                inputFitbitToken.type = 'password';
+                btnToggleFitbitToken.innerHTML = '<i class="fa-solid fa-eye"></i>';
+            }
+        });
+    }
+
+    // Toggle Fitbit Fit Dashboard Modal
+    const btnFitbit = document.getElementById('btn-fitbit');
+    const modalFitbit = document.getElementById('modal-fitbit');
+    const btnCloseFitbit = document.getElementById('btn-close-fitbit');
+
+    if (modalFitbit && btnCloseFitbit) {
+        if (btnFitbit) {
+            btnFitbit.addEventListener('click', () => {
+                soundSynth.playClick();
+                if (window.syncKeysFromServer) window.syncKeysFromServer();
+                modalFitbit.classList.add('active');
+            });
+        }
+
+        btnCloseFitbit.addEventListener('click', () => {
+            soundSynth.playClick();
+            modalFitbit.classList.remove('active');
+        });
+    }
+
+    const btnSyncFitbitDashboard = document.getElementById('btn-sync-fitbit-dashboard');
+    if (btnSyncFitbitDashboard) {
+        btnSyncFitbitDashboard.addEventListener('click', async () => {
+            soundSynth.playClick();
+            self.writeLog("INITIATING FITBIT DEVICE SYNC...", "info");
+
+            try {
+                const res = await fetch('/api/fitbit/sync');
+                const data = await res.json();
+                if (res.ok) {
+                    self.pollSyncStatus('fitbit');
+                } else {
+                    self.writeLog(`FITBIT SYNC ERROR: ${data.detail || 'Failed to start sync'}`, "err");
+                    soundSynth.playError();
+                }
+            } catch (err) {
+                self.writeLog(`FITBIT SYNC ERROR: ${err.message}`, "err");
+                soundSynth.playError();
+            }
+        });
+    }
+
+    const btnSyncFitbitAll = document.getElementById('btn-sync-fitbit-all');
+    if (btnSyncFitbitAll) {
+        btnSyncFitbitAll.addEventListener('click', async () => {
+            soundSynth.playClick();
+            self.writeLog("INITIATING FITBIT HISTORICAL SYNC (3650 DAYS)...", "info");
+
+            try {
+                const res = await fetch('/api/fitbit/sync?days=3650');
+                const data = await res.json();
+                if (res.ok) {
+                    self.pollSyncStatus('fitbit');
+                } else {
+                    self.writeLog(`FITBIT HISTORICAL SYNC ERROR: ${data.detail || 'Failed to start sync'}`, "err");
+                    soundSynth.playError();
+                }
+            } catch (err) {
+                self.writeLog(`FITBIT HISTORICAL SYNC ERROR: ${err.message}`, "err");
+                soundSynth.playError();
+            }
+        });
+    }
+
+    const btnSaveFitbitApi = document.getElementById('btn-save-fitbit-api');
+    if (btnSaveFitbitApi) {
+        btnSaveFitbitApi.addEventListener('click', async () => {
+            soundSynth.playClick();
+
+            const fitbitClientId = document.getElementById('input-fitbit-client-id').value.trim();
+            const fitbitClientSecret = document.getElementById('input-fitbit-client-secret').value;
+            const fitbitRefreshToken = document.getElementById('input-fitbit-refresh-token').value;
+
+            localStorage.setItem("freja_fitbit_client_id", fitbitClientId);
+            localStorage.setItem("freja_fitbit_client_secret", fitbitClientSecret);
+            localStorage.setItem("freja_fitbit_refresh_token", fitbitRefreshToken);
+
+            await self.saveKeysToServer({
+                freja_fitbit_client_id: fitbitClientId,
+                freja_fitbit_client_secret: fitbitClientSecret,
+                freja_fitbit_refresh_token: fitbitRefreshToken
+            });
+
+            self.writeLog("FITBIT API CONFIGURATION SECURED", "sys");
+            soundSynth.playNotify();
+        });
+    }
+
     // Toggle Google Calendar API config password visibility
     const btnToggleGoogleSecret = document.getElementById('btn-toggle-google-calendar-secret');
     const inputGoogleSecret = document.getElementById('input-google-calendar-client-secret');

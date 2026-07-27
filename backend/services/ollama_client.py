@@ -5,9 +5,8 @@ llm_client.py can try this provider first and fall back to Gemini without caller
 needing to know which one actually answered.
 """
 
-import json
-
 from backend.services.http_client import shared_client
+from backend.services.json_repair import parse_llm_json
 from backend.database import get_api_key
 
 # Points at the box running Ollama (an RTX 3060 12GB machine). Every value below is a
@@ -193,4 +192,4 @@ async def generate_json(prompt: str, schema: dict = None, system_instruction: st
     text = resp_json.get("message", {}).get("content", "")
     if not text:
         raise Exception("Ollama returned an empty response.")
-    return json.loads(text.replace("```json", "").replace("```", "").strip())
+    return parse_llm_json(text)

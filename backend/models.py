@@ -234,6 +234,20 @@ class WithingsMeasurement(Base):
     elevation = Column(Float)
     sleep_score = Column(Integer)
 
+class FitbitHealth(Base):
+    __tablename__ = 'fitbit_health'
+    date = Column(String, primary_key=True)
+    steps = Column(Integer)
+    sleep_hours = Column(Float)
+    sleep_deep_hours = Column(Float)
+    sleep_light_hours = Column(Float)
+    sleep_rem_hours = Column(Float)
+    sleep_awake_hours = Column(Float)
+    sleep_score = Column(Integer)
+    resting_hr = Column(Integer)
+    active_calories = Column(Integer)
+    distance_km = Column(Float)
+
 class GoogleCalendarEvent(Base):
     __tablename__ = 'google_calendar_events'
     id = Column(Integer, primary_key=True, autoincrement=True)

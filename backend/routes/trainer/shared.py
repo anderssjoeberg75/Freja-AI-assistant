@@ -155,6 +155,7 @@ def calculate_trends():
     """
     garmin_rows = []
     withings_rows = []
+    fitbit_rows = []
     with get_db_connection() as conn:
         cursor = conn.cursor()
         try:
@@ -167,6 +168,11 @@ def calculate_trends():
             withings_rows = cursor.fetchall()
         except Exception as e:
             print(f"Error fetching Withings measurements for trends: {e}")
+        try:
+            cursor.execute('SELECT resting_hr FROM fitbit_health ORDER BY date DESC LIMIT 21')
+            fitbit_rows = cursor.fetchall()
+        except Exception as e:
+            print(f"Error fetching Fitbit measurements for trends: {e}")
 
     def _avg(vals):
         return sum(vals) / len(vals) if vals else None
@@ -177,15 +183,19 @@ def calculate_trends():
     g_base_rhr = [v for r in garmin_rows[7:] if (v := _reading(r[0])) is not None]
     w_recent_rhr = [v for r in withings_rows[:7] if (v := _reading(r[0])) is not None]
     w_base_rhr = [v for r in withings_rows[7:] if (v := _reading(r[0])) is not None]
+    fb_recent_rhr = [v for r in fitbit_rows[:7] if (v := _reading(r[0])) is not None]
+    fb_base_rhr = [v for r in fitbit_rows[7:] if (v := _reading(r[0])) is not None]
 
     if g_recent_rhr and g_base_rhr:
         recent_rhrs, baseline_rhrs = g_recent_rhr, g_base_rhr
     elif w_recent_rhr and w_base_rhr:
         recent_rhrs, baseline_rhrs = w_recent_rhr, w_base_rhr
+    elif fb_recent_rhr and fb_base_rhr:
+        recent_rhrs, baseline_rhrs = fb_recent_rhr, fb_base_rhr
     else:
         # Not enough for a valid comparison from a single source; expose what exists.
-        recent_rhrs = g_recent_rhr or w_recent_rhr
-        baseline_rhrs = g_base_rhr or w_base_rhr
+        recent_rhrs = g_recent_rhr or w_recent_rhr or fb_recent_rhr
+        baseline_rhrs = g_base_rhr or w_base_rhr or fb_base_rhr
 
     # HRV, Stress, Body Battery: Garmin only.
     recent_hrvs = [v for r in garmin_rows[:7] if (v := _reading(r[1])) is not None]
@@ -297,6 +307,7 @@ def recompute_health_baselines(force: bool = False) -> dict:
 
     garmin_rhr, garmin_sleep, garmin_hrv = [], [], []
     withings_rhr, withings_sleep = [], []
+    fitbit_rhr, fitbit_sleep = [], []
     with get_db_connection() as conn:
         cursor = conn.cursor()
         try:
@@ -327,17 +338,33 @@ def recompute_health_baselines(force: bool = False) -> dict:
                     withings_sleep.append(r[1] / 3600.0)
         except Exception as e:
             print(f"[TRAINER BASELINES] Error reading Withings measurements: {e}")
+        try:
+            cursor.execute(
+                'SELECT resting_hr, sleep_hours FROM fitbit_health WHERE date >= ?',
+                (cutoff,)
+            )
+            for r in cursor.fetchall():
+                if _reading(r[0]) is not None:
+                    fitbit_rhr.append(r[0])
+                if _reading(r[1]) is not None:
+                    fitbit_sleep.append(r[1])
+        except Exception as e:
+            print(f"[TRAINER BASELINES] Error reading Fitbit health: {e}")
 
     def _avg(vals):
         return sum(vals) / len(vals) if len(vals) >= BASELINE_MIN_SAMPLES else None
 
-    # Prefer Garmin; fall back to Withings for RHR and sleep (Withings has no HRV).
+    # Prefer Garmin; fall back to Withings or Fitbit for RHR and sleep (Withings/Fitbit have no HRV).
     rhr = _avg(garmin_rhr)
     if rhr is None:
         rhr = _avg(withings_rhr)
+    if rhr is None:
+        rhr = _avg(fitbit_rhr)
     sleep = _avg(garmin_sleep)
     if sleep is None:
         sleep = _avg(withings_sleep)
+    if sleep is None:
+        sleep = _avg(fitbit_sleep)
     hrv = _avg(garmin_hrv)
 
     updated = {}

@@ -46,6 +46,7 @@ from backend.routes.tools import router as tools_router
 from backend.routes.trainer import router as trainer_router
 from backend.routes.learning import router as learning_router
 from backend.routes.llm import router as llm_router
+from backend.routes.fitbit import router as fitbit_router
 
 # Initialize the SQLite database schemas
 init_db()
@@ -128,6 +129,7 @@ app.include_router(search_router)
 app.include_router(garmin_router)
 app.include_router(strava_router)
 app.include_router(withings_router)
+app.include_router(fitbit_router)
 app.include_router(gemini_router)
 app.include_router(elevenlabs_router)
 app.include_router(mem0_router)

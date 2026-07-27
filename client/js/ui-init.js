@@ -137,8 +137,7 @@ FrejaUIController.prototype.initializeUI = function() {
         });
     }
     updateStravaLink();
-    
-    const withingsClientId = localStorage.getItem("freja_withings_client_id") || "";
+        const withingsClientId = localStorage.getItem("freja_withings_client_id") || "";
     const withingsClientSecret = localStorage.getItem("freja_withings_client_secret") || "";
     const withingsRefreshToken = localStorage.getItem("freja_withings_refresh_token") || "";
     const inputWithingsClientId = document.getElementById('input-withings-client-id');
@@ -147,6 +146,16 @@ FrejaUIController.prototype.initializeUI = function() {
     if (inputWithingsClientSecret) inputWithingsClientSecret.value = withingsClientSecret;
     const inputWithingsRefreshToken = document.getElementById('input-withings-refresh-token');
     if (inputWithingsRefreshToken) inputWithingsRefreshToken.value = withingsRefreshToken;
+
+    const fitbitClientId = localStorage.getItem("freja_fitbit_client_id") || "";
+    const fitbitClientSecret = localStorage.getItem("freja_fitbit_client_secret") || "";
+    const fitbitRefreshToken = localStorage.getItem("freja_fitbit_refresh_token") || "";
+    const inputFitbitClientId = document.getElementById('input-fitbit-client-id');
+    if (inputFitbitClientId) inputFitbitClientId.value = fitbitClientId;
+    const inputFitbitClientSecret = document.getElementById('input-fitbit-client-secret');
+    if (inputFitbitClientSecret) inputFitbitClientSecret.value = fitbitClientSecret;
+    const inputFitbitRefreshToken = document.getElementById('input-fitbit-refresh-token');
+    if (inputFitbitRefreshToken) inputFitbitRefreshToken.value = fitbitRefreshToken;
 
     // Dynamically build and update Withings authorize link
     const updateWithingsLink = () => {
@@ -178,6 +187,34 @@ FrejaUIController.prototype.initializeUI = function() {
             window.open(oauthUrl, '_blank');
         });
     }
+
+    // Dynamically build and update Fitbit authorize link
+    const updateFitbitLink = () => {
+        const clientId = inputFitbitClientId ? inputFitbitClientId.value.trim() : "";
+        const authLink = document.getElementById('lnk-fitbit-authorize');
+        if (authLink) {
+            authLink.style.display = clientId ? 'block' : 'none';
+        }
+    };
+    if (inputFitbitClientId) {
+        inputFitbitClientId.addEventListener('input', updateFitbitLink);
+        inputFitbitClientId.addEventListener('change', updateFitbitLink);
+    }
+    const authLinkFitbit = document.getElementById('lnk-fitbit-authorize');
+    if (authLinkFitbit) {
+        authLinkFitbit.addEventListener('click', (e) => {
+            e.preventDefault();
+            const clientId = inputFitbitClientId ? inputFitbitClientId.value.trim() : "";
+            if (!clientId) {
+                alert("Please enter a Client ID first.");
+                return;
+            }
+            const redirectUri = window.location.origin + '/api/fitbit/callback';
+            const oauthUrl = `https://www.fitbit.com/oauth2/authorize?response_type=code&client_id=${clientId}&scope=activity%20heartrate%20sleep%20profile&redirect_uri=${encodeURIComponent(redirectUri)}`;
+            window.open(oauthUrl, '_blank');
+        });
+    }
+
     window.syncKeysFromServer = async function() {
         try {
             const token = localStorage.getItem('freja_access_token') || "";
@@ -196,6 +233,9 @@ FrejaUIController.prototype.initializeUI = function() {
                 setKey('input-withings-client-id', 'freja_withings_client_id');
                 setKey('input-withings-client-secret', 'freja_withings_client_secret');
                 setKey('input-withings-refresh-token', 'freja_withings_refresh_token');
+                setKey('input-fitbit-client-id', 'freja_fitbit_client_id');
+                setKey('input-fitbit-client-secret', 'freja_fitbit_client_secret');
+                setKey('input-fitbit-refresh-token', 'freja_fitbit_refresh_token');
                 setKey('input-strava-client-id', 'freja_strava_client_id');
                 setKey('input-strava-client-secret', 'freja_strava_client_secret');
                 setKey('input-strava-refresh-token', 'freja_strava_refresh_token');
@@ -203,6 +243,8 @@ FrejaUIController.prototype.initializeUI = function() {
                 setKey('input-google-calendar-client-id', 'freja_google_calendar_client_id');
                 setKey('input-google-calendar-client-secret', 'freja_google_calendar_client_secret');
                 setKey('input-google-calendar-refresh-token', 'freja_google_calendar_refresh_token');
+                updateWithingsLink();
+                updateFitbitLink();
             }
         } catch(e) {
             console.warn("Could not sync keys from server:", e);

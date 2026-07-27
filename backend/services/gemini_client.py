@@ -5,10 +5,9 @@ codex_service, the gemini proxy route, and other services don't each hardcode
 the endpoint URL and model name.
 """
 
-import json
-
 import httpx
 from backend.services.http_client import shared_client
+from backend.services.json_repair import parse_llm_json
 
 from backend.database import get_api_key
 
@@ -123,4 +122,4 @@ async def generate_json(prompt: str, schema: dict = None, system_instruction: st
     text = parts[0].get("text", "")
     if not text:
         raise Exception("Gemini returned an empty response.")
-    return json.loads(text.replace("```json", "").replace("```", "").strip())
+    return parse_llm_json(text)
