@@ -1521,22 +1521,16 @@ FrejaUIController.prototype.bindEvents = function () {
 
             const trainerViewSelect = document.getElementById('trainer-view-select');
             const overviewPage = document.getElementById('trainer-page-overview');
-            const withingsPage = document.getElementById('trainer-page-withings');
-            const settingsPage = document.getElementById('trainer-page-settings');
+            if (overviewPage) overviewPage.style.display = 'flex';
+
+            const modalTrainerWithings = document.getElementById('modal-trainer-withings');
+            const modalTrainerSettings = document.getElementById('modal-trainer-settings');
             const currentView = trainerViewSelect ? trainerViewSelect.value : 'overview';
 
-            if (currentView === 'withings') {
-                if (overviewPage) overviewPage.style.display = 'none';
-                if (withingsPage) withingsPage.style.display = 'flex';
-                if (settingsPage) settingsPage.style.display = 'none';
-            } else if (currentView === 'settings') {
-                if (overviewPage) overviewPage.style.display = 'none';
-                if (withingsPage) withingsPage.style.display = 'none';
-                if (settingsPage) settingsPage.style.display = 'flex';
-            } else {
-                if (overviewPage) overviewPage.style.display = 'flex';
-                if (withingsPage) withingsPage.style.display = 'none';
-                if (settingsPage) settingsPage.style.display = 'none';
+            if (currentView === 'withings' && modalTrainerWithings) {
+                modalTrainerWithings.classList.add('active');
+            } else if (currentView === 'settings' && modalTrainerSettings) {
+                modalTrainerSettings.classList.add('active');
             }
 
             if (typeof self.loadTrainerDashboardUI === 'function') {
@@ -1546,9 +1540,40 @@ FrejaUIController.prototype.bindEvents = function () {
             }
         });
 
+        const modalTrainerWithings = document.getElementById('modal-trainer-withings');
+        const modalTrainerSettings = document.getElementById('modal-trainer-settings');
+        const btnCloseTrainerWithings = document.getElementById('btn-close-trainer-withings');
+        const btnCloseTrainerWithingsFooter = document.getElementById('btn-close-trainer-withings-footer');
+        const btnCloseTrainerSettings = document.getElementById('btn-close-trainer-settings');
+        const btnCloseTrainerSettingsFooter = document.getElementById('btn-close-trainer-settings-footer');
+
+        const closePtSubModals = () => {
+            if (modalTrainerWithings) modalTrainerWithings.classList.remove('active');
+            if (modalTrainerSettings) modalTrainerSettings.classList.remove('active');
+            const trainerViewSelect = document.getElementById('trainer-view-select');
+            if (trainerViewSelect) trainerViewSelect.value = 'overview';
+        };
+
+        if (btnCloseTrainerWithings) btnCloseTrainerWithings.addEventListener('click', closePtSubModals);
+        if (btnCloseTrainerWithingsFooter) btnCloseTrainerWithingsFooter.addEventListener('click', closePtSubModals);
+        if (btnCloseTrainerSettings) btnCloseTrainerSettings.addEventListener('click', closePtSubModals);
+        if (btnCloseTrainerSettingsFooter) btnCloseTrainerSettingsFooter.addEventListener('click', closePtSubModals);
+
+        if (modalTrainerWithings) {
+            modalTrainerWithings.addEventListener('click', (e) => {
+                if (e.target === modalTrainerWithings) closePtSubModals();
+            });
+        }
+        if (modalTrainerSettings) {
+            modalTrainerSettings.addEventListener('click', (e) => {
+                if (e.target === modalTrainerSettings) closePtSubModals();
+            });
+        }
+
         const closeTrainerHandler = () => {
             console.log("[FREJA CLIENT] Closing Personal Trainer Dashboard");
             soundSynth.playClick();
+            closePtSubModals();
             modalTrainer.classList.remove('active');
         };
 
@@ -1564,32 +1589,26 @@ FrejaUIController.prototype.bindEvents = function () {
                 soundSynth.playClick();
                 const view = e.target.value;
                 const overviewPage = document.getElementById('trainer-page-overview');
-                const withingsPage = document.getElementById('trainer-page-withings');
-                const settingsPage = document.getElementById('trainer-page-settings');
+                if (overviewPage) overviewPage.style.display = 'flex';
 
                 if (view === 'checkin') {
-                    if (overviewPage) overviewPage.style.display = 'flex';
-                    if (withingsPage) withingsPage.style.display = 'none';
-                    if (settingsPage) settingsPage.style.display = 'none';
+                    if (modalTrainerWithings) modalTrainerWithings.classList.remove('active');
+                    if (modalTrainerSettings) modalTrainerSettings.classList.remove('active');
                     trainerViewSelect.value = 'overview';
                     self.runTrainerCheckin();
                 } else if (view === 'withings') {
-                    if (overviewPage) overviewPage.style.display = 'none';
-                    if (withingsPage) withingsPage.style.display = 'flex';
-                    if (settingsPage) settingsPage.style.display = 'none';
+                    if (modalTrainerSettings) modalTrainerSettings.classList.remove('active');
+                    if (modalTrainerWithings) modalTrainerWithings.classList.add('active');
                     if (typeof self.loadWithingsDashboardUI === 'function') {
                         self.loadWithingsDashboardUI();
                     } else if (window.uiController && typeof window.uiController.loadWithingsDashboardUI === 'function') {
                         window.uiController.loadWithingsDashboardUI();
                     }
                 } else if (view === 'settings') {
-                    if (overviewPage) overviewPage.style.display = 'none';
-                    if (withingsPage) withingsPage.style.display = 'none';
-                    if (settingsPage) settingsPage.style.display = 'flex';
+                    if (modalTrainerWithings) modalTrainerWithings.classList.remove('active');
+                    if (modalTrainerSettings) modalTrainerSettings.classList.add('active');
                 } else {
-                    if (overviewPage) overviewPage.style.display = 'flex';
-                    if (withingsPage) withingsPage.style.display = 'none';
-                    if (settingsPage) settingsPage.style.display = 'none';
+                    closePtSubModals();
                 }
             });
         }

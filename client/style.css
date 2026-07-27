@@ -948,6 +948,22 @@ body {
     margin: 0;
 }
 
+/* Personal Trainer Sub-Modal Windows (Popup overlay windows over main PT view) */
+.pt-sub-modal {
+    z-index: 1100;
+    background: rgba(2, 5, 11, 0.65);
+    backdrop-filter: blur(6px);
+}
+
+.pt-sub-modal .modal-content {
+    width: 92%;
+    max-width: 520px;
+    max-height: 85vh;
+    border-radius: 10px;
+    border: 1px solid var(--color-border-glow);
+    margin: auto;
+}
+
 #modal-trainer .modal-body {
     flex: 1;
     display: flex;
