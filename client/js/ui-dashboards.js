@@ -157,6 +157,7 @@ FrejaUIController.prototype.loadTrainerDashboardUI = async function () {
     this.loadGarminDashboardUI();
     this.loadStravaDashboardUI();
     this.loadWithingsDashboardUI();
+    this.loadRouvyDashboardUI();
     // Populate weekly workouts list
     this.loadWeeklyWorkoutsUI();
 
@@ -3104,6 +3105,77 @@ FrejaUIController.prototype.submitTrainerOnboarding = async function () {
         if (submitBtn) {
             submitBtn.disabled = false;
             submitBtn.innerHTML = '<i class="fa-solid fa-check"></i> SAVE ANSWERS &amp; BUILD PROFILE';
+        }
+    }
+};
+
+FrejaUIController.prototype.loadRouvyDashboardUI = async function () {
+    const listEl = document.getElementById('rouvy-dash-list') || document.getElementById('rouvy-list');
+    const ftpEl = document.getElementById('rouvy-dash-ftp') || document.getElementById('rouvy-val-ftp');
+    const maxHrEl = document.getElementById('rouvy-dash-max-hr') || document.getElementById('rouvy-val-max-hr');
+    const weightEl = document.getElementById('rouvy-dash-weight') || document.getElementById('rouvy-val-weight');
+
+    if (listEl) {
+        listEl.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Laddar Rouvy-pass...</div>';
+    }
+
+    try {
+        const [profRes, actsRes] = await Promise.all([
+            fetch('/api/rouvy/profile'),
+            fetch('/api/rouvy/activities?limit=20')
+        ]);
+
+        if (profRes.ok) {
+            const pData = await profRes.json();
+            const prof = pData.profile || {};
+            if (ftpEl) ftpEl.textContent = (prof.ftp ? `${prof.ftp} W` : '-- W');
+            if (maxHrEl) maxHrEl.textContent = (prof.max_hr ? `${prof.max_hr} BPM` : '-- BPM');
+            if (weightEl) {
+                const w = prof.weight ? `${prof.weight} kg` : '-- kg';
+                const h = prof.height ? `${prof.height} cm` : '-- cm';
+                weightEl.textContent = `${w} / ${h}`;
+            }
+        }
+
+        if (actsRes.ok && listEl) {
+            const aData = await actsRes.json();
+            const acts = aData.activities || [];
+            if (acts.length === 0) {
+                listEl.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Inga sparade Rouvy-pass hittades. Tryck på Synkronisera Rouvy.</div>';
+                return;
+            }
+
+            listEl.innerHTML = '';
+            acts.forEach(act => {
+                const item = document.createElement('div');
+                item.style.cssText = "display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; background: rgba(0, 240, 255, 0.03); border: 1px solid rgba(0, 240, 255, 0.1); border-radius: 4px; margin-bottom: 6px;";
+                
+                const title = act.title || 'Indoor Ride';
+                const dateStr = act.date || '';
+                const distKm = act.distance ? (act.distance > 100 ? (act.distance / 1000).toFixed(1) : act.distance.toFixed(1)) : '--';
+                const durMin = act.duration ? Math.round(act.duration / 60) : '--';
+                const avgW = act.avg_power ? `${Math.round(act.avg_power)}W` : '';
+                const avgHr = act.avg_hr ? `${Math.round(act.avg_hr)} bpm` : '';
+
+                item.innerHTML = `
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary);"><i class="fa-solid fa-person-biking"></i> ${this.escapeHTML(title)}</span>
+                        <span style="font-family: var(--font-mono); font-size: 10px; color: var(--color-text-muted);">${this.escapeHTML(dateStr)}</span>
+                    </div>
+                    <div style="display: flex; gap: 12px; font-family: var(--font-mono); font-size: 10px; color: var(--color-text-muted); margin-top: 2px;">
+                        <span>📏 ${distKm} km</span>
+                        <span>⏱️ ${durMin} min</span>
+                        ${avgW ? `<span>⚡ ${avgW}</span>` : ''}
+                        ${avgHr ? `<span>❤️ ${avgHr}</span>` : ''}
+                    </div>
+                `;
+                listEl.appendChild(item);
+            });
+        }
+    } catch (err) {
+        console.error("Could not load Rouvy UI data:", err);
+        if (listEl) {
+            listEl.innerHTML = '<div style="color: #ff3b30; text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[FEL VID LÄSNING AV ROUVY-DATA]</div>';
         }
     }
 };

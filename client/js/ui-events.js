@@ -612,6 +612,67 @@ FrejaUIController.prototype.bindEvents = function () {
         });
     }
 
+    // Rouvy Sync trigger
+    const syncRouvyHandler = async () => {
+        soundSynth.playClick();
+        self.writeLog("INITIATING ROUVY DATA SYNC...", "sys");
+        try {
+            const res = await fetch('/api/rouvy/sync');
+            if (res.ok) {
+                self.writeLog("ROUVY SYNC STARTED IN BACKGROUND", "sys");
+                soundSynth.playNotify();
+                setTimeout(() => {
+                    if (typeof self.loadRouvyDashboardUI === 'function') {
+                        self.loadRouvyDashboardUI();
+                    }
+                }, 3000);
+            } else {
+                const err = await res.json().catch(() => ({}));
+                self.writeLog(`ROUVY SYNC ERROR: ${err.detail || 'Could not start sync'}`, "err");
+                soundSynth.playError();
+                alert(`Error: ${err.detail || 'Could not start Rouvy sync.'}`);
+            }
+        } catch (e) {
+            self.writeLog(`ROUVY SYNC ERROR: ${e.message}`, "err");
+            soundSynth.playError();
+        }
+    };
+
+    const btnSyncRouvyDash = document.getElementById('btn-sync-rouvy-dashboard');
+    if (btnSyncRouvyDash) btnSyncRouvyDash.addEventListener('click', syncRouvyHandler);
+
+    const btnSyncRouvyStandalone = document.getElementById('btn-sync-rouvy-dashboard-standalone');
+    if (btnSyncRouvyStandalone) btnSyncRouvyStandalone.addEventListener('click', syncRouvyHandler);
+
+    const btnSaveRouvyModal = document.getElementById('btn-save-rouvy-api-modal');
+    if (btnSaveRouvyModal) {
+        btnSaveRouvyModal.addEventListener('click', async () => {
+            soundSynth.playClick();
+            const email = (document.getElementById('input-rouvy-email-modal') || {}).value?.trim() || '';
+            const pass = (document.getElementById('input-rouvy-password-modal') || {}).value || '';
+            const chk = document.getElementById('chk-tool-get_rouvy_data_modal');
+
+            await self.saveKeysToServer({
+                freja_rouvy_email: email,
+                freja_rouvy_password: pass,
+                freja_tool_get_rouvy_data_allowed: String(chk ? chk.checked : false)
+            });
+
+            self.writeLog("ROUVY ACCOUNT CONFIGURATION SECURED", "sys");
+            soundSynth.playNotify();
+        });
+    }
+
+    const btnToggleRouvyPassModal = document.getElementById('btn-toggle-rouvy-password-modal');
+    const inputRouvyPassModal = document.getElementById('input-rouvy-password-modal');
+    if (btnToggleRouvyPassModal && inputRouvyPassModal) {
+        btnToggleRouvyPassModal.addEventListener('click', () => {
+            const isPassword = inputRouvyPassModal.type === 'password';
+            inputRouvyPassModal.type = isPassword ? 'text' : 'password';
+            btnToggleRouvyPassModal.innerHTML = isPassword ? '<i class="fa-solid fa-eye-slash"></i>' : '<i class="fa-solid fa-eye"></i>';
+        });
+    }
+
     const btnToggleStravaSecret = document.getElementById('btn-toggle-strava-secret');
     const inputStravaSecret = document.getElementById('input-strava-client-secret');
     if (btnToggleStravaSecret && inputStravaSecret) {
@@ -1791,6 +1852,14 @@ FrejaUIController.prototype.bindEvents = function () {
                     closePtSubModals();
                     const modalFitbit = document.getElementById('modal-fitbit');
                     if (modalFitbit) modalFitbit.classList.add('active');
+                } else if (view === 'rouvy') {
+                    if (modalTrainer) modalTrainer.classList.remove('active');
+                    closePtSubModals();
+                    const modalRouvy = document.getElementById('modal-rouvy');
+                    if (modalRouvy) modalRouvy.classList.add('active');
+                    if (typeof self.loadRouvyDashboardUI === 'function') {
+                        self.loadRouvyDashboardUI();
+                    }
                 } else if (view === 'settings') {
                     if (modalTrainerGarmin) modalTrainerGarmin.classList.remove('active');
                     if (modalTrainerWithings) modalTrainerWithings.classList.remove('active');
@@ -1800,6 +1869,15 @@ FrejaUIController.prototype.bindEvents = function () {
                 }
             });
         }
+    }
+
+    const modalRouvy = document.getElementById('modal-rouvy');
+    const btnCloseRouvy = document.getElementById('btn-close-rouvy');
+    if (modalRouvy && btnCloseRouvy) {
+        btnCloseRouvy.addEventListener('click', () => {
+            soundSynth.playClick();
+            modalRouvy.classList.remove('active');
+        });
     }
 
     // Toggle Neural Learning Modal

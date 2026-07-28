@@ -242,6 +242,8 @@ FrejaUIController.prototype.initializeUI = function() {
                 setKey('input-garmin-email', 'freja_garmin_email');
                 setKey('input-rouvy-email', 'freja_rouvy_email');
                 setKey('input-rouvy-password', 'freja_rouvy_password');
+                setKey('input-rouvy-email-modal', 'freja_rouvy_email');
+                setKey('input-rouvy-password-modal', 'freja_rouvy_password');
                 setKey('input-google-calendar-client-id', 'freja_google_calendar_client_id');
                 setKey('input-google-calendar-client-secret', 'freja_google_calendar_client_secret');
                 setKey('input-google-calendar-refresh-token', 'freja_google_calendar_refresh_token');

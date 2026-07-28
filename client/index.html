@@ -814,6 +814,74 @@
         </div>
     </div>
 
+    <!-- ROUVY INDOOR CYCLING DASHBOARD MODAL -->
+    <div class="hud-modal" id="modal-rouvy">
+        <div class="modal-content glass-morphic">
+            <div class="modal-header">
+                <h2><i class="fa-solid fa-person-biking"></i> ROUVY INDOOR CYCLING</h2>
+                <button class="modal-close" id="btn-close-rouvy">&times;</button>
+            </div>
+            <div class="modal-body" style="display: flex; flex-direction: column; gap: 15px;">
+                <!-- Profile & Metrics Cards -->
+                <div id="rouvy-dashboard-metrics" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px;">
+                    <div style="background: rgba(0, 242, 254, 0.05); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px;">
+                        <div style="font-size: 10px; color: var(--color-text-muted); font-family: var(--font-mono);">FTP WATTS</div>
+                        <div id="rouvy-dash-ftp" style="font-size: 16px; font-family: var(--font-display); color: var(--color-primary); margin-top: 4px;">-- W</div>
+                    </div>
+                    <div style="background: rgba(0, 242, 254, 0.05); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px;">
+                        <div style="font-size: 10px; color: var(--color-text-muted); font-family: var(--font-mono);">MAX PULS</div>
+                        <div id="rouvy-dash-max-hr" style="font-size: 16px; font-family: var(--font-display); color: var(--color-primary); margin-top: 4px;">-- BPM</div>
+                    </div>
+                    <div style="background: rgba(0, 242, 254, 0.05); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px;">
+                        <div style="font-size: 10px; color: var(--color-text-muted); font-family: var(--font-mono);">VIKT / LÄNGD</div>
+                        <div id="rouvy-dash-weight" style="font-size: 16px; font-family: var(--font-display); color: var(--color-primary); margin-top: 4px;">-- kg / -- cm</div>
+                    </div>
+                </div>
+
+                <!-- History List -->
+                <div class="rouvy-list-container" style="display: flex; flex-direction: column; flex: 1; min-height: 180px; max-height: 250px;">
+                    <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); margin-bottom: 8px; letter-spacing: 1px;"><i class="fa-solid fa-clock-rotate-left"></i> ROUVY PASS (SENASTE AVSLUTADE CYKELPASSEN)</h3>
+                    <div class="rouvy-list" id="rouvy-dash-list" style="flex: 1; overflow-y: auto; background: rgba(0,0,0,0.3); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px;">
+                        <div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Laddar Rouvy-pass...</div>
+                    </div>
+                </div>
+
+                <!-- Rouvy API Configuration Details -->
+                <details open class="rouvy-api-details" style="border: 1px solid var(--color-border); border-radius: 4px; background: rgba(0, 0, 0, 0.2); padding: 8px 12px;">
+                    <summary style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); cursor: pointer; user-select: none; outline: none; letter-spacing: 1px;">
+                        <i class="fa-solid fa-key" style="margin-right: 6px;"></i> ROUVY ACCOUNT SETTINGS
+                    </summary>
+                    <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 10px;">
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <label for="input-rouvy-email-modal" style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary);">Rouvy Email</label>
+                            <input type="email" id="input-rouvy-email-modal" placeholder="Enter Rouvy Email..." class="hud-input" style="height: 32px; font-size: 12px;" autocomplete="one-time-code">
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <label for="input-rouvy-password-modal" style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary);">Rouvy Password</label>
+                            <div class="input-password-container">
+                                <input type="password" id="input-rouvy-password-modal" placeholder="Enter Rouvy Password..." class="hud-input" style="height: 32px; font-size: 12px; flex: 1;" autocomplete="one-time-code">
+                                <button type="button" id="btn-toggle-rouvy-password-modal" class="btn-toggle-input" style="height: 32px;"><i class="fa-solid fa-eye"></i></button>
+                            </div>
+                        </div>
+                        <div class="settings-group-toggle" style="display: flex; justify-content: space-between; align-items: center;">
+                            <span style="font-size: 11px; color: var(--color-text-muted);">Allow Rouvy coach (get_rouvy_data)</span>
+                            <label class="hud-switch">
+                                <input type="checkbox" id="chk-tool-get_rouvy_data_modal">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                        <button id="btn-save-rouvy-api-modal" class="hud-btn btn-primary" style="height: 32px; font-family: var(--font-display); font-size: 11px; margin-top: 5px;">
+                            <i class="fa-solid fa-floppy-disk"></i> SAVE ROUVY SETTINGS
+                        </button>
+                    </div>
+                </details>
+            </div>
+            <div class="modal-footer" style="display: flex; gap: 10px;">
+                <button id="btn-sync-rouvy-dashboard-standalone" class="hud-btn btn-primary" style="flex: 1; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-arrows-rotate"></i> SYNC DEVICE</button>
+            </div>
+        </div>
+    </div>
+
     <!-- GOOGLE CALENDAR DASHBOARD MODAL -->
     <div class="hud-modal" id="modal-google-calendar">
         <div class="modal-content glass-morphic">
@@ -959,6 +1027,7 @@
                         <option value="strava">🏃 Strava</option>
                         <option value="withings">⚖️ Withings Hälsa</option>
                         <option value="fitbit">⌚ Fitbit Hälsa</option>
+                        <option value="rouvy">🚴 Rouvy Indoor Cycling</option>
                         <option value="settings">⚙️ Settings</option>
                     </select>
                 </div>
