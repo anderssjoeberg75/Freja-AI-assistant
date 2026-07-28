@@ -673,6 +673,41 @@ FrejaUIController.prototype.runTrainerCheckin = async function () {
     }
 };
 
+// Read-only coaching feedback: same briefing as the daily check-in, but built entirely
+// from whatever data is already stored. Never hits /api/trainer/checkin, so it never
+// syncs Garmin/Strava/Withings and never adjusts today's calendar session or Garmin watch.
+FrejaUIController.prototype.runTrainerFeedback = async function () {
+    this.writeLog("FEEDBACK: READING STORED DATA (NO NEW SYNC)...", "sys");
+    this.renderTrainerCheckinLoading({ mode: 'feedback' });
+
+    try {
+        const res = await fetch('/api/trainer/feedback', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({})
+        });
+
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || `HTTP ${res.status}`);
+        }
+
+        const data = await res.json();
+
+        soundSynth.playNotify();
+        this.writeLog("FEEDBACK READY", "sys");
+        // Nothing was synced or adjusted server-side, so the rest of the dashboard is
+        // already up to date - only the briefing card itself needs to render.
+        this.renderTrainerCheckinBriefing(data, { mode: 'feedback' });
+
+    } catch (e) {
+        console.error("[TRAINER] Feedback error:", e);
+        this.writeLog(`FEEDBACK ERROR: ${e.message}`, "err");
+        soundSynth.playError();
+        this.renderTrainerCheckinError(e.message || 'Okänt fel', { mode: 'feedback' });
+    }
+};
+
 // Prepend a single check-in card to the top of the Briefing / Feedback panel, keeping
 // exactly one there (loading -> result, or loading -> error) so cards never stack.
 FrejaUIController.prototype._prependCheckinCard = function (innerHtml) {
@@ -691,24 +726,28 @@ FrejaUIController.prototype._prependCheckinCard = function (innerHtml) {
     return card;
 };
 
-// A "generating..." placeholder shown the moment a check-in starts, so the panel reflects
-// that work is happening instead of looking unchanged.
-FrejaUIController.prototype.renderTrainerCheckinLoading = function () {
+// A "generating..." placeholder shown the moment a check-in/feedback starts, so the panel
+// reflects that work is happening instead of looking unchanged.
+FrejaUIController.prototype.renderTrainerCheckinLoading = function (opts) {
+    const isFeedback = (opts || {}).mode === 'feedback';
     this._prependCheckinCard(`
         <div style="display: flex; align-items: center; gap: 6px; font-family: var(--font-display); font-size: 10px; letter-spacing: 1px; color: var(--color-primary);">
-            <i class="fa-solid fa-spinner fa-spin"></i> DAGENS CHECK-IN · genererar…
+            <i class="fa-solid fa-spinner fa-spin"></i> ${isFeedback ? 'FEEDBACK' : 'DAGENS CHECK-IN'} · genererar…
         </div>
-        <div style="margin-top: 8px; color: var(--color-text-muted); font-size: 12px;">Synkar Garmin/Strava/Withings och ber coachen om dagens briefing…</div>
+        <div style="margin-top: 8px; color: var(--color-text-muted); font-size: 12px;">${isFeedback
+            ? 'Läser senaste sparade data (ingen ny synk) och ber coachen om feedback…'
+            : 'Synkar Garmin/Strava/Withings och ber coachen om dagens briefing…'}</div>
     `);
 };
 
-// A visible failure card, so a check-in error is actionable in the panel rather than only
-// in the terminal log.
-FrejaUIController.prototype.renderTrainerCheckinError = function (message) {
+// A visible failure card, so a check-in/feedback error is actionable in the panel rather
+// than only in the terminal log.
+FrejaUIController.prototype.renderTrainerCheckinError = function (message, opts) {
+    const isFeedback = (opts || {}).mode === 'feedback';
     const safe = String(message || 'Okänt fel').replace(/[<>&]/g, ch => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[ch]));
     const card = this._prependCheckinCard(`
         <div style="display: flex; align-items: center; gap: 6px; font-family: var(--font-display); font-size: 10px; letter-spacing: 1px; color: #ff3b30;">
-            <i class="fa-solid fa-triangle-exclamation"></i> CHECK-IN MISSLYCKADES
+            <i class="fa-solid fa-triangle-exclamation"></i> ${isFeedback ? 'FEEDBACK MISSLYCKADES' : 'CHECK-IN MISSLYCKADES'}
         </div>
         <div style="margin-top: 8px; font-size: 12px; color: var(--color-text);">${safe}</div>
         <div style="margin-top: 8px; font-family: var(--font-mono); font-size: 10px; color: var(--color-text-muted);">Kontrollera att backend är nåbar och att Gemini-nyckeln är satt i admin-panelen, och försök igen.</div>
@@ -716,11 +755,12 @@ FrejaUIController.prototype.renderTrainerCheckinError = function (message) {
     if (card) card.style.borderColor = 'rgba(255, 59, 48, 0.4)';
 };
 
-// Render the daily check-in briefing into the Briefing / Feedback panel. The
-// briefing card is prepended above the plan history so the latest coaching
-// feedback is what the user sees first after a check-in.
-FrejaUIController.prototype.renderTrainerCheckinBriefing = function (data) {
+// Render the daily check-in (or read-only feedback) briefing into the Briefing / Feedback
+// panel. The briefing card is prepended above the plan history so the latest coaching
+// feedback is what the user sees first.
+FrejaUIController.prototype.renderTrainerCheckinBriefing = function (data, opts) {
     if (!data) return;
+    const isFeedback = (opts || {}).mode === 'feedback';
 
     try {
         localStorage.setItem('freja_latest_checkin_data', JSON.stringify(data));
@@ -774,6 +814,7 @@ FrejaUIController.prototype.renderTrainerCheckinBriefing = function (data) {
     const labelFor = (v) => {
         if (v === 'synced') return 'synkad';
         if (v === 'timeout') return 'timeout';
+        if (v === 'skipped (feedback only, no sync)') return 'ingen synk (feedback)';
         if (typeof v === 'string' && v.startsWith('skipped')) return 'ej kopplad';
         if (typeof v === 'string' && v.startsWith('failed')) return 'fel';
         return v || '—';
@@ -1104,17 +1145,45 @@ FrejaUIController.prototype.loadGarminBenchmarksUI = async function () {
             `);
         }
 
+        // Helper: format seconds into human-readable Swedish duration (hours, minutes, seconds)
+        const formatDurationSec = (sec) => {
+            if (sec === null || sec === undefined || isNaN(sec) || Number(sec) <= 0) return '-';
+            const totalSec = Math.round(Number(sec));
+            const h = Math.floor(totalSec / 3600);
+            const m = Math.floor((totalSec % 3600) / 60);
+            const s = totalSec % 60;
+            if (h > 0) {
+                return `${h} tim ${m} min ${s > 0 ? `${s} sek` : ''}`.trim();
+            } else if (m > 0) {
+                return `${m} min ${s > 0 ? `${s} sek` : ''}`.trim();
+            }
+            return `${s} sek`;
+        };
+
+        const garminPRNames = {
+            1: '1 km',
+            2: '1 engelsk mil (1.6 km)',
+            3: '5 km',
+            4: '10 km',
+            5: 'Halvmaraton',
+            6: 'Maraton',
+            7: 'Längsta löppass',
+            8: 'Längsta cykelpass',
+            9: 'Mest stigning (cykel)',
+            10: '40 km cykling',
+            11: '100 km cykling',
+            12: '100 engelska mil cykling',
+            13: 'Längsta simning',
+            14: '100 m simning',
+            15: '1000 m simning',
+            16: '100 m sprint'
+        };
+
         // Render generic JSON keys (race_predictions_json, personal_records_json, running_tolerance_latest_json, etc.)
         const jsonBlocks = [];
-        const jsonKeyTitles = {
-            'race_predictions_json': 'RACE PREDICTIONS',
-            'personal_records_json': 'PERSONAL RECORDS',
-            'running_tolerance_latest_json': 'RUNNING TOLERANCE'
-        };
 
         for (const [key, obj] of Object.entries(data)) {
             if (key.endsWith('_json') && obj && obj.value) {
-                const title = jsonKeyTitles[key] || key.replace('_json', '').toUpperCase().replace(/_/g, ' ');
                 let parsed = null;
                 try {
                     parsed = typeof obj.value === 'string' ? JSON.parse(obj.value) : obj.value;
@@ -1122,22 +1191,113 @@ FrejaUIController.prototype.loadGarminBenchmarksUI = async function () {
                     parsed = obj.value;
                 }
 
-                let contentHtml = '';
-                if (typeof parsed === 'object' && parsed !== null) {
-                    const kvList = Array.isArray(parsed)
-                        ? parsed.map(item => `<span style="background: rgba(255,255,255,0.05); padding: 2px 6px; border-radius: 3px; border: 1px solid rgba(255,255,255,0.1);">${this.escapeHTML(typeof item === 'object' ? JSON.stringify(item) : String(item))}</span>`).join(' ')
-                        : Object.entries(parsed).map(([k, v]) => `<span style="background: rgba(255,255,255,0.05); padding: 2px 6px; border-radius: 3px; border: 1px solid rgba(255,255,255,0.1);"><strong>${this.escapeHTML(k)}:</strong> ${this.escapeHTML(typeof v === 'object' ? JSON.stringify(v) : String(v))}</span>`).join(' ');
-                    contentHtml = `<div style="display: flex; gap: 6px; flex-wrap: wrap; font-size: 10px; font-family: var(--font-mono);">${kvList}</div>`;
-                } else {
-                    contentHtml = `<span style="font-size: 11px; font-family: var(--font-mono); color: var(--color-text-bright);">${this.escapeHTML(String(parsed))}</span>`;
-                }
+                if (!parsed) continue;
 
-                jsonBlocks.push(`
-                    <div style="background: rgba(0, 0, 0, 0.2); border: 1px solid var(--color-border); border-radius: 4px; padding: 8px 10px; margin-top: 8px;">
-                        <div style="font-size: 9px; color: var(--color-primary); font-family: var(--font-display); letter-spacing: 0.5px; margin-bottom: 6px;">${title}</div>
-                        ${contentHtml}
-                    </div>
-                `);
+                if (key === 'race_predictions_json' && typeof parsed === 'object') {
+                    // Race predictions grid
+                    const predCards = [];
+                    const predLabels = {
+                        'time5K': '5 KM',
+                        'time10K': '10 KM',
+                        'timeHalfMarathon': 'HALVMARATON',
+                        'timeMarathon': 'MARATON'
+                    };
+
+                    for (const [pKey, label] of Object.entries(predLabels)) {
+                        if (parsed[pKey]) {
+                            predCards.push(`
+                                <div class="trend-metric-card" style="padding: 8px 10px; background: rgba(0, 242, 254, 0.03); border: 1px solid rgba(0, 242, 254, 0.15); border-radius: 4px; display: flex; flex-direction: column; gap: 4px;">
+                                    <span style="font-size: 9px; color: var(--color-primary); font-family: var(--font-display); letter-spacing: 0.5px;"><i class="fa-solid fa-flag-checkered" style="margin-right: 4px;"></i>${label} PREDIKTION</span>
+                                    <span style="font-size: 14px; font-weight: bold; color: var(--color-primary); font-family: var(--font-mono);">${formatDurationSec(parsed[pKey])}</span>
+                                </div>
+                            `);
+                        }
+                    }
+
+                    if (predCards.length > 0) {
+                        jsonBlocks.push(`
+                            <div style="background: rgba(0, 0, 0, 0.2); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px; margin-top: 10px;">
+                                <div style="font-size: 10px; color: var(--color-primary); font-family: var(--font-display); letter-spacing: 0.5px; margin-bottom: 8px; font-weight: bold;">
+                                    <i class="fa-solid fa-stopwatch"></i> ROPROGNOSER (RACE PREDICTIONS)
+                                </div>
+                                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px;">
+                                    ${predCards.join('')}
+                                </div>
+                            </div>
+                        `);
+                    }
+                } else if (key === 'personal_records_json' && Array.isArray(parsed)) {
+                    // Personal Records Grid
+                    const prCards = parsed.map(item => {
+                        const typeId = item.typeId || item.type_id;
+                        const labelName = (garminPRNames[typeId] || item.prTypeLabelKey || item.activityName || `Rekord #${typeId || item.id}`).toUpperCase();
+                        
+                        let valFormatted = '-';
+                        if (typeId === 7 || typeId === 8 || (item.value > 10000 && item.activityType === 'running')) {
+                            valFormatted = `${(Number(item.value) / 1000).toFixed(2)} km`;
+                        } else {
+                            valFormatted = formatDurationSec(item.value);
+                        }
+
+                        let dateStr = '';
+                        const rawDate = item.actStartDateTimeInGMTFormatted || item.activityStartDateTimeLocalFormatted || item.activityStartDateTimeGMTFormatted || '';
+                        if (rawDate) {
+                            dateStr = rawDate.split('T')[0] || rawDate.split(' ')[0] || '';
+                        }
+
+                        const activityName = item.activityName ? this.escapeHTML(item.activityName) : '';
+
+                        return `
+                            <div class="trend-metric-card" style="padding: 8px 10px; background: rgba(0, 0, 0, 0.25); border: 1px solid var(--color-border); border-radius: 4px; display: flex; flex-direction: column; gap: 4px;">
+                                <div style="display: flex; justify-content: space-between; align-items: center; gap: 6px;">
+                                    <span style="font-size: 9px; color: var(--color-primary); font-family: var(--font-display); letter-spacing: 0.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"><i class="fa-solid fa-trophy" style="margin-right: 4px; color: #ffb020;"></i>${this.escapeHTML(labelName)}</span>
+                                    ${dateStr ? `<span style="font-size: 9px; color: var(--color-text-muted); font-family: var(--font-mono); white-space: nowrap;">${this.escapeHTML(dateStr)}</span>` : ''}
+                                </div>
+                                <div style="font-size: 14px; font-weight: bold; color: var(--color-text-bright); font-family: var(--font-mono);">${valFormatted}</div>
+                                ${activityName ? `<div style="font-size: 9px; color: var(--color-text-muted); font-family: var(--font-sans); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${activityName}</div>` : ''}
+                            </div>
+                        `;
+                    });
+
+                    if (prCards.length > 0) {
+                        jsonBlocks.push(`
+                            <div style="background: rgba(0, 0, 0, 0.2); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px; margin-top: 10px;">
+                                <div style="font-size: 10px; color: var(--color-primary); font-family: var(--font-display); letter-spacing: 0.5px; margin-bottom: 8px; font-weight: bold;">
+                                    <i class="fa-solid fa-award"></i> PERSONLIGA REKORD (PERSONAL RECORDS)
+                                </div>
+                                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px;">
+                                    ${prCards.join('')}
+                                </div>
+                            </div>
+                        `);
+                    }
+                } else {
+                    // Generic fallback for any other JSON object
+                    const title = key.replace('_json', '').toUpperCase().replace(/_/g, ' ');
+                    let contentHtml = '';
+                    if (typeof parsed === 'object' && parsed !== null) {
+                        const kvList = Object.entries(parsed).map(([k, v]) => {
+                            let displayVal = typeof v === 'object' ? JSON.stringify(v) : String(v);
+                            if (typeof v === 'number' && v > 60 && (k.toLowerCase().includes('time') || k.toLowerCase().includes('duration'))) {
+                                displayVal = formatDurationSec(v);
+                            }
+                            return `<div style="background: rgba(0, 0, 0, 0.3); padding: 4px 8px; border-radius: 3px; border: 1px solid var(--color-border); display: flex; justify-content: space-between; font-size: 10px; font-family: var(--font-mono);">
+                                <span style="color: var(--color-text-muted);">${this.escapeHTML(k)}:</span>
+                                <span style="color: var(--color-primary); font-weight: bold;">${this.escapeHTML(displayVal)}</span>
+                            </div>`;
+                        }).join('');
+                        contentHtml = `<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 6px;">${kvList}</div>`;
+                    } else {
+                        contentHtml = `<span style="font-size: 11px; font-family: var(--font-mono); color: var(--color-text-bright);">${this.escapeHTML(String(parsed))}</span>`;
+                    }
+
+                    jsonBlocks.push(`
+                        <div style="background: rgba(0, 0, 0, 0.2); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px; margin-top: 10px;">
+                            <div style="font-size: 10px; color: var(--color-primary); font-family: var(--font-display); letter-spacing: 0.5px; margin-bottom: 8px;">${title}</div>
+                            ${contentHtml}
+                        </div>
+                    `);
+                }
             }
         }
 
