@@ -1653,6 +1653,34 @@ FrejaUIController.prototype.loadTrainerTrendsUI = async function () {
                </div>`;
         }
 
+        let rouvyFtpCard = '';
+        try {
+            const ftpRes = await fetch('/api/rouvy/ftp-history').catch(() => null);
+            if (ftpRes && ftpRes.ok) {
+                const ftpData = await ftpRes.json();
+                const ftpHistory = ftpData.history || [];
+                const ftpPoints = ftpHistory
+                    .filter(item => item.date && item.ftp && item.ftp > 0)
+                    .map(item => ({ date: String(item.date).slice(5, 10), value: Number(item.ftp) }));
+
+                if (ftpPoints.length >= 2) {
+                    const firstVal = ftpPoints[0].value;
+                    const lastVal = ftpPoints[ftpPoints.length - 1].value;
+                    const pctChange = firstVal ? ((lastVal - firstVal) / firstVal) * 100 : 0;
+                    rouvyFtpCard = this.buildTrendCard({
+                        label: 'ROUVY FTP PRESTANDA (WATTS)',
+                        points: ftpPoints,
+                        unit: ' W',
+                        color: '#ff6b00',
+                        changePct: pctChange,
+                        goodDirection: 'up'
+                    });
+                }
+            }
+        } catch (e) {
+            console.warn("[TRAINER] Could not fetch Rouvy FTP history for trends:", e);
+        }
+
         const hrZonesCard = this.buildWeeklyHRZoneCard(zonesData);
 
         container.innerHTML = `
@@ -1664,6 +1692,7 @@ FrejaUIController.prototype.loadTrainerTrendsUI = async function () {
                 ${weightCard}
                 ${stressCard}
             </div>
+            ${rouvyFtpCard ? `<div style="margin-top: 2px; margin-bottom: 2px;">${rouvyFtpCard}</div>` : ''}
             ${hrZonesCard}
             ${adherenceCard}
         `;
