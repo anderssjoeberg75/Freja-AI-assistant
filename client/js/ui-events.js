@@ -1722,6 +1722,7 @@ FrejaUIController.prototype.bindEvents = function () {
                     trainerViewSelect.value = 'overview';
                     self.runTrainerFeedback();
                 } else if (view === 'garmin') {
+                    if (modalTrainer) modalTrainer.classList.remove('active');
                     closePtSubModals();
                     const modalGarmin = document.getElementById('modal-garmin');
                     if (modalGarmin) modalGarmin.classList.add('active');
@@ -1731,6 +1732,7 @@ FrejaUIController.prototype.bindEvents = function () {
                         window.uiController.loadGarminDashboardUI();
                     }
                 } else if (view === 'strava') {
+                    if (modalTrainer) modalTrainer.classList.remove('active');
                     closePtSubModals();
                     const modalStrava = document.getElementById('modal-strava');
                     if (modalStrava) modalStrava.classList.add('active');
