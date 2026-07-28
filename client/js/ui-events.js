@@ -1641,11 +1641,14 @@ FrejaUIController.prototype.bindEvents = function () {
             const overviewPage = document.getElementById('trainer-page-overview');
             if (overviewPage) overviewPage.style.display = 'flex';
 
+            const modalTrainerGarmin = document.getElementById('modal-trainer-garmin');
             const modalTrainerWithings = document.getElementById('modal-trainer-withings');
             const modalTrainerSettings = document.getElementById('modal-trainer-settings');
             const currentView = trainerViewSelect ? trainerViewSelect.value : 'overview';
 
-            if (currentView === 'withings' && modalTrainerWithings) {
+            if (currentView === 'garmin' && modalTrainerGarmin) {
+                modalTrainerGarmin.classList.add('active');
+            } else if (currentView === 'withings' && modalTrainerWithings) {
                 modalTrainerWithings.classList.add('active');
             } else if (currentView === 'settings' && modalTrainerSettings) {
                 modalTrainerSettings.classList.add('active');
@@ -1658,25 +1661,36 @@ FrejaUIController.prototype.bindEvents = function () {
             }
         });
 
+        const modalTrainerGarmin = document.getElementById('modal-trainer-garmin');
         const modalTrainerWithings = document.getElementById('modal-trainer-withings');
         const modalTrainerSettings = document.getElementById('modal-trainer-settings');
+        const btnCloseTrainerGarmin = document.getElementById('btn-close-trainer-garmin');
+        const btnCloseTrainerGarminFooter = document.getElementById('btn-close-trainer-garmin-footer');
         const btnCloseTrainerWithings = document.getElementById('btn-close-trainer-withings');
         const btnCloseTrainerWithingsFooter = document.getElementById('btn-close-trainer-withings-footer');
         const btnCloseTrainerSettings = document.getElementById('btn-close-trainer-settings');
         const btnCloseTrainerSettingsFooter = document.getElementById('btn-close-trainer-settings-footer');
 
         const closePtSubModals = () => {
+            if (modalTrainerGarmin) modalTrainerGarmin.classList.remove('active');
             if (modalTrainerWithings) modalTrainerWithings.classList.remove('active');
             if (modalTrainerSettings) modalTrainerSettings.classList.remove('active');
             const trainerViewSelect = document.getElementById('trainer-view-select');
             if (trainerViewSelect) trainerViewSelect.value = 'overview';
         };
 
+        if (btnCloseTrainerGarmin) btnCloseTrainerGarmin.addEventListener('click', closePtSubModals);
+        if (btnCloseTrainerGarminFooter) btnCloseTrainerGarminFooter.addEventListener('click', closePtSubModals);
         if (btnCloseTrainerWithings) btnCloseTrainerWithings.addEventListener('click', closePtSubModals);
         if (btnCloseTrainerWithingsFooter) btnCloseTrainerWithingsFooter.addEventListener('click', closePtSubModals);
         if (btnCloseTrainerSettings) btnCloseTrainerSettings.addEventListener('click', closePtSubModals);
         if (btnCloseTrainerSettingsFooter) btnCloseTrainerSettingsFooter.addEventListener('click', closePtSubModals);
 
+        if (modalTrainerGarmin) {
+            modalTrainerGarmin.addEventListener('click', (e) => {
+                if (e.target === modalTrainerGarmin) closePtSubModals();
+            });
+        }
         if (modalTrainerWithings) {
             modalTrainerWithings.addEventListener('click', (e) => {
                 if (e.target === modalTrainerWithings) closePtSubModals();
@@ -1700,7 +1714,7 @@ FrejaUIController.prototype.bindEvents = function () {
             btnCloseTrainerFooter.addEventListener('click', closeTrainerHandler);
         }
 
-        // Dropdown menu switcher for PT Dashboard (Overview, Daily Check-In, Withings Hälsa, Settings)
+        // Dropdown menu switcher for PT Dashboard (Overview, Daily Check-In, Garmin, Withings Hälsa, Settings)
         const trainerViewSelect = document.getElementById('trainer-view-select');
         if (trainerViewSelect) {
             trainerViewSelect.addEventListener('change', (e) => {
@@ -1710,11 +1724,22 @@ FrejaUIController.prototype.bindEvents = function () {
                 if (overviewPage) overviewPage.style.display = 'flex';
 
                 if (view === 'checkin') {
+                    if (modalTrainerGarmin) modalTrainerGarmin.classList.remove('active');
                     if (modalTrainerWithings) modalTrainerWithings.classList.remove('active');
                     if (modalTrainerSettings) modalTrainerSettings.classList.remove('active');
                     trainerViewSelect.value = 'overview';
                     self.runTrainerCheckin();
+                } else if (view === 'garmin') {
+                    if (modalTrainerWithings) modalTrainerWithings.classList.remove('active');
+                    if (modalTrainerSettings) modalTrainerSettings.classList.remove('active');
+                    if (modalTrainerGarmin) modalTrainerGarmin.classList.add('active');
+                    if (typeof self.loadGarminDashboardUI === 'function') {
+                        self.loadGarminDashboardUI();
+                    } else if (window.uiController && typeof window.uiController.loadGarminDashboardUI === 'function') {
+                        window.uiController.loadGarminDashboardUI();
+                    }
                 } else if (view === 'withings') {
+                    if (modalTrainerGarmin) modalTrainerGarmin.classList.remove('active');
                     if (modalTrainerSettings) modalTrainerSettings.classList.remove('active');
                     if (modalTrainerWithings) modalTrainerWithings.classList.add('active');
                     if (typeof self.loadWithingsDashboardUI === 'function') {
@@ -1727,6 +1752,7 @@ FrejaUIController.prototype.bindEvents = function () {
                     const modalFitbit = document.getElementById('modal-fitbit');
                     if (modalFitbit) modalFitbit.classList.add('active');
                 } else if (view === 'settings') {
+                    if (modalTrainerGarmin) modalTrainerGarmin.classList.remove('active');
                     if (modalTrainerWithings) modalTrainerWithings.classList.remove('active');
                     if (modalTrainerSettings) modalTrainerSettings.classList.add('active');
                 } else {

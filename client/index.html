@@ -812,6 +812,7 @@
                     <select id="trainer-view-select" class="hud-select" style="height: 30px; font-family: var(--font-display); font-size: 11px; padding: 0 10px; border-radius: 4px; background: rgba(0, 240, 255, 0.1); color: var(--color-primary); border: 1px solid var(--color-primary); cursor: pointer; outline: none;">
                         <option value="overview">📊 Overview</option>
                         <option value="checkin">❤️ Daily Check-In</option>
+                        <option value="garmin">⌚ Garmin</option>
                         <option value="withings">⚖️ Withings Hälsa</option>
                         <option value="fitbit">⌚ Fitbit Hälsa</option>
                         <option value="settings">⚙️ Settings</option>
@@ -843,57 +844,6 @@
                     </div>
                     <div id="trainer-trends-charts" style="display: flex; flex-direction: column; gap: 12px;">
                         <div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 16px;">Loading trends...</div>
-                    </div>
-                </div>
-
-                <!-- Garmin Health Data & Daily Logs -->
-                <div class="trainer-garmin-box trainer-card-box">
-                    <span style="font-size: 11px; color: var(--color-primary); font-family: var(--font-display); letter-spacing: 0.5px;"><i class="fa-solid fa-heart-pulse"></i> GARMIN HEALTH &amp; DAILY LOGS</span>
-                    <div id="garmin-hud-cards" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-top: 5px;"></div>
-                    <div class="garmin-form" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--color-border); border-radius: 4px; padding: 12px; margin-top: 5px;">
-                        <div style="grid-column: span 2; display: flex; flex-direction: column; gap: 4px;">
-                            <label for="garmin-input-date" style="font-size: 11px; color: var(--color-text-muted);">Datum</label>
-                            <input type="date" id="garmin-input-date" class="hud-input" style="height: 32px; font-size: 12px; font-family: var(--font-mono);">
-                        </div>
-                        <div style="display: flex; flex-direction: column; gap: 4px;">
-                            <label for="garmin-input-steps" style="font-size: 11px; color: var(--color-text-muted);">Steg</label>
-                            <input type="number" id="garmin-input-steps" placeholder="t.ex. 10000" class="hud-input" style="height: 32px; font-size: 12px;">
-                        </div>
-                        <div style="display: flex; flex-direction: column; gap: 4px;">
-                            <label for="garmin-input-sleep" style="font-size: 11px; color: var(--color-text-muted);">Sleep (hours)</label>
-                            <input type="number" step="0.1" id="garmin-input-sleep" placeholder="t.ex. 7.5" class="hud-input" style="height: 32px; font-size: 12px;">
-                        </div>
-                        <div style="display: flex; flex-direction: column; gap: 4px;">
-                            <label for="garmin-input-hr" style="font-size: 11px; color: var(--color-text-muted);">Resting heart rate (BPM)</label>
-                            <input type="number" id="garmin-input-hr" placeholder="t.ex. 58" class="hud-input" style="height: 32px; font-size: 12px;">
-                        </div>
-                        <div style="display: flex; flex-direction: column; gap: 4px;">
-                            <label for="garmin-input-calories" style="font-size: 11px; color: var(--color-text-muted);">Active calories</label>
-                            <input type="number" id="garmin-input-calories" placeholder="t.ex. 400" class="hud-input" style="height: 32px; font-size: 12px;">
-                        </div>
-                        <div style="display: flex; flex-direction: column; gap: 4px;">
-                            <label for="garmin-input-workout-type" style="font-size: 11px; color: var(--color-text-muted);">Workout type</label>
-                            <input type="text" id="garmin-input-workout-type" placeholder="e.g. Löpning" class="hud-input" style="height: 32px; font-size: 12px;">
-                        </div>
-                        <div style="display: flex; flex-direction: column; gap: 4px;">
-                            <label for="garmin-input-workout-duration" style="font-size: 11px; color: var(--color-text-muted);">Tid (minuter)</label>
-                            <input type="number" id="garmin-input-workout-duration" placeholder="t.ex. 45" class="hud-input" style="height: 32px; font-size: 12px;">
-                        </div>
-                        <div style="display: flex; flex-direction: column; gap: 4px;">
-                            <label for="garmin-input-body-battery" style="font-size: 11px; color: var(--color-text-muted);">Body Battery (max)</label>
-                            <input type="number" id="garmin-input-body-battery" placeholder="t.ex. 85" class="hud-input" style="height: 32px; font-size: 12px;">
-                        </div>
-                        <div style="display: flex; flex-direction: column; gap: 4px;">
-                            <label for="garmin-input-hrv" style="font-size: 11px; color: var(--color-text-muted);">HRV (Snitt ms)</label>
-                            <input type="number" id="garmin-input-hrv" placeholder="t.ex. 65" class="hud-input" style="height: 32px; font-size: 12px;">
-                        </div>
-                        <button id="btn-save-garmin-manual" class="hud-btn btn-primary" style="grid-column: span 2; height: 34px; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-floppy-disk"></i> SAVE DAILY LOG</button>
-                    </div>
-                    <div class="garmin-list-container" style="display: flex; flex-direction: column; flex: 1; min-height: 180px; max-height: 250px; margin-top: 8px;">
-                        <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); margin-bottom: 8px; letter-spacing: 1px;">HISTORY (LASTASTE 10 DAGARNA)</h3>
-                        <div class="garmin-list" id="garmin-list" style="flex: 1; overflow-y: auto; background: rgba(0,0,0,0.3); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px;">
-                            <div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Loading history...</div>
-                        </div>
                     </div>
                 </div>
 
@@ -1117,6 +1067,72 @@
             <div class="modal-footer" style="display: flex; flex-direction: column; gap: 10px;">
                 <button id="btn-refresh-trainer" class="hud-btn btn-primary" style="width: 100%; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-arrows-rotate"></i> REFRESH HISTORY</button>
                 <button id="btn-close-trainer-footer" class="hud-btn btn-secondary" style="width: 100%; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-xmark"></i> CLOSE</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- PT SUB-MODAL: GARMIN HÄLSA -->
+    <div class="hud-modal pt-sub-modal" id="modal-trainer-garmin">
+        <div class="modal-content glass-morphic" style="max-width: 650px;">
+            <div class="modal-header">
+                <h2><i class="fa-solid fa-heart-pulse"></i> GARMIN HÄLSA &amp; DAILY LOGS</h2>
+                <button class="modal-close" id="btn-close-trainer-garmin">&times;</button>
+            </div>
+            <div class="modal-body" style="display: flex; flex-direction: column; gap: 15px; padding: 15px;">
+                <div id="trainer-page-garmin" class="trainer-page-view" style="display: flex; flex-direction: column; width: 100%; gap: 15px;">
+                    <div class="trainer-garmin-box trainer-card-box" style="width: 100%;">
+                        <span style="font-size: 11px; color: var(--color-primary); font-family: var(--font-display); letter-spacing: 0.5px;"><i class="fa-solid fa-heart-pulse"></i> GARMIN HEALTH &amp; DAILY LOGS</span>
+                        <div id="garmin-hud-cards" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-top: 5px;"></div>
+                        <div class="garmin-form" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--color-border); border-radius: 4px; padding: 12px; margin-top: 5px;">
+                            <div style="grid-column: span 2; display: flex; flex-direction: column; gap: 4px;">
+                                <label for="garmin-input-date" style="font-size: 11px; color: var(--color-text-muted);">Datum</label>
+                                <input type="date" id="garmin-input-date" class="hud-input" style="height: 32px; font-size: 12px; font-family: var(--font-mono);">
+                            </div>
+                            <div style="display: flex; flex-direction: column; gap: 4px;">
+                                <label for="garmin-input-steps" style="font-size: 11px; color: var(--color-text-muted);">Steg</label>
+                                <input type="number" id="garmin-input-steps" placeholder="t.ex. 10000" class="hud-input" style="height: 32px; font-size: 12px;">
+                            </div>
+                            <div style="display: flex; flex-direction: column; gap: 4px;">
+                                <label for="garmin-input-sleep" style="font-size: 11px; color: var(--color-text-muted);">Sleep (hours)</label>
+                                <input type="number" step="0.1" id="garmin-input-sleep" placeholder="t.ex. 7.5" class="hud-input" style="height: 32px; font-size: 12px;">
+                            </div>
+                            <div style="display: flex; flex-direction: column; gap: 4px;">
+                                <label for="garmin-input-hr" style="font-size: 11px; color: var(--color-text-muted);">Resting heart rate (BPM)</label>
+                                <input type="number" id="garmin-input-hr" placeholder="t.ex. 58" class="hud-input" style="height: 32px; font-size: 12px;">
+                            </div>
+                            <div style="display: flex; flex-direction: column; gap: 4px;">
+                                <label for="garmin-input-calories" style="font-size: 11px; color: var(--color-text-muted);">Active calories</label>
+                                <input type="number" id="garmin-input-calories" placeholder="t.ex. 400" class="hud-input" style="height: 32px; font-size: 12px;">
+                            </div>
+                            <div style="display: flex; flex-direction: column; gap: 4px;">
+                                <label for="garmin-input-workout-type" style="font-size: 11px; color: var(--color-text-muted);">Workout type</label>
+                                <input type="text" id="garmin-input-workout-type" placeholder="e.g. Löpning" class="hud-input" style="height: 32px; font-size: 12px;">
+                            </div>
+                            <div style="display: flex; flex-direction: column; gap: 4px;">
+                                <label for="garmin-input-workout-duration" style="font-size: 11px; color: var(--color-text-muted);">Tid (minuter)</label>
+                                <input type="number" id="garmin-input-workout-duration" placeholder="t.ex. 45" class="hud-input" style="height: 32px; font-size: 12px;">
+                            </div>
+                            <div style="display: flex; flex-direction: column; gap: 4px;">
+                                <label for="garmin-input-body-battery" style="font-size: 11px; color: var(--color-text-muted);">Body Battery (max)</label>
+                                <input type="number" id="garmin-input-body-battery" placeholder="t.ex. 85" class="hud-input" style="height: 32px; font-size: 12px;">
+                            </div>
+                            <div style="display: flex; flex-direction: column; gap: 4px;">
+                                <label for="garmin-input-hrv" style="font-size: 11px; color: var(--color-text-muted);">HRV (Snitt ms)</label>
+                                <input type="number" id="garmin-input-hrv" placeholder="t.ex. 65" class="hud-input" style="height: 32px; font-size: 12px;">
+                            </div>
+                            <button id="btn-save-garmin-manual" class="hud-btn btn-primary" style="grid-column: span 2; height: 34px; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-floppy-disk"></i> SAVE DAILY LOG</button>
+                        </div>
+                        <div class="garmin-list-container" style="display: flex; flex-direction: column; flex: 1; min-height: 180px; max-height: 250px; margin-top: 8px;">
+                            <h3 style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); margin-bottom: 8px; letter-spacing: 1px;">HISTORY (LASTASTE 10 DAGARNA)</h3>
+                            <div class="garmin-list" id="garmin-list" style="flex: 1; overflow-y: auto; background: rgba(0,0,0,0.3); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px;">
+                                <div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">Loading history...</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer" style="display: flex; justify-content: flex-end;">
+                <button id="btn-close-trainer-garmin-footer" class="hud-btn btn-secondary" style="font-family: var(--font-display); font-size: 11px; padding: 0 15px; height: 32px;"><i class="fa-solid fa-xmark"></i> CLOSE</button>
             </div>
         </div>
     </div>
