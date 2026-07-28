@@ -233,6 +233,52 @@ FrejaUIController.prototype.bindEvents = function () {
         });
     }
 
+    // GitHub Code Update & Server Restart Button
+    const btnUpdateGithub = document.getElementById('btn-update-github');
+    if (btnUpdateGithub) {
+        btnUpdateGithub.addEventListener('click', async () => {
+            soundSynth.playClick();
+            if (!confirm("Hämta senaste koden från GitHub (git pull) och starta om servern?")) {
+                return;
+            }
+
+            self.writeLog("HÄMTAR SENASTE KOD FRÅN GITHUB (GIT PULL)...", "sys");
+            btnUpdateGithub.disabled = true;
+            btnUpdateGithub.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+
+            try {
+                const token = localStorage.getItem('freja_access_token') || "";
+                const headers = { 'Content-Type': 'application/json' };
+                if (token) headers['X-Freja-Token'] = token;
+
+                const res = await fetch('/api/system/update', {
+                    method: 'POST',
+                    headers: headers
+                });
+
+                const data = await res.json().catch(() => ({}));
+                if (res.ok && data.status === 'success') {
+                    self.writeLog(`KODUPPDATERING LYCKADES: ${data.message || 'Servern startar om...'}`, "sys");
+                    soundSynth.playNotify();
+                    self.pollClientRestart();
+                } else {
+                    const msg = data.detail || data.message || res.statusText || 'Gick inte att hämta koden';
+                    self.writeLog(`FEL VID KODHÄMTNING: ${msg}`, "err");
+                    soundSynth.playError();
+                    alert(`Fel vid kodhämtning: ${msg}${data.log ? '\n\nLogg:\n' + data.log : ''}`);
+                    btnUpdateGithub.disabled = false;
+                    btnUpdateGithub.innerHTML = '<i class="fa-brands fa-github"></i>';
+                }
+            } catch (err) {
+                self.writeLog(`NÄTVERKSFEL VID KODHÄMTNING: ${err.message}`, "err");
+                soundSynth.playError();
+                alert(`Nätverksfel vid kodhämtning: ${err.message}`);
+                btnUpdateGithub.disabled = false;
+                btnUpdateGithub.innerHTML = '<i class="fa-brands fa-github"></i>';
+            }
+        });
+    }
+
     // Open settings modal
     const btnSettings = document.getElementById('btn-settings');
     const modalSettings = document.getElementById('modal-settings');
