@@ -824,13 +824,13 @@ FrejaUIController.prototype.renderTrainerCheckinBriefing = function (data, opts)
         .map(([name, v]) => `${syncIcon[v] || '➖'} ${name}: ${labelFor(v)}`);
     const syncLine = syncParts.length
         ? `<div style="margin-top: 8px; font-family: var(--font-mono); font-size: 10px; color: var(--color-text-muted);">
-             <i class="fa-solid fa-arrows-rotate"></i> Färsk data · ${syncParts.join('  ·  ')}
+             <i class="fa-solid fa-arrows-rotate"></i> ${isFeedback ? 'Data' : 'Färsk data'} · ${syncParts.join('  ·  ')}
            </div>`
         : '';
 
     this._prependCheckinCard(`
         <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 8px; font-family: var(--font-display); font-size: 10px; letter-spacing: 1px; color: var(--color-primary);">
-            <i class="fa-solid fa-heart-pulse"></i> DAGENS CHECK-IN${data.date ? ` · ${data.date}` : ''}
+            <i class="fa-solid ${isFeedback ? 'fa-comment-medical' : 'fa-heart-pulse'}"></i> ${isFeedback ? 'FEEDBACK' : 'DAGENS CHECK-IN'}${data.date ? ` · ${data.date}` : ''}
         </div>
         <div class="trainer-briefing">${briefingHtml}</div>
         <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px;">${badges.join('')}</div>
@@ -1078,18 +1078,18 @@ FrejaUIController.prototype.loadInjuryLogUI = async function () {
 };
 
 FrejaUIController.prototype.loadGarminBenchmarksUI = async function () {
-    const container = document.getElementById('trainer-benchmarks-container');
-    if (!container) return;
+    const containers = document.querySelectorAll('#trainer-benchmarks-container, #garmin-benchmarks-modal-container, .garmin-benchmarks-container');
+    if (containers.length === 0) return;
 
     try {
         const res = await fetch('/api/garmin/benchmarks');
         if (!res.ok) {
-            container.style.display = 'none';
+            containers.forEach(c => c.style.display = 'none');
             return;
         }
         const data = await res.json();
         if (!data || typeof data !== 'object' || Object.keys(data).length === 0) {
-            container.style.display = 'none';
+            containers.forEach(c => c.style.display = 'none');
             return;
         }
 
@@ -1302,23 +1302,25 @@ FrejaUIController.prototype.loadGarminBenchmarksUI = async function () {
         }
 
         if (items.length === 0 && jsonBlocks.length === 0) {
-            container.style.display = 'none';
+            containers.forEach(c => c.style.display = 'none');
             return;
         }
 
-        container.style.display = 'block';
-        container.innerHTML = `
-            <div class="trainer-card-box" style="padding: 12px; background: rgba(0, 242, 254, 0.02); border: 1px solid rgba(0, 242, 254, 0.15); border-radius: 6px;">
-                <div style="font-size: 10px; color: var(--color-primary); font-family: var(--font-display); letter-spacing: 0.5px; margin-bottom: 10px; font-weight: bold;">
-                    <i class="fa-solid fa-gauge-high"></i> GARMIN BENCHMARKS & REKORD
+        containers.forEach(c => {
+            c.style.display = 'block';
+            c.innerHTML = `
+                <div class="trainer-card-box" style="padding: 12px; background: rgba(0, 242, 254, 0.02); border: 1px solid rgba(0, 242, 254, 0.15); border-radius: 6px;">
+                    <div style="font-size: 10px; color: var(--color-primary); font-family: var(--font-display); letter-spacing: 0.5px; margin-bottom: 10px; font-weight: bold;">
+                        <i class="fa-solid fa-gauge-high"></i> GARMIN BENCHMARKS & REKORD
+                    </div>
+                    ${items.length > 0 ? `<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px;">${items.join('')}</div>` : ''}
+                    ${jsonBlocks.join('')}
                 </div>
-                ${items.length > 0 ? `<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px;">${items.join('')}</div>` : ''}
-                ${jsonBlocks.join('')}
-            </div>
-        `;
+            `;
+        });
     } catch (e) {
         console.warn('[BENCHMARKS] Error loading Garmin benchmarks:', e);
-        container.style.display = 'none';
+        containers.forEach(c => c.style.display = 'none');
     }
 };
 
@@ -2108,6 +2110,7 @@ FrejaUIController.prototype.renderTrainerPlanDetails = function (planId, adviceT
 
 FrejaUIController.prototype.loadGarminDashboardUI = async function () {
     this.updateGarminStatusUI();
+    this.loadGarminBenchmarksUI();
     const garminList = document.getElementById('garmin-list');
     if (!garminList) return;
 

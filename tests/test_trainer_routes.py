@@ -178,6 +178,69 @@ def test_trainer_checkin_skips_sync_without_credentials(auth_headers, monkeypatc
     assert all(v == "skipped (no credentials)" for v in sync.values())
 
 
+def test_trainer_feedback_never_syncs(auth_headers, monkeypatch):
+    """/api/trainer/feedback must brief from whatever is already stored - it must NEVER
+    call the Garmin/Strava/Withings refresh that /api/trainer/checkin runs first."""
+    monkeypatch.setattr(trainer_module.checkin, "get_api_key", lambda name: "MOCK_GEMINI_KEY")
+
+    async def fail_if_called(days=trainer_module.CHECKIN_SYNC_DAYS):
+        raise AssertionError("refresh_health_sources_for_checkin must not be called by /api/trainer/feedback")
+    monkeypatch.setattr(trainer_module.checkin, "refresh_health_sources_for_checkin", fail_if_called)
+
+    async def fake_weather(location="Stockholm"):
+        return f"Väderprognos för {location}: idag klart, 15°C."
+    monkeypatch.setattr(trainer_module.checkin, "fetch_7day_weather_forecast", fake_weather)
+
+    checkin_obj = {
+        "sleep_summary": "s", "recovery_summary": "r", "yesterday_status": "y",
+        "todays_plan": "p", "recommendation": "rec", "adjust_workout": False,
+        "health_tip": "Drick vatten.", "closing_question": "q", "briefing": "**Feedback!**",
+    }
+    monkeypatch.setattr(trainer_module.checkin.llm_client, "generate_json", _fake_llm_json(checkin_obj))
+    client = TestClient(app)
+
+    response = client.post("/api/trainer/feedback", json={}, headers=auth_headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert data.get("status") == "success"
+    assert data.get("checkin", {}).get("briefing")
+    assert data.get("calendar_updated") is False
+    sync = data.get("sync", {})
+    assert set(sync.keys()) == {"garmin", "strava", "withings"}
+    assert all(v == trainer_module.checkin.FEEDBACK_ONLY_SYNC_STATUS for v in sync.values())
+
+
+def test_trainer_feedback_never_adjusts_calendar_even_if_recommended(auth_headers, monkeypatch):
+    """Even if the coach's answer recommends adjusting today's session, the read-only
+    feedback endpoint must never touch the calendar or a pushed Garmin workout - only
+    /api/trainer/checkin is allowed to act on that recommendation."""
+    monkeypatch.setattr(trainer_module.checkin, "get_api_key", lambda name: "MOCK_GEMINI_KEY")
+
+    async def fake_weather(location="Stockholm"):
+        return f"Väderprognos för {location}: idag klart, 15°C."
+    monkeypatch.setattr(trainer_module.checkin, "fetch_7day_weather_forecast", fake_weather)
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("core_save_calendar_event must not be called by /api/trainer/feedback")
+    import backend.routes.google_calendar as gcal_module
+    monkeypatch.setattr(gcal_module, "core_save_calendar_event", fail_if_called)
+
+    checkin_obj = {
+        "sleep_summary": "s", "recovery_summary": "r", "yesterday_status": "y",
+        "todays_plan": "p", "recommendation": "rec", "adjust_workout": True,
+        "adjusted_duration_minutes": 20, "health_tip": "Vila mer.",
+        "closing_question": "q", "briefing": "**Kortare pass idag.**",
+    }
+    monkeypatch.setattr(trainer_module.checkin.llm_client, "generate_json", _fake_llm_json(checkin_obj))
+    client = TestClient(app)
+
+    response = client.post("/api/trainer/feedback", json={}, headers=auth_headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert data.get("calendar_updated") is False
+    assert data.get("checkin", {}).get("adjust_workout") is True
+
+
 def test_refresh_health_sources_reports_per_provider(monkeypatch):
     # Each provider's sync helper is stubbed; refresh_health_sources_for_checkin must run
     # them concurrently and return one status per provider.

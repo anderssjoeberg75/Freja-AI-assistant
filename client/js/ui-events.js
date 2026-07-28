@@ -1716,6 +1716,11 @@ FrejaUIController.prototype.bindEvents = function () {
                     if (modalTrainerSettings) modalTrainerSettings.classList.remove('active');
                     trainerViewSelect.value = 'overview';
                     self.runTrainerCheckin();
+                } else if (view === 'feedback') {
+                    if (modalTrainerWithings) modalTrainerWithings.classList.remove('active');
+                    if (modalTrainerSettings) modalTrainerSettings.classList.remove('active');
+                    trainerViewSelect.value = 'overview';
+                    self.runTrainerFeedback();
                 } else if (view === 'garmin') {
                     closePtSubModals();
                     const modalGarmin = document.getElementById('modal-garmin');
