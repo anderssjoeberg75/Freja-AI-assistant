@@ -653,9 +653,13 @@ FrejaUIController.prototype.bindEvents = function () {
     }
 
     // Rouvy Sync trigger
-    const syncRouvyHandler = async () => {
+    const syncRouvyHandler = async (days = 30) => {
         soundSynth.playClick();
-        self.writeLog("INITIATING ROUVY DATA SYNC...", "sys");
+        if (days >= 365) {
+            self.writeLog("INITIATING ROUVY HISTORICAL SYNCHRONIZATION (ALL HISTORY)...", "sys");
+        } else {
+            self.writeLog("INITIATING ROUVY DATA SYNC...", "sys");
+        }
 
         const { email, pass, chk } = getRouvyCredentials();
 
@@ -672,7 +676,7 @@ FrejaUIController.prototype.bindEvents = function () {
         }
 
         try {
-            const res = await fetch('/api/rouvy/sync');
+            const res = await fetch(`/api/rouvy/sync?days=${days}`);
             const resData = await res.json().catch(() => ({}));
             if (res.ok && resData.status === 'syncing') {
                 self.writeLog("ROUVY SYNC STARTED IN BACKGROUND", "sys");
@@ -691,10 +695,13 @@ FrejaUIController.prototype.bindEvents = function () {
     };
 
     const btnSyncRouvyDash = document.getElementById('btn-sync-rouvy-dashboard');
-    if (btnSyncRouvyDash) btnSyncRouvyDash.addEventListener('click', syncRouvyHandler);
+    if (btnSyncRouvyDash) btnSyncRouvyDash.addEventListener('click', () => syncRouvyHandler(30));
 
     const btnSyncRouvyStandalone = document.getElementById('btn-sync-rouvy-dashboard-standalone');
-    if (btnSyncRouvyStandalone) btnSyncRouvyStandalone.addEventListener('click', syncRouvyHandler);
+    if (btnSyncRouvyStandalone) btnSyncRouvyStandalone.addEventListener('click', () => syncRouvyHandler(30));
+
+    const btnSyncRouvyAll = document.getElementById('btn-sync-rouvy-all');
+    if (btnSyncRouvyAll) btnSyncRouvyAll.addEventListener('click', () => syncRouvyHandler(365));
 
     const btnToggleRouvyPassModal = document.getElementById('btn-toggle-rouvy-password-modal');
     const inputRouvyPassModal = document.getElementById('input-rouvy-password-modal');

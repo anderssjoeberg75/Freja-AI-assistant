@@ -82,7 +82,7 @@ def init_rouvy_db():
 init_rouvy_db()
 
 
-def run_rouvy_sync_task_blocking(email: str, password: str):
+def run_rouvy_sync_task_blocking(email: str, password: str, days: int = 30):
     """Synchronous background sync for Rouvy profile, activities, zones & career."""
     if not email or not password:
         set_sync_state("rouvy", "auth_required", "Credentials missing")
@@ -223,8 +223,8 @@ async def get_rouvy_sync(background_tasks: BackgroundTasks, days: int = Query(30
         raise HTTPException(status_code=400, detail="Rouvy credentials missing. Set freja_rouvy_email and freja_rouvy_password in Settings.")
 
     set_sync_state("rouvy", "syncing")
-    background_tasks.add_task(run_rouvy_sync_task_blocking, email, password)
-    return {"status": "syncing", "message": "Rouvy sync started in background."}
+    background_tasks.add_task(run_rouvy_sync_task_blocking, email, password, days)
+    return {"status": "syncing", "message": f"Rouvy sync ({days} days) started in background."}
 
 
 @router.get("/api/rouvy/profile")
