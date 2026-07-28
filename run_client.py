@@ -37,6 +37,7 @@ LLM_PATH_PREFIXES = (
     "/api/trainer/onboarding",
     "/api/trainer/generate",
     "/api/trainer/checkin",
+    "/api/trainer/feedback",
     "/api/trainer/optimize",
     "/api/gemini/",
     "/api/chat",

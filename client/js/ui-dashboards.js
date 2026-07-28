@@ -681,11 +681,20 @@ FrejaUIController.prototype.runTrainerFeedback = async function () {
     this.renderTrainerCheckinLoading({ mode: 'feedback' });
 
     try {
-        const res = await fetch('/api/trainer/feedback', {
+        let res = await fetch('/api/trainer/feedback', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({})
         });
+
+        if (res.status === 404) {
+            this.writeLog("FEEDBACK ENDPOINT 404, FALLING BACK TO CHECKIN...", "sys");
+            res = await fetch('/api/trainer/checkin', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({})
+            });
+        }
 
         if (!res.ok) {
             const err = await res.json().catch(() => ({}));
