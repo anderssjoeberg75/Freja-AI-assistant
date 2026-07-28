@@ -303,6 +303,15 @@ Rules for the briefing:
   [REMAINING PLANNED SESSIONS THIS WEEK]: what is coming up and any early adjustment recovery suggests.
   If nothing is booked for the rest of the week, say so and suggest what to add.
 - If yesterday's session was NOT completed: no guilt - suggest shifting it naturally if needed.
+- If [TODAY'S PLANNED WORKOUT] says nothing is booked, do NOT just state that. Propose a concrete
+  session for today instead (type, duration, target intensity/pace/HR zone or RPE) that fits today's
+  recovery status and this week's plan - as specific as if it were actually booked.
+- When describing today's session (booked or proposed), give concrete practical guidance, not just the
+  session name: rough duration, intensity (pace/HR zone/RPE), and a short warm-up/cool-down note where relevant.
+- Always include ONE concrete, actionable health tip for today, grounded in the actual data above (e.g.
+  hydration/electrolytes if sleep or HRV was poor, protein/carb timing around the session, mobility or
+  stretching focused on an active injury area, or a sleep-hygiene tip if last night was short). Never a
+  generic "drink water and sleep well" that ignores what the data actually shows.
 - If today's session is outdoors and bad weather (heavy rain, snow, thunderstorms, storms) is expected:
   suggest indoor training or rest.
 - Take other calendar commitments into account, since they affect available energy and time today.
@@ -323,16 +332,17 @@ Rules for the briefing:
                 "sleep_summary": {"type": "STRING", "description": "Short summary of last night's sleep, in Swedish."},
                 "recovery_summary": {"type": "STRING", "description": "Assessment of resting HR, HRV and Body Battery/recovery, in Swedish."},
                 "yesterday_status": {"type": "STRING", "description": "Whether yesterday's session was completed or missed, without blame. In Swedish."},
-                "todays_plan": {"type": "STRING", "description": "Today's planned workout in plain language, in Swedish."},
-                "recommendation": {"type": "STRING", "description": "The coach's recommendation: keep, lower or raise the intensity, with a short rationale, tied to how today's session fits the plan. In Swedish."},
+                "todays_plan": {"type": "STRING", "description": "Today's session in concrete practical terms: type, duration and target intensity/pace/HR zone or RPE. If no workout is booked in the calendar, propose a concrete session that fits recovery status and this week's plan instead of just saying nothing is booked. In Swedish."},
+                "recommendation": {"type": "STRING", "description": "The coach's recommendation: keep, lower or raise the intensity, with a short rationale, tied to how today's session fits the plan. Give concrete guidance (pace/HR zone/RPE) where relevant, not just 'take it easy'. In Swedish."},
                 "adjust_workout": {"type": "BOOLEAN", "description": "true if today's session should be adjusted compared with what is booked in the calendar."},
                 "adjusted_duration_minutes": {"type": "INTEGER", "description": "New length in minutes for today's session if adjust_workout=true (0 = rest). Omitted/0 if no adjustment."},
+                "health_tip": {"type": "STRING", "description": "ONE concrete, actionable health tip for today grounded in the actual data above (hydration/electrolytes, nutrition/fueling timing, mobility/stretching for an active injury area, or sleep hygiene) - not generic advice unrelated to today's data. In Swedish."},
                 "weather_note": {"type": "STRING", "description": "Short weather comment relevant to today's session (empty string if not relevant). In Swedish."},
                 "week_outlook": {"type": "STRING", "description": "A short 1-2 sentence outlook on the remaining planned sessions this week and any early adjustment recovery suggests. In Swedish."},
                 "closing_question": {"type": "STRING", "description": "A clear closing question or action for the user, in Swedish."},
-                "briefing": {"type": "STRING", "description": "Finished short briefing in markdown, ready to display directly to the user. Must cover how today's session fits the plan, how recovery looks, and the outlook for the rest of the week. In Swedish."}
+                "briefing": {"type": "STRING", "description": "Finished short briefing in markdown, ready to display directly to the user. Must cover how today's session fits the plan (or a concrete proposed session if none is booked), how recovery looks, the health tip, and the outlook for the rest of the week. In Swedish."}
             },
-            "required": ["sleep_summary", "recovery_summary", "yesterday_status", "todays_plan", "recommendation", "adjust_workout", "closing_question", "briefing"]
+            "required": ["sleep_summary", "recovery_summary", "yesterday_status", "todays_plan", "recommendation", "adjust_workout", "health_tip", "closing_question", "briefing"]
         }
         briefing_data = await llm_client.generate_json(
             prompt_content, schema, temperature=0.3, max_tokens=2500, timeout=GEMINI_TIMEOUT_SECONDS

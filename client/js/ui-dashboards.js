@@ -734,7 +734,7 @@ FrejaUIController.prototype.renderTrainerCheckinBriefing = function (data) {
     let briefingMd = (c.briefing || '').trim();
     if (!briefingMd) {
         briefingMd = [c.sleep_summary, c.recovery_summary, c.yesterday_status,
-                      c.todays_plan, c.recommendation, c.weather_note, c.week_outlook, c.closing_question]
+                      c.todays_plan, c.recommendation, c.health_tip, c.weather_note, c.week_outlook, c.closing_question]
             .filter(s => s && String(s).trim()).join('\n\n');
     }
     if (!briefingMd) briefingMd = 'Ingen briefing genererades.';
@@ -1965,17 +1965,16 @@ FrejaUIController.prototype.loadGarminDashboardUI = async function () {
         if (!res.ok) throw new Error(`HTTP error ${res.status}`);
 
         const logs = await res.json();
-        const cardsContainer = document.getElementById('garmin-hud-cards');
+        const cardContainers = document.querySelectorAll('#garmin-hud-cards, #garmin-hud-cards-overview, .garmin-hud-cards-container');
 
         if (logs.length === 0) {
             garminList.innerHTML = '<div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[NO HEALTH LOGS FOUND]</div>';
-            if (cardsContainer) cardsContainer.innerHTML = '';
+            cardContainers.forEach(container => container.innerHTML = '');
             return;
         }
 
         // Render summary HUD cards (Body Battery & Training Readiness)
-        if (cardsContainer) {
-            cardsContainer.innerHTML = '';
+        if (cardContainers.length > 0) {
             const latestEntry = logs.find(l => (l.body_battery !== null && l.body_battery !== undefined) || (l.training_readiness !== null && l.training_readiness !== undefined)) || logs[0];
 
             let cardsHtml = '';
@@ -2022,7 +2021,7 @@ FrejaUIController.prototype.loadGarminDashboardUI = async function () {
                 `;
             }
 
-            cardsContainer.innerHTML = cardsHtml;
+            cardContainers.forEach(container => { container.innerHTML = cardsHtml; });
         }
 
         garminList.innerHTML = "";
