@@ -574,33 +574,73 @@ FrejaUIController.prototype.bindEvents = function () {
         });
     }
 
+    // Bi-directional input sync between main HUD settings and Rouvy standalone modal
+    const syncRouvyInputs = (idA, idB) => {
+        const a = document.getElementById(idA);
+        const b = document.getElementById(idB);
+        if (a && b) {
+            a.addEventListener('input', () => { b.value = a.value; });
+            a.addEventListener('change', () => { b.value = a.value; });
+            b.addEventListener('input', () => { a.value = b.value; });
+            b.addEventListener('change', () => { a.value = b.value; });
+        }
+    };
+    syncRouvyInputs('input-rouvy-email', 'input-rouvy-email-modal');
+    syncRouvyInputs('input-rouvy-password', 'input-rouvy-password-modal');
+
+    const getRouvyCredentials = () => {
+        const eMain = document.getElementById('input-rouvy-email')?.value?.trim() || '';
+        const eModal = document.getElementById('input-rouvy-email-modal')?.value?.trim() || '';
+        const pMain = document.getElementById('input-rouvy-password')?.value || '';
+        const pModal = document.getElementById('input-rouvy-password-modal')?.value || '';
+        const cMain = document.getElementById('chk-tool-get_rouvy_data');
+        const cModal = document.getElementById('chk-tool-get_rouvy_data_modal');
+
+        const modalEl = document.getElementById('modal-rouvy');
+        const isModalActive = modalEl && (modalEl.style.display === 'flex' || modalEl.style.display === 'block');
+
+        const email = isModalActive ? (eModal || eMain) : (eMain || eModal);
+        const pass = isModalActive ? (pModal || pMain) : (pMain || pModal);
+        const chk = isModalActive ? (cModal ? cModal.checked : (cMain ? cMain.checked : false)) : (cMain ? cMain.checked : (cModal ? cModal.checked : false));
+
+        return { email, pass, chk };
+    };
+
     // Save Rouvy account/permission settings
-    const btnSaveRouvyApi = document.getElementById('btn-save-rouvy-api');
-    if (btnSaveRouvyApi) {
-        btnSaveRouvyApi.addEventListener('click', async () => {
-            soundSynth.playClick();
+    const saveRouvyHandler = async () => {
+        soundSynth.playClick();
 
-            const rouvyEmail = document.getElementById('input-rouvy-email').value.trim();
-            const rouvyPassword = document.getElementById('input-rouvy-password').value;
+        const { email, pass, chk } = getRouvyCredentials();
 
-            localStorage.setItem("freja_rouvy_email", rouvyEmail);
-            localStorage.setItem("freja_rouvy_password", rouvyPassword);
+        localStorage.setItem("freja_rouvy_email", email);
+        localStorage.setItem("freja_rouvy_password", pass);
+        localStorage.setItem("freja_tool_get_rouvy_data_allowed", String(chk));
 
-            const chkRouvy = document.getElementById('chk-tool-get_rouvy_data');
-            if (chkRouvy) {
-                localStorage.setItem("freja_tool_get_rouvy_data_allowed", chkRouvy.checked);
-            }
+        // Sync values to both DOM inputs
+        const eM = document.getElementById('input-rouvy-email');
+        const eMod = document.getElementById('input-rouvy-email-modal');
+        const pM = document.getElementById('input-rouvy-password');
+        const pMod = document.getElementById('input-rouvy-password-modal');
+        if (eM) eM.value = email;
+        if (eMod) eMod.value = email;
+        if (pM) pM.value = pass;
+        if (pMod) pMod.value = pass;
 
-            await self.saveKeysToServer({
-                freja_rouvy_email: rouvyEmail,
-                freja_rouvy_password: rouvyPassword,
-                freja_tool_get_rouvy_data_allowed: String(chkRouvy ? chkRouvy.checked : false)
-            });
-
-            self.writeLog("ROUVY ACCOUNT CONFIGURATION SECURED", "sys");
-            soundSynth.playNotify();
+        await self.saveKeysToServer({
+            freja_rouvy_email: email,
+            freja_rouvy_password: pass,
+            freja_tool_get_rouvy_data_allowed: String(chk)
         });
-    }
+
+        self.writeLog("ROUVY ACCOUNT CONFIGURATION SECURED", "sys");
+        soundSynth.playNotify();
+    };
+
+    const btnSaveRouvyApi = document.getElementById('btn-save-rouvy-api');
+    if (btnSaveRouvyApi) btnSaveRouvyApi.addEventListener('click', saveRouvyHandler);
+
+    const btnSaveRouvyModal = document.getElementById('btn-save-rouvy-api-modal');
+    if (btnSaveRouvyModal) btnSaveRouvyModal.addEventListener('click', saveRouvyHandler);
 
     const btnToggleRouvyPass = document.getElementById('btn-toggle-rouvy-password');
     const inputRouvyPass = document.getElementById('input-rouvy-password');
@@ -617,20 +657,14 @@ FrejaUIController.prototype.bindEvents = function () {
         soundSynth.playClick();
         self.writeLog("INITIATING ROUVY DATA SYNC...", "sys");
 
-        // Auto-save credentials from input fields if user typed them in
-        const emailInput = document.getElementById('input-rouvy-email') || document.getElementById('input-rouvy-email-modal');
-        const passInput = document.getElementById('input-rouvy-password') || document.getElementById('input-rouvy-password-modal');
-        const chkInput = document.getElementById('chk-tool-get_rouvy_data') || document.getElementById('chk-tool-get_rouvy_data_modal');
-
-        const email = emailInput ? emailInput.value.trim() : '';
-        const pass = passInput ? passInput.value : '';
+        const { email, pass, chk } = getRouvyCredentials();
 
         if (email && pass) {
             try {
                 await self.saveKeysToServer({
                     freja_rouvy_email: email,
                     freja_rouvy_password: pass,
-                    freja_tool_get_rouvy_data_allowed: String(chkInput ? chkInput.checked : false)
+                    freja_tool_get_rouvy_data_allowed: String(chk)
                 });
             } catch (saveErr) {
                 console.warn("[ROUVY] Pre-sync credential save failed:", saveErr);
@@ -661,25 +695,6 @@ FrejaUIController.prototype.bindEvents = function () {
 
     const btnSyncRouvyStandalone = document.getElementById('btn-sync-rouvy-dashboard-standalone');
     if (btnSyncRouvyStandalone) btnSyncRouvyStandalone.addEventListener('click', syncRouvyHandler);
-
-    const btnSaveRouvyModal = document.getElementById('btn-save-rouvy-api-modal');
-    if (btnSaveRouvyModal) {
-        btnSaveRouvyModal.addEventListener('click', async () => {
-            soundSynth.playClick();
-            const email = (document.getElementById('input-rouvy-email-modal') || {}).value?.trim() || '';
-            const pass = (document.getElementById('input-rouvy-password-modal') || {}).value || '';
-            const chk = document.getElementById('chk-tool-get_rouvy_data_modal');
-
-            await self.saveKeysToServer({
-                freja_rouvy_email: email,
-                freja_rouvy_password: pass,
-                freja_tool_get_rouvy_data_allowed: String(chk ? chk.checked : false)
-            });
-
-            self.writeLog("ROUVY ACCOUNT CONFIGURATION SECURED", "sys");
-            soundSynth.playNotify();
-        });
-    }
 
     const btnToggleRouvyPassModal = document.getElementById('btn-toggle-rouvy-password-modal');
     const inputRouvyPassModal = document.getElementById('input-rouvy-password-modal');
