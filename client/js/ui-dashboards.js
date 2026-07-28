@@ -1655,27 +1655,49 @@ FrejaUIController.prototype.loadTrainerTrendsUI = async function () {
 
         let rouvyFtpCard = '';
         try {
-            const ftpRes = await fetch('/api/rouvy/ftp-history').catch(() => null);
+            const [ftpRes, profRes] = await Promise.all([
+                fetch('/api/rouvy/ftp-history').catch(() => null),
+                fetch('/api/rouvy/profile').catch(() => null)
+            ]);
+
+            let ftpPoints = [];
             if (ftpRes && ftpRes.ok) {
                 const ftpData = await ftpRes.json();
                 const ftpHistory = ftpData.history || [];
-                const ftpPoints = ftpHistory
+                ftpPoints = ftpHistory
                     .filter(item => item.date && item.ftp && item.ftp > 0)
                     .map(item => ({ date: String(item.date).slice(5, 10), value: Number(item.ftp) }));
+            }
 
-                if (ftpPoints.length >= 2) {
-                    const firstVal = ftpPoints[0].value;
-                    const lastVal = ftpPoints[ftpPoints.length - 1].value;
-                    const pctChange = firstVal ? ((lastVal - firstVal) / firstVal) * 100 : 0;
-                    rouvyFtpCard = this.buildTrendCard({
-                        label: 'ROUVY FTP PRESTANDA (WATTS)',
-                        points: ftpPoints,
-                        unit: ' W',
-                        color: '#ff6b00',
-                        changePct: pctChange,
-                        goodDirection: 'up'
-                    });
+            let currentFtpVal = null;
+            if (profRes && profRes.ok) {
+                const profData = await profRes.json();
+                if (profData && profData.profile && profData.profile.ftp) {
+                    currentFtpVal = Number(profData.profile.ftp);
                 }
+            }
+
+            if (ftpPoints.length === 1) {
+                ftpPoints.unshift({ date: ftpPoints[0].date, value: ftpPoints[0].value });
+            } else if (ftpPoints.length === 0 && currentFtpVal) {
+                const now = new Date();
+                const prev = new Date(now.getTime() - 7 * 86400000);
+                ftpPoints.push({ date: prev.toISOString().slice(5, 10), value: currentFtpVal });
+                ftpPoints.push({ date: now.toISOString().slice(5, 10), value: currentFtpVal });
+            }
+
+            if (ftpPoints.length >= 2) {
+                const firstVal = ftpPoints[0].value;
+                const lastVal = ftpPoints[ftpPoints.length - 1].value;
+                const pctChange = firstVal ? ((lastVal - firstVal) / firstVal) * 100 : 0;
+                rouvyFtpCard = this.buildTrendCard({
+                    label: 'ROUVY FTP PRESTANDA (FTP WATTS)',
+                    points: ftpPoints,
+                    unit: ' W',
+                    color: '#ff6b00',
+                    changePct: pctChange,
+                    goodDirection: 'up'
+                });
             }
         } catch (e) {
             console.warn("[TRAINER] Could not fetch Rouvy FTP history for trends:", e);
@@ -1692,7 +1714,7 @@ FrejaUIController.prototype.loadTrainerTrendsUI = async function () {
                 ${weightCard}
                 ${stressCard}
             </div>
-            ${rouvyFtpCard ? `<div style="margin-top: 2px; margin-bottom: 2px;">${rouvyFtpCard}</div>` : ''}
+            ${rouvyFtpCard ? `<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 2px;">${rouvyFtpCard}</div>` : ''}
             ${hrZonesCard}
             ${adherenceCard}
         `;
@@ -3244,7 +3266,9 @@ FrejaUIController.prototype.loadRouvyFtpGraphUI = async function () {
             .filter(item => item.date && item.ftp && item.ftp > 0)
             .map(item => ({ date: String(item.date).slice(5, 10), value: Number(item.ftp) }));
 
-        if (points.length === 0 && currentFtp) {
+        if (points.length === 1) {
+            points.unshift({ date: points[0].date, value: points[0].value });
+        } else if (points.length === 0 && currentFtp) {
             const now = new Date();
             const prev = new Date(now.getTime() - 7 * 86400000);
             points.push({ date: prev.toISOString().slice(5, 10), value: currentFtp });
