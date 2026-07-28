@@ -1419,9 +1419,9 @@ def test_training_load_summary_includes_weekly_zone_split():
 def _clear_adherence_fixture(date_str):
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("DELETE FROM trainer_bookings WHERE workout_date = ?", (date_str,))
-        cursor.execute("DELETE FROM strava_activities WHERE SUBSTR(date, 1, 10) = ?", (date_str,))
-        cursor.execute("DELETE FROM garmin_activities WHERE date = ?", (date_str,))
+        cursor.execute("DELETE FROM trainer_bookings")
+        cursor.execute("DELETE FROM strava_activities")
+        cursor.execute("DELETE FROM garmin_activities")
         conn.commit()
 
 
@@ -1797,3 +1797,57 @@ def test_plan_prompt_load_section_stays_under_its_own_budget():
         f"training-load prompt section is ~{tokens} tokens, over the "
         f"{PLAN_PROMPT_LOAD_SECTION_TOKEN_BUDGET}-token budget"
     )
+
+
+def test_generate_trainer_plan_validation_returns_400(auth_headers):
+    """Missing or null goal in /api/trainer/generate must return 400 bad request, not a 500 (#202)."""
+    from fastapi.testclient import TestClient
+    from server import app
+    client = TestClient(app)
+
+    res1 = client.post("/api/trainer/generate", json={"goal": ""}, headers=auth_headers)
+    assert res1.status_code == 400
+    assert "The goal is missing" in res1.json()["detail"]
+
+    res2 = client.post("/api/trainer/generate", json={"goal": None}, headers=auth_headers)
+    assert res2.status_code == 400
+    assert "The goal is missing" in res2.json()["detail"]
+
+
+def test_find_free_slot_returns_none_when_day_is_full():
+    """_find_free_slot must return None when no gap fits the duration, preventing silent double-booking (#201)."""
+    import datetime
+    from backend.routes.trainer.booking import _find_free_slot
+
+    d = datetime.date(2026, 7, 28)
+    # Fully book the day from 06:00 to 22:00
+    full_day_events = [
+        {"start_time": "2026-07-28T06:00:00", "end_time": "2026-07-28T22:00:00"}
+    ]
+
+    slot = _find_free_slot(d, 60, full_day_events)
+    assert slot is None
+
+    # Partial day (08:00 to 22:00 booked, 06:00 to 08:00 free)
+    afternoon_full_events = [
+        {"start_time": "2026-07-28T08:00:00", "end_time": "2026-07-28T22:00:00"}
+    ]
+    morning_slot = _find_free_slot(d, 60, afternoon_full_events)
+    assert morning_slot is not None
+    assert morning_slot.hour == 6
+
+
+def test_is_workout_event_requires_location_marker():
+    """is_workout_event must require WORKOUT_LOCATION_MARKER so personal user events with emoji aren't modified (#200)."""
+    from backend.routes.trainer.shared import is_workout_event, WORKOUT_LOCATION_MARKER
+
+    # User's personal event with emoji but no FREJA location marker
+    personal_event = {"summary": "🏃 5k with Alex", "location": "Park"}
+    assert is_workout_event(personal_event) is False
+
+    # Real FREJA PT session event with location marker
+    freja_event = {"summary": "💪 Löpning: Distans", "location": WORKOUT_LOCATION_MARKER}
+    assert is_workout_event(freja_event) is True
+
+
+

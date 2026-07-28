@@ -473,3 +473,45 @@ async def exec_strava_activity_analysis(args):
 async def exec_strava_athlete_stats(args):
     return await get_strava_athlete_stats()
 
+
+@registry.register(
+    name="get_rouvy_data",
+    description="Gets the user's latest Rouvy indoor cycling data (profile, FTP, max heart rate, training zones, career progress, and recent activity summaries).",
+    permission_key="freja_tool_get_rouvy_data_allowed",
+    parameters={
+        "type": "OBJECT",
+        "properties": {
+            "limit": {
+                "type": "INTEGER",
+                "description": "Number of recent activities to retrieve (default is 10)."
+            }
+        }
+    },
+)
+async def exec_rouvy_data(args):
+    import asyncio
+    limit = max(1, min(int(args.get("limit", 10) or 10), 50))
+    email = get_api_key('freja_rouvy_email') or ""
+    password = get_api_key('freja_rouvy_password') or ""
+    
+    if email and password and not is_sync_recent("rouvy", max_age_hours=1):
+        try:
+            from backend.routes.rouvy import run_rouvy_sync_task_blocking
+            await asyncio.to_thread(run_rouvy_sync_task_blocking, email, password)
+        except Exception as e:
+            print(f"[tool_registry] Rouvy sync failed during get_rouvy_data: {e}")
+        
+    from backend.routes.rouvy import get_rouvy_profile, get_rouvy_activities, get_rouvy_zones, get_rouvy_career
+    prof = await get_rouvy_profile()
+    acts = await get_rouvy_activities(limit=limit)
+    zones = await get_rouvy_zones()
+    career = await get_rouvy_career()
+
+    return {
+        "status": "success",
+        "profile": prof.get("profile"),
+        "activities": acts.get("activities", []),
+        "zones": zones.get("zones"),
+        "career": career.get("career")
+    }
+

@@ -388,7 +388,9 @@ async def trainer_daily_checkin(request: Request):
         # 10. Act on the recommendation: if the coach wants to adjust today's session
         #     and there is a workout event in the calendar, re-time it automatically.
         calendar_updated = False
-        if briefing_data.get("adjust_workout") and workout_events:
+        profile = get_trainer_profile()
+        auto_adjust = bool(profile.get("auto_adjust", True)) if profile.get("auto_adjust") is not None else True
+        if briefing_data.get("adjust_workout") and workout_events and auto_adjust:
             try:
                 new_dur = int(briefing_data.get("adjusted_duration_minutes") or 0)
             except (TypeError, ValueError):

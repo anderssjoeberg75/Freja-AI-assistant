@@ -112,13 +112,17 @@ async def get_trainer_workouts(days: int = Query(14, description="Lookback/looka
                 for w in workouts:
                     day_name = str(w.get("day", "")).lower()
                     offset = day_offsets.get(day_name)
+                    try:
+                        entry_week = int(w.get("week", 0) or 0)
+                    except (TypeError, ValueError):
+                        entry_week = 0
                     if offset is not None:
                         w_day_num = w_date.weekday()
-                        if offset == w_day_num:
+                        if offset == w_day_num and entry_week == (week_num or 0):
                             matching_w = w
                             break
-                if not matching_w and workouts:
-                    matching_w = workouts[0]
+                if not matching_w:
+                    continue
 
                 if matching_w:
                     duration = int(matching_w.get("duration_minutes", 0) or 0)
@@ -219,7 +223,13 @@ def build_chat_context_block() -> str:
     today = today_local()
     today_str = today.isoformat()
 
+    monday = today - datetime.timedelta(days=today.weekday())
+    sunday = monday + datetime.timedelta(days=6)
+
     plan = None
+    readiness_row = None
+    booking_rows = []
+
     with get_db_connection() as conn:
         cursor = conn.cursor()
         try:
@@ -230,13 +240,6 @@ def build_chat_context_block() -> str:
         except Exception as e:
             print(f"[TRAINER CONTEXT] Could not read the active plan: {e}")
 
-    lines = [f"Dagens datum: {today_str} ({SWEDISH_WEEKDAYS[today.weekday()]})."]
-
-    # Garmin Training Readiness (#180) - what a coach checks before saying anything else,
-    # so it leads the block. Read directly rather than through build_training_load_summary,
-    # since readiness is a daily reading, not a training-load aggregate.
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
         try:
             cursor.execute(
                 '''SELECT training_readiness, training_readiness_level, training_readiness_feedback
@@ -247,7 +250,21 @@ def build_chat_context_block() -> str:
             readiness_row = cursor.fetchone()
         except Exception as e:
             print(f"[TRAINER CONTEXT] Could not read training readiness: {e}")
-            readiness_row = None
+
+        try:
+            cursor.execute(
+                '''SELECT b.workout_date, b.week, p.advice_text
+                   FROM trainer_bookings b JOIN trainer_plans p ON b.plan_id = p.id
+                   WHERE b.workout_date >= ? AND b.workout_date <= ?
+                   ORDER BY b.workout_date ASC''',
+                (monday.isoformat(), sunday.isoformat())
+            )
+            booking_rows = cursor.fetchall()
+        except Exception as e:
+            print(f"[TRAINER CONTEXT] Could not read bookings: {e}")
+
+    lines = [f"Dagens datum: {today_str} ({SWEDISH_WEEKDAYS[today.weekday()]})."]
+
     if readiness_row:
         r_score, r_level, r_feedback = readiness_row
         lines.append(
@@ -279,34 +296,20 @@ def build_chat_context_block() -> str:
         if plan_data.get("summary"):
             lines.append(f"Coachens analys: {str(plan_data['summary'])[:CHAT_CONTEXT_DESC_LEN]}")
 
-    # Booked sessions for the current week, newest plan first.
     workouts = []
-    monday = today - datetime.timedelta(days=today.weekday())
-    sunday = monday + datetime.timedelta(days=6)
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        try:
-            cursor.execute(
-                '''SELECT b.workout_date, p.advice_text
-                   FROM trainer_bookings b JOIN trainer_plans p ON b.plan_id = p.id
-                   WHERE b.workout_date >= ? AND b.workout_date <= ?
-                   ORDER BY b.workout_date ASC''',
-                (monday.isoformat(), sunday.isoformat())
-            )
-            booking_rows = cursor.fetchall()
-        except Exception as e:
-            print(f"[TRAINER CONTEXT] Could not read bookings: {e}")
-            booking_rows = []
-
     day_offsets = plan_export.SWEDISH_DAY_OFFSETS
-    for w_date_str, advice_text in booking_rows:
+    for w_date_str, b_week, advice_text in booking_rows:
         try:
             w_date = datetime.datetime.strptime(w_date_str, "%Y-%m-%d").date()
             booked_plan = json.loads(str(advice_text or "").replace("```json", "").replace("```", "").strip())
         except Exception:
             continue
         for w in booked_plan.get("workouts", []):
-            if day_offsets.get(str(w.get("day", "")).lower()) == w_date.weekday():
+            try:
+                entry_week = int(w.get("week", 0) or 0)
+            except (TypeError, ValueError):
+                entry_week = 0
+            if day_offsets.get(str(w.get("day", "")).lower()) == w_date.weekday() and entry_week == (b_week or 0):
                 workouts.append((w_date, w))
                 break
 

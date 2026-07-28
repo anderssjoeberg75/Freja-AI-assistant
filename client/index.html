@@ -542,6 +542,36 @@
                         </button>
                     </div>
                 </details>
+
+                <!-- Rouvy Account & Permission Settings -->
+                <details class="rouvy-api-details" style="border: 1px solid var(--color-border); border-radius: 4px; background: rgba(0, 0, 0, 0.2); padding: 8px 12px; margin-top: 10px;">
+                    <summary style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary); cursor: pointer; user-select: none; outline: none; letter-spacing: 1px;">
+                        <i class="fa-solid fa-person-biking" style="margin-right: 6px;"></i> ROUVY ACCOUNT SETTINGS
+                    </summary>
+                    <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 10px;">
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <label for="input-rouvy-email" style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary);">Rouvy email</label>
+                            <input type="email" id="input-rouvy-email" placeholder="Enter the Rouvy email..." class="hud-input" style="height: 32px; font-size: 12px;" autocomplete="one-time-code">
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <label for="input-rouvy-password" style="font-family: var(--font-display); font-size: 11px; color: var(--color-primary);">Rouvy password</label>
+                            <div class="input-password-container">
+                                <input type="password" id="input-rouvy-password" placeholder="Enter the Rouvy password..." class="hud-input" style="height: 32px; font-size: 12px; flex: 1;" autocomplete="one-time-code">
+                                <button type="button" id="btn-toggle-rouvy-password" class="btn-toggle-input" style="height: 32px;"><i class="fa-solid fa-eye"></i></button>
+                            </div>
+                        </div>
+                        <div class="settings-group-toggle" style="display: flex; justify-content: space-between; align-items: center;">
+                            <span style="font-size: 11px; color: var(--color-text-muted);">Allow Rouvy coach (get_rouvy_data)</span>
+                            <label class="hud-switch">
+                                <input type="checkbox" id="chk-tool-get_rouvy_data">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                        <button id="btn-save-rouvy-api" class="hud-btn btn-primary" style="height: 32px; font-family: var(--font-display); font-size: 11px; margin-top: 5px;">
+                            <i class="fa-solid fa-floppy-disk"></i> SAVE ROUVY SETTINGS
+                        </button>
+                    </div>
+                </details>
             </div>
             <div class="modal-footer" style="display: flex; gap: 10px;">
                 <button id="btn-sync-garmin-dashboard" class="hud-btn btn-primary" style="flex: 1; font-family: var(--font-display); font-size: 11px;"><i class="fa-solid fa-arrows-rotate"></i> SYNC DEVICE</button>

@@ -313,6 +313,34 @@ async def test_update_trainer_workout_matches_the_correct_week():
             conn.commit()
 
 
+@pytest.mark.anyio
+async def test_update_trainer_workout_never_touches_a_non_workout_event(monkeypatch):
+    # update_trainer_workout used to match ANY calendar event on the target date, with no
+    # check that it was actually a F.R.E.J.A.-booked session (#199). A personal event on the
+    # same day (e.g. a doctor's appointment) must never be renamed/rescheduled by this tool.
+    import backend.routes.google_calendar as gcal_module
+
+    personal_event = {
+        "id": "personal-1",
+        "summary": "Läkarbesök",
+        "location": "",  # no WORKOUT_LOCATION_MARKER - not a PT session
+        "start_time": "2026-08-20T10:00:00",
+        "end_time": "2026-08-20T11:00:00",
+        "description": "",
+    }
+    monkeypatch.setattr(gcal_module, "core_get_calendar_data", lambda days=14: [personal_event])
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("core_save_calendar_event must not be called for a non-workout event")
+    monkeypatch.setattr(gcal_module, "core_save_calendar_event", fail_if_called)
+
+    result = await execute_tool("update_trainer_workout", {
+        "workout_date": "2026-08-20",
+        "title": "Should not apply to the doctor's appointment",
+    })
+    assert result["events_updated"] == 0
+
+
 def test_client_heartbeat_flow(db_token):
     from backend.routes.settings import get_client_status
     

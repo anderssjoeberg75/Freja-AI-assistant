@@ -7,9 +7,9 @@ from backend.database import get_db_connection
 from backend.services import llm_client
 from backend.services.time_utils import today_local
 from .shared import (
-    get_trainer_profile, calculate_trends, format_trends_summary, format_active_injuries,
+    get_trainer_profile, fetch_7day_weather_forecast, calculate_trends, format_trends_summary, format_active_injuries,
     is_workout_event, _event_duration_minutes, MAX_WORKOUT_MINUTES, DAY_END_HOUR,
-    GEMINI_TIMEOUT_SECONDS, RHR_ALERT_PCT, HRV_ALERT_PCT, MAX_INPUT_LEN,
+    GEMINI_TIMEOUT_SECONDS, RHR_ALERT_PCT, HRV_ALERT_PCT, MAX_INPUT_LEN, DEFAULT_LOCATION,
 )
 
 router = APIRouter()
@@ -75,6 +75,9 @@ async def core_optimize_upcoming_workouts(
             f"Recovery time: {g[9]}h, Status: {g[10]}"
         )
 
+    loc = (location or profile.get("location") or DEFAULT_LOCATION).strip() or DEFAULT_LOCATION
+    weather_str = await fetch_7day_weather_forecast(loc)
+
     trends = calculate_trends()
     trends_data_str = format_trends_summary(trends)
 
@@ -107,6 +110,9 @@ GOAL: "{goal_str}"{limitations_prompt}
 
 [LATEST GARMIN DATA (last 24 hours)]:
 {garmin_snapshot}
+
+[WEATHER FORECAST NEXT 7 DAYS]:
+{weather_str}
 
 [CALCULATED HEALTH TRENDS (RHR & HRV)]:
 {trends_data_str}

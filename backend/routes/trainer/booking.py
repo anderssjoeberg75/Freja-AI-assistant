@@ -14,17 +14,15 @@ from .shared import (
 router = APIRouter()
 
 
-def _find_free_slot(workout_date: datetime.date, duration: int, day_events: list) -> datetime.datetime:
+def _find_free_slot(workout_date: datetime.date, duration: int, day_events: list) -> datetime.datetime | None:
     """Finds a start time on workout_date that doesn't overlap existing events.
 
     Starts at the preferred hour and, on a clash, jumps to the end of the
-    conflicting event, retrying until the day-end limit. Falls back to the
-    preferred hour if no free slot fits.
+    conflicting event, retrying until the day-end limit. If no slot fits in the
+    preferred window, searches morning hours (06:00-08:00). Returns None if the
+    day has no free slot of `duration` minutes to avoid double-booking.
     """
     dur = datetime.timedelta(minutes=duration)
-    start = datetime.datetime.combine(workout_date, datetime.time(DEFAULT_WORKOUT_HOUR, 0))
-    end_limit = datetime.datetime.combine(workout_date, datetime.time(DAY_END_HOUR, 0))
-
     intervals = []
     for e in day_events:
         try:
@@ -35,18 +33,33 @@ def _find_free_slot(workout_date: datetime.date, duration: int, day_events: list
             continue  # all-day / malformed events don't block scheduling
     intervals.sort()
 
-    while start + dur <= end_limit:
-        candidate_end = start + dur
-        conflict_end = None
-        for (s, en) in intervals:
-            if start < en and candidate_end > s:  # overlap
-                conflict_end = en
-                break
-        if conflict_end is None:
-            return start
-        start = conflict_end
+    def _search_window(start_hour: int, end_hour: int) -> datetime.datetime | None:
+        start = datetime.datetime.combine(workout_date, datetime.time(start_hour, 0))
+        end_limit = datetime.datetime.combine(workout_date, datetime.time(end_hour, 0))
+        while start + dur <= end_limit:
+            candidate_end = start + dur
+            conflict_end = None
+            for (s, en) in intervals:
+                if start < en and candidate_end > s:  # overlap
+                    conflict_end = en
+                    break
+            if conflict_end is None:
+                return start
+            start = conflict_end
+        return None
 
-    return datetime.datetime.combine(workout_date, datetime.time(DEFAULT_WORKOUT_HOUR, 0))
+    # First attempt: preferred hour to end of day
+    slot = _search_window(DEFAULT_WORKOUT_HOUR, DAY_END_HOUR)
+    if slot is not None:
+        return slot
+
+    # Second attempt: early morning window (06:00 to DEFAULT_WORKOUT_HOUR)
+    slot_morning = _search_window(6, DEFAULT_WORKOUT_HOUR)
+    if slot_morning is not None:
+        return slot_morning
+
+    # No free slot fits on this day
+    return None
 
 
 async def core_book_plan_internal(plan_id: int, start_date: datetime.date, skip_past: bool = True) -> dict:
@@ -161,6 +174,11 @@ async def core_book_plan_internal(plan_id: int, start_date: datetime.date, skip_
         # Google push (which appends ":00") produces a valid RFC3339 time.
         day_events = [e for e in all_events if (e.get("start_time") or "")[:10] == workout_date.isoformat()]
         slot_start = _find_free_slot(workout_date, duration, day_events)
+        if slot_start is None:
+            print(f"[TRAINER BOOKING] No free slot found on {workout_date} for {duration}m session; skipping to avoid double-booking.")
+            sync_failed_count += 1
+            continue
+
         slot_end = slot_start + datetime.timedelta(minutes=duration)
         start_dt = slot_start.strftime("%Y-%m-%dT%H:%M")
         end_dt = slot_end.strftime("%Y-%m-%dT%H:%M")

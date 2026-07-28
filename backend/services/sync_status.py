@@ -7,6 +7,7 @@ sync_states = {
     "strava": "idle",
     "withings": "idle",
     "fitbit": "idle",
+    "rouvy": "idle",
     "google_calendar": "idle"
 }
 
@@ -15,6 +16,7 @@ sync_errors = {
     "strava": "",
     "withings": "",
     "fitbit": "",
+    "rouvy": "",
     "google_calendar": ""
 }
 
@@ -23,6 +25,7 @@ last_sync_times = {
     "strava": "",
     "withings": "",
     "fitbit": "",
+    "rouvy": "",
     "google_calendar": ""
 }
 

@@ -26,8 +26,8 @@ router = APIRouter()
 async def generate_trainer_plan(request: Request):
     try:
         body = await request.json()
-        goal = body.get("goal", "").strip()[:MAX_INPUT_LEN]
-        limitations = body.get("limitations", "").strip()[:MAX_INPUT_LEN]
+        goal = str(body.get("goal") or "").strip()[:MAX_INPUT_LEN]
+        limitations = str(body.get("limitations") or "").strip()[:MAX_INPUT_LEN]
         if not goal:
             raise HTTPException(status_code=400, detail="The goal is missing.")
 
@@ -205,6 +205,10 @@ Instructions for the answer:
                     "items": {
                         "type": "OBJECT",
                         "properties": {
+                            "week": {
+                                "type": "INTEGER",
+                                "description": "0-indexed week offset for multi-week plans (0 for current week, 1 for week 2, etc.). Defaults to 0."
+                            },
                             "day": {
                                 "type": "STRING",
                                 "description": "The day of the session. Must be one of the Swedish weekday names: Måndag, Tisdag, Onsdag, Torsdag, Fredag, Lördag, Söndag."
@@ -284,6 +288,8 @@ Instructions for the answer:
             "booking": booking
         }
         
+    except HTTPException:
+        raise
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=e.response.status_code, detail=f"Gemini API error: {e.response.text}")
     except Exception as e:

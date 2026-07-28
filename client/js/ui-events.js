@@ -574,6 +574,44 @@ FrejaUIController.prototype.bindEvents = function () {
         });
     }
 
+    // Save Rouvy account/permission settings
+    const btnSaveRouvyApi = document.getElementById('btn-save-rouvy-api');
+    if (btnSaveRouvyApi) {
+        btnSaveRouvyApi.addEventListener('click', async () => {
+            soundSynth.playClick();
+
+            const rouvyEmail = document.getElementById('input-rouvy-email').value.trim();
+            const rouvyPassword = document.getElementById('input-rouvy-password').value;
+
+            localStorage.setItem("freja_rouvy_email", rouvyEmail);
+            localStorage.setItem("freja_rouvy_password", rouvyPassword);
+
+            const chkRouvy = document.getElementById('chk-tool-get_rouvy_data');
+            if (chkRouvy) {
+                localStorage.setItem("freja_tool_get_rouvy_data_allowed", chkRouvy.checked);
+            }
+
+            await self.saveKeysToServer({
+                freja_rouvy_email: rouvyEmail,
+                freja_rouvy_password: rouvyPassword,
+                freja_tool_get_rouvy_data_allowed: String(chkRouvy ? chkRouvy.checked : false)
+            });
+
+            self.writeLog("ROUVY ACCOUNT CONFIGURATION SECURED", "sys");
+            soundSynth.playNotify();
+        });
+    }
+
+    const btnToggleRouvyPass = document.getElementById('btn-toggle-rouvy-password');
+    const inputRouvyPass = document.getElementById('input-rouvy-password');
+    if (btnToggleRouvyPass && inputRouvyPass) {
+        btnToggleRouvyPass.addEventListener('click', () => {
+            const isPassword = inputRouvyPass.type === 'password';
+            inputRouvyPass.type = isPassword ? 'text' : 'password';
+            btnToggleRouvyPass.innerHTML = isPassword ? '<i class="fa-solid fa-eye-slash"></i>' : '<i class="fa-solid fa-eye"></i>';
+        });
+    }
+
     const btnToggleStravaSecret = document.getElementById('btn-toggle-strava-secret');
     const inputStravaSecret = document.getElementById('input-strava-client-secret');
     if (btnToggleStravaSecret && inputStravaSecret) {

@@ -2,7 +2,7 @@
 
 > **Holographic Neural Interface powered by Gemini AI, Web Audio, & Web Speech APIs**
 
-Welcome to **F.R.E.J.A. (Freja)** – a premium, cyberpunk-inspired AI assistant equipped with advanced voice controls, a holographic particle reactor, long-term neural memory, health & fitness integrations (Garmin, Strava, Withings, Google Calendar, AI Personal Trainer), and real-time multimodal optical scanning (webcam support).
+Welcome to **F.R.E.J.A. (Freja)** – a premium, cyberpunk-inspired AI assistant equipped with advanced voice controls, a holographic particle reactor, long-term neural memory, health & fitness integrations (Garmin, Strava, Withings, Fitbit, Rouvy, Google Calendar, AI Personal Trainer), and real-time multimodal optical scanning (webcam support).
 
 F.R.E.J.A. is built using pure modern web standards (Vanilla HTML5, CSS3, ES6 Javascript) and has been fully modularized into clean, independent files with an event-driven architecture (`FrejaEventBus`) to ensure maximum performance, maintainability, and code readability.
 

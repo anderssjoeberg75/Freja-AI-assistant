@@ -122,18 +122,24 @@ async def _fetch_7day_weather_forecast_raw(location: str = DEFAULT_LOCATION) -> 
         if not daily:
             return f"{WEATHER_ERROR_PREFIX}No weather forecast was returned."
 
+        def _get_at(key, default):
+            lst = daily.get(key)
+            if isinstance(lst, list) and i < len(lst):
+                return lst[i]
+            return default
+
         lines = [f"Weather forecast for {name}, {country} over the next 7 days:"]
         times = daily.get('time', [])
         for i in range(len(times)):
             date_str = times[i]
-            w_code = daily.get('weather_code', [0])[i]
-            temp_max = daily.get('temperature_2m_max', [0.0])[i]
-            temp_min = daily.get('temperature_2m_min', [0.0])[i]
-            app_max = daily.get('apparent_temperature_max', [0.0])[i]
-            app_min = daily.get('apparent_temperature_min', [0.0])[i]
-            precip = daily.get('precipitation_sum', [0.0])[i]
-            rh_max = daily.get('relative_humidity_2m_max', [0.0])[i]
-            rh_min = daily.get('relative_humidity_2m_min', [0.0])[i]
+            w_code = _get_at('weather_code', 0)
+            temp_max = _get_at('temperature_2m_max', 0.0)
+            temp_min = _get_at('temperature_2m_min', 0.0)
+            app_max = _get_at('apparent_temperature_max', 0.0)
+            app_min = _get_at('apparent_temperature_min', 0.0)
+            precip = _get_at('precipitation_sum', 0.0)
+            rh_max = _get_at('relative_humidity_2m_max', 0.0)
+            rh_min = _get_at('relative_humidity_2m_min', 0.0)
 
             desc = describe_weather_code(w_code)
             lines.append(
@@ -153,23 +159,27 @@ def calculate_trends():
     fallback) so the recent and baseline averages are never mixed across devices,
     which would otherwise make the percentage change meaningless. HRV is Garmin-only.
     """
+    today = today_local()
+    d_recent_cutoff = (today - datetime.timedelta(days=7)).isoformat()
+    d_base_cutoff = (today - datetime.timedelta(days=21)).isoformat()
+
     garmin_rows = []
     withings_rows = []
     fitbit_rows = []
     with get_db_connection() as conn:
         cursor = conn.cursor()
         try:
-            cursor.execute('SELECT resting_hr, hrv, stress_avg, body_battery FROM garmin_health ORDER BY date DESC LIMIT 21')
+            cursor.execute('SELECT date, resting_hr, hrv, stress_avg, body_battery FROM garmin_health WHERE date >= ? ORDER BY date DESC', (d_base_cutoff,))
             garmin_rows = cursor.fetchall()
         except Exception as e:
             print(f"Error fetching Garmin health data for trends: {e}")
         try:
-            cursor.execute('SELECT heart_pulse, weight FROM withings_measurements ORDER BY date DESC LIMIT 21')
+            cursor.execute('SELECT date, heart_pulse, weight FROM withings_measurements WHERE date >= ? ORDER BY date DESC', (d_base_cutoff,))
             withings_rows = cursor.fetchall()
         except Exception as e:
             print(f"Error fetching Withings measurements for trends: {e}")
         try:
-            cursor.execute('SELECT resting_hr FROM fitbit_health ORDER BY date DESC LIMIT 21')
+            cursor.execute('SELECT date, resting_hr FROM fitbit_health WHERE date >= ? ORDER BY date DESC', (d_base_cutoff,))
             fitbit_rows = cursor.fetchall()
         except Exception as e:
             print(f"Error fetching Fitbit measurements for trends: {e}")
@@ -177,14 +187,20 @@ def calculate_trends():
     def _avg(vals):
         return sum(vals) / len(vals) if vals else None
 
-    # Resting HR: pick one source that has BOTH a recent and a baseline window.
-    # `_reading` drops the 0s the devices write on days they recorded nothing.
-    g_recent_rhr = [v for r in garmin_rows[:7] if (v := _reading(r[0])) is not None]
-    g_base_rhr = [v for r in garmin_rows[7:] if (v := _reading(r[0])) is not None]
-    w_recent_rhr = [v for r in withings_rows[:7] if (v := _reading(r[0])) is not None]
-    w_base_rhr = [v for r in withings_rows[7:] if (v := _reading(r[0])) is not None]
-    fb_recent_rhr = [v for r in fitbit_rows[:7] if (v := _reading(r[0])) is not None]
-    fb_base_rhr = [v for r in fitbit_rows[7:] if (v := _reading(r[0])) is not None]
+    # Partition by calendar date: recent (last 7 days) vs baseline (preceding 14 days)
+    g_recent = [r for r in garmin_rows if r[0] >= d_recent_cutoff]
+    g_base = [r for r in garmin_rows if r[0] < d_recent_cutoff]
+    w_recent = [r for r in withings_rows if r[0] >= d_recent_cutoff]
+    w_base = [r for r in withings_rows if r[0] < d_recent_cutoff]
+    fb_recent = [r for r in fitbit_rows if r[0] >= d_recent_cutoff]
+    fb_base = [r for r in fitbit_rows if r[0] < d_recent_cutoff]
+
+    g_recent_rhr = [v for r in g_recent if (v := _reading(r[1])) is not None]
+    g_base_rhr = [v for r in g_base if (v := _reading(r[1])) is not None]
+    w_recent_rhr = [v for r in w_recent if (v := _reading(r[1])) is not None]
+    w_base_rhr = [v for r in w_base if (v := _reading(r[1])) is not None]
+    fb_recent_rhr = [v for r in fb_recent if (v := _reading(r[1])) is not None]
+    fb_base_rhr = [v for r in fb_base if (v := _reading(r[1])) is not None]
 
     if g_recent_rhr and g_base_rhr:
         recent_rhrs, baseline_rhrs = g_recent_rhr, g_base_rhr
@@ -193,23 +209,22 @@ def calculate_trends():
     elif fb_recent_rhr and fb_base_rhr:
         recent_rhrs, baseline_rhrs = fb_recent_rhr, fb_base_rhr
     else:
-        # Not enough for a valid comparison from a single source; expose what exists.
         recent_rhrs = g_recent_rhr or w_recent_rhr or fb_recent_rhr
         baseline_rhrs = g_base_rhr or w_base_rhr or fb_base_rhr
 
     # HRV, Stress, Body Battery: Garmin only.
-    recent_hrvs = [v for r in garmin_rows[:7] if (v := _reading(r[1])) is not None]
-    baseline_hrvs = [v for r in garmin_rows[7:] if (v := _reading(r[1])) is not None]
+    recent_hrvs = [v for r in g_recent if (v := _reading(r[2])) is not None]
+    baseline_hrvs = [v for r in g_base if (v := _reading(r[2])) is not None]
 
-    recent_stresses = [v for r in garmin_rows[:7] if (v := _reading(r[2])) is not None]
-    baseline_stresses = [v for r in garmin_rows[7:] if (v := _reading(r[2])) is not None]
+    recent_stresses = [v for r in g_recent if (v := _reading(r[3])) is not None]
+    baseline_stresses = [v for r in g_base if (v := _reading(r[3])) is not None]
 
-    recent_bbs = [v for r in garmin_rows[:7] if (v := _reading(r[3])) is not None]
-    baseline_bbs = [v for r in garmin_rows[7:] if (v := _reading(r[3])) is not None]
+    recent_bbs = [v for r in g_recent if (v := _reading(r[4])) is not None]
+    baseline_bbs = [v for r in g_base if (v := _reading(r[4])) is not None]
 
     # Weight: Withings primary.
-    recent_weights = [v for r in withings_rows[:7] if len(r) > 1 and (v := _reading(r[1])) is not None]
-    baseline_weights = [v for r in withings_rows[7:] if len(r) > 1 and (v := _reading(r[1])) is not None]
+    recent_weights = [v for r in w_recent if len(r) > 2 and (v := _reading(r[2])) is not None]
+    baseline_weights = [v for r in w_base if len(r) > 2 and (v := _reading(r[2])) is not None]
 
     rhr_recent_avg = _avg(recent_rhrs)
     rhr_baseline_avg = _avg(baseline_rhrs)
@@ -1209,12 +1224,9 @@ def _format_exercises_for_calendar(exercises) -> str:
 
 
 def is_workout_event(ev: dict) -> bool:
-    """True if a calendar event looks like a F.R.E.J.A. PT training session."""
-    summary = ev.get("summary") or ""
+    """True if a calendar event is a F.R.E.J.A. PT training session."""
     location_val = ev.get("location") or ""
-    return (WORKOUT_LOCATION_MARKER in location_val) or any(
-        marker in summary for marker in WORKOUT_SUMMARY_MARKERS
-    )
+    return WORKOUT_LOCATION_MARKER in location_val
 
 
 def _event_duration_minutes(ev: dict) -> int:

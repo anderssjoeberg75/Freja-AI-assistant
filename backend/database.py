@@ -64,6 +64,8 @@ KEY_ALIASES = {
     'fitbit_client_id': 'freja_fitbit_client_id',
     'fitbit_client_secret': 'freja_fitbit_client_secret',
     'fitbit_refresh_token': 'freja_fitbit_refresh_token',
+    'rouvy_email': 'freja_rouvy_email',
+    'rouvy_password': 'freja_rouvy_password',
     'google_calendar_client_id': 'freja_google_calendar_client_id',
     'google_calendar_client_secret': 'freja_google_calendar_client_secret',
     'google_calendar_refresh_token': 'freja_google_calendar_refresh_token',

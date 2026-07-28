@@ -4,6 +4,7 @@ import datetime
 import json
 from backend.database import get_db_connection
 from backend.services import plan_export
+from backend.services.time_utils import today_local
 from ._registry import registry
 
 @registry.register(
@@ -97,7 +98,7 @@ async def exec_trainer_advice(args):
 async def _build_trainer_context_summary(days: int = 14) -> dict:
     """Builds a comprehensive summary of active training plan, scheduled workouts,
     recent running history (Garmin/Strava), health recovery data, and active injuries."""
-    today = datetime.date.today()
+    today = today_local()
     swedish_weekdays = ["Måndag", "Tisdag", "Onsdag", "Torsdag", "Fredag", "Lördag", "Söndag"]
     today_weekday_str = swedish_weekdays[today.weekday()]
 
@@ -412,12 +413,20 @@ async def exec_update_trainer_workout(args):
     events_updated = 0
     try:
         from backend.routes.google_calendar import core_get_calendar_data, core_save_calendar_event
-        events = core_get_calendar_data(14)
+        from backend.routes.trainer.shared import is_workout_event
+        days_ahead = 30
+        if w_date:
+            try:
+                target_dt = datetime.date.fromisoformat(w_date)
+                days_ahead = max(30, abs((target_dt - today_local()).days) + 7)
+            except ValueError:
+                pass
+        events = core_get_calendar_data(days_ahead)
         for ev in events:
-            if (ev.get("start_time") or "")[:10] == w_date:
-                summary = new_title or ev.get("summary")
+            if (ev.get("start_time") or "")[:10] == w_date and is_workout_event(ev):
+                summary = (new_title or ev.get("summary") or "").strip()
                 if new_act and not summary.startswith("💪"):
-                    summary = f"💪 {new_act}: {summary}"
+                    summary = f"💪 {new_act}: {summary}" if summary else f"💪 {new_act}"
                 start_dt = ev.get("start_time")
                 end_dt = ev.get("end_time")
                 if new_dur and start_dt and len(start_dt) >= 16:

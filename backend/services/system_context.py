@@ -32,6 +32,7 @@ _INTEGRATION_KEYS = (
     ("Garmin", "freja_garmin_email"),
     ("Strava", "freja_strava_client_id"),
     ("Withings", "freja_withings_client_id"),
+    ("Rouvy", "freja_rouvy_email"),
     ("Google Calendar", "freja_google_calendar_client_id"),
     ("Telegram", "freja_telegram_bot_token"),
     ("Instagram", "freja_instagram_access_token"),
