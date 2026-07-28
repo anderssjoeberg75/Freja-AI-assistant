@@ -616,21 +616,39 @@ FrejaUIController.prototype.bindEvents = function () {
     const syncRouvyHandler = async () => {
         soundSynth.playClick();
         self.writeLog("INITIATING ROUVY DATA SYNC...", "sys");
+
+        // Auto-save credentials from input fields if user typed them in
+        const emailInput = document.getElementById('input-rouvy-email') || document.getElementById('input-rouvy-email-modal');
+        const passInput = document.getElementById('input-rouvy-password') || document.getElementById('input-rouvy-password-modal');
+        const chkInput = document.getElementById('chk-tool-get_rouvy_data') || document.getElementById('chk-tool-get_rouvy_data_modal');
+
+        const email = emailInput ? emailInput.value.trim() : '';
+        const pass = passInput ? passInput.value : '';
+
+        if (email && pass) {
+            try {
+                await self.saveKeysToServer({
+                    freja_rouvy_email: email,
+                    freja_rouvy_password: pass,
+                    freja_tool_get_rouvy_data_allowed: String(chkInput ? chkInput.checked : false)
+                });
+            } catch (saveErr) {
+                console.warn("[ROUVY] Pre-sync credential save failed:", saveErr);
+            }
+        }
+
         try {
             const res = await fetch('/api/rouvy/sync');
-            if (res.ok) {
+            const resData = await res.json().catch(() => ({}));
+            if (res.ok && resData.status === 'syncing') {
                 self.writeLog("ROUVY SYNC STARTED IN BACKGROUND", "sys");
                 soundSynth.playNotify();
-                setTimeout(() => {
-                    if (typeof self.loadRouvyDashboardUI === 'function') {
-                        self.loadRouvyDashboardUI();
-                    }
-                }, 3000);
+                self.pollSyncStatus('rouvy');
             } else {
-                const err = await res.json().catch(() => ({}));
-                self.writeLog(`ROUVY SYNC ERROR: ${err.detail || 'Could not start sync'}`, "err");
+                const errMsg = resData.detail || resData.message || 'Could not start sync';
+                self.writeLog(`ROUVY SYNC ERROR: ${errMsg}`, "err");
                 soundSynth.playError();
-                alert(`Error: ${err.detail || 'Could not start Rouvy sync.'}`);
+                alert(`Rouvy Sync Error: ${errMsg}`);
             }
         } catch (e) {
             self.writeLog(`ROUVY SYNC ERROR: ${e.message}`, "err");

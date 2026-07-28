@@ -2606,6 +2606,7 @@ FrejaUIController.prototype.pollSyncStatus = async function (provider) {
                     if (provider === 'strava') self.loadStravaDashboardUI();
                     if (provider === 'withings') self.loadWithingsDashboardUI();
                     if (provider === 'google_calendar') self.loadGoogleCalendarDashboardUI();
+                    if (provider === 'rouvy') self.loadRouvyDashboardUI();
 
                 } else if (state === 'auth_required' || state === 'rate_limited' || state === 'error') {
                     clearInterval(self[`syncInterval_${provider}`]);
