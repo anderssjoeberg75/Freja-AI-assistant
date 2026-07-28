@@ -500,8 +500,11 @@ FrejaUIController.prototype.initializeUI = function() {
     }
 
     this.applyTheme(theme);
-    // Preload PT onboarding profile values immediately on app startup
+    // Preload PT onboarding profile values & Rouvy FTP Graph immediately on app startup
     if (typeof this.loadTrainerProfileUI === 'function') {
         this.loadTrainerProfileUI();
+    }
+    if (typeof this.loadRouvyFtpGraphUI === 'function') {
+        this.loadRouvyFtpGraphUI();
     }
 };

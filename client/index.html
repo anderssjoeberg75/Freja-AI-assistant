@@ -134,6 +134,16 @@
                         </div>
                     </div>
 
+                    <div class="rouvy-ftp-card-widget" id="frontpage-rouvy-ftp-widget" style="margin-top: 12px; background: rgba(255, 107, 0, 0.05); border: 1px solid rgba(255, 107, 0, 0.25); border-radius: 4px; padding: 10px; display: flex; flex-direction: column; gap: 6px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span style="font-family: var(--font-display); font-size: 10px; color: #ff6b00; letter-spacing: 0.5px;"><i class="fa-solid fa-bolt"></i> ROUVY FTP PERF</span>
+                            <span id="frontpage-rouvy-ftp-val" style="font-family: var(--font-mono); font-size: 13px; font-weight: bold; color: #ff6b00;">-- W</span>
+                        </div>
+                        <div id="frontpage-rouvy-ftp-chart" style="width: 100%; min-height: 40px;">
+                            <div style="font-family: var(--font-mono); font-size: 10px; color: var(--color-text-muted); text-align: center; padding: 6px;">[ROUVY FTP LOAD...]</div>
+                        </div>
+                    </div>
+
                     <hr class="panel-divider">
 
                     <!-- Visual Scanner Widget -->
@@ -835,6 +845,17 @@
                     <div style="background: rgba(0, 242, 254, 0.05); border: 1px solid var(--color-border); border-radius: 4px; padding: 10px;">
                         <div style="font-size: 10px; color: var(--color-text-muted); font-family: var(--font-mono);">VIKT / LÄNGD</div>
                         <div id="rouvy-dash-weight" style="font-size: 16px; font-family: var(--font-display); color: var(--color-primary); margin-top: 4px;">-- kg / -- cm</div>
+                    </div>
+                </div>
+
+                <!-- Rouvy FTP Trend Chart -->
+                <div class="rouvy-ftp-chart-container" style="background: rgba(255, 107, 0, 0.05); border: 1px solid rgba(255, 107, 0, 0.25); border-radius: 4px; padding: 12px; display: flex; flex-direction: column; gap: 8px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span style="font-family: var(--font-display); font-size: 11px; color: #ff6b00; letter-spacing: 0.5px;"><i class="fa-solid fa-chart-line"></i> ROUVY FTP HISTORIK &amp; PRESTANDAGRAF</span>
+                        <span id="rouvy-modal-ftp-change" style="font-family: var(--font-mono); font-size: 11px; color: #30d158;">--</span>
+                    </div>
+                    <div id="rouvy-modal-ftp-chart" style="width: 100%; min-height: 50px;">
+                        <div style="color: var(--color-text-muted); text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 10px;">Laddar FTP-graf...</div>
                     </div>
                 </div>
 

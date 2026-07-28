@@ -3179,4 +3179,80 @@ FrejaUIController.prototype.loadRouvyDashboardUI = async function () {
             listEl.innerHTML = '<div style="color: #ff3b30; text-align: center; font-family: var(--font-mono); font-size: 11px; padding: 20px;">[FEL VID LÄSNING AV ROUVY-DATA]</div>';
         }
     }
+
+    this.loadRouvyFtpGraphUI();
+};
+
+FrejaUIController.prototype.loadRouvyFtpGraphUI = async function () {
+    const frontValEl = document.getElementById('frontpage-rouvy-ftp-val');
+    const frontChartEl = document.getElementById('frontpage-rouvy-ftp-chart');
+    const modalChartEl = document.getElementById('rouvy-modal-ftp-chart');
+    const modalChangeEl = document.getElementById('rouvy-modal-ftp-change');
+
+    if (!frontChartEl && !modalChartEl) return;
+
+    try {
+        const [histRes, profRes] = await Promise.all([
+            fetch('/api/rouvy/ftp-history').catch(() => null),
+            fetch('/api/rouvy/profile').catch(() => null)
+        ]);
+
+        let rawHistory = [];
+        if (histRes && histRes.ok) {
+            const data = await histRes.json();
+            rawHistory = data.history || [];
+        }
+
+        let currentFtp = null;
+        if (profRes && profRes.ok) {
+            const pData = await profRes.json();
+            if (pData && pData.profile && pData.profile.ftp) {
+                currentFtp = pData.profile.ftp;
+            }
+        }
+
+        const points = rawHistory
+            .filter(item => item.date && item.ftp && item.ftp > 0)
+            .map(item => ({ date: String(item.date).slice(5, 10), value: Number(item.ftp) }));
+
+        if (points.length === 0 && currentFtp) {
+            const now = new Date();
+            const prev = new Date(now.getTime() - 7 * 86400000);
+            points.push({ date: prev.toISOString().slice(5, 10), value: currentFtp });
+            points.push({ date: now.toISOString().slice(5, 10), value: currentFtp });
+        }
+
+        const latestFtp = points.length > 0 ? points[points.length - 1].value : (currentFtp || '--');
+        const displayVal = typeof latestFtp === 'number' ? `${latestFtp} W` : '-- W';
+
+        if (frontValEl) frontValEl.textContent = displayVal;
+
+        if (points.length >= 2) {
+            const svgChart = this.buildTrendSparkline(points, { color: '#ff6b00' });
+            if (frontChartEl) frontChartEl.innerHTML = svgChart;
+            if (modalChartEl) modalChartEl.innerHTML = svgChart;
+
+            const firstFtp = points[0].value;
+            const lastFtp = points[points.length - 1].value;
+            const diff = lastFtp - firstFtp;
+            if (modalChangeEl) {
+                if (diff > 0) {
+                    modalChangeEl.style.color = '#30d158';
+                    modalChangeEl.textContent = `▲ +${diff} W`;
+                } else if (diff < 0) {
+                    modalChangeEl.style.color = '#ff9f0a';
+                    modalChangeEl.textContent = `▼ ${diff} W`;
+                } else {
+                    modalChangeEl.style.color = 'var(--color-text-muted)';
+                    modalChangeEl.textContent = `±0 W`;
+                }
+            }
+        } else {
+            const emptyMsg = `<div style="font-family: var(--font-mono); font-size: 10px; color: var(--color-text-muted); text-align: center; padding: 6px;">[INGEN FTP-DATA HITTAD]</div>`;
+            if (frontChartEl) frontChartEl.innerHTML = emptyMsg;
+            if (modalChartEl) modalChartEl.innerHTML = emptyMsg;
+        }
+    } catch (e) {
+        console.error("Could not load Rouvy FTP Graph UI:", e);
+    }
 };

@@ -69,6 +69,14 @@ def init_rouvy_db():
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS rouvy_ftp_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                date TEXT UNIQUE,
+                ftp INTEGER,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
         conn.commit()
 
 init_rouvy_db()
@@ -91,6 +99,7 @@ def run_rouvy_sync_task_blocking(email: str, password: str):
         # 1. Profile & Settings
         try:
             prof = client.get_user_profile()
+            ftp_val = getattr(prof, 'ftp_watts', None) or getattr(prof, 'ftp', None)
             with get_db_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute('''
@@ -114,10 +123,16 @@ def run_rouvy_sync_task_blocking(email: str, password: str):
                     getattr(prof, 'gender', None),
                     getattr(prof, 'height_cm', None) or getattr(prof, 'height', None),
                     getattr(prof, 'weight_kg', None) or getattr(prof, 'weight', None),
-                    getattr(prof, 'ftp_watts', None) or getattr(prof, 'ftp', None),
+                    ftp_val,
                     getattr(prof, 'max_heart_rate', None) or getattr(prof, 'max_hr', None),
                     1 if getattr(prof, 'is_premium', False) else 0
                 ))
+                if ftp_val and ftp_val > 0:
+                    cursor.execute('''
+                        INSERT INTO rouvy_ftp_history (date, ftp, updated_at)
+                        VALUES (?, ?, CURRENT_TIMESTAMP)
+                        ON CONFLICT(date) DO UPDATE SET ftp = excluded.ftp, updated_at = CURRENT_TIMESTAMP
+                    ''', (today_str, ftp_val))
                 conn.commit()
         except Exception as e:
             print(f"[ROUVY SYNC] Error fetching profile: {e}")
@@ -269,3 +284,36 @@ async def get_rouvy_career():
         if not row:
             return {"career": None}
         return {"career": dict(row)}
+
+
+@router.get("/api/rouvy/ftp-history")
+async def get_rouvy_ftp_history():
+    """Returns historical FTP data points for charting."""
+    with get_db_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT date, ftp FROM rouvy_ftp_history ORDER BY date ASC")
+        rows = cursor.fetchall()
+
+        history = [dict(r) for r in rows]
+
+        if not history:
+            cursor.execute("SELECT date, ftp FROM rouvy_profile WHERE id = 1")
+            prof_row = cursor.fetchone()
+            current_ftp = prof_row["ftp"] if prof_row and prof_row["ftp"] else None
+
+            cursor.execute("SELECT date, avg_power, normalized_power FROM rouvy_activities ORDER BY date ASC")
+            act_rows = cursor.fetchall()
+
+            if act_rows:
+                for r in act_rows:
+                    p = r["normalized_power"] or r["avg_power"]
+                    if p and p > 0:
+                        history.append({"date": r["date"][:10] if r["date"] else today_local().isoformat(), "ftp": int(p)})
+            
+            if current_ftp:
+                today_str = today_local().isoformat()
+                if not any(h["date"] == today_str for h in history):
+                    history.append({"date": today_str, "ftp": current_ftp})
+
+        return {"history": history}
