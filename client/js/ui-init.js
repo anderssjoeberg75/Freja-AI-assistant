@@ -157,6 +157,17 @@ FrejaUIController.prototype.initializeUI = function() {
     const inputFitbitRefreshToken = document.getElementById('input-fitbit-refresh-token');
     if (inputFitbitRefreshToken) inputFitbitRefreshToken.value = fitbitRefreshToken;
 
+    const rouvyEmail = localStorage.getItem("freja_rouvy_email") || "";
+    const rouvyPassword = localStorage.getItem("freja_rouvy_password") || "";
+    const inputRouvyEmail = document.getElementById('input-rouvy-email');
+    if (inputRouvyEmail) inputRouvyEmail.value = rouvyEmail;
+    const inputRouvyEmailModal = document.getElementById('input-rouvy-email-modal');
+    if (inputRouvyEmailModal) inputRouvyEmailModal.value = rouvyEmail;
+    const inputRouvyPassword = document.getElementById('input-rouvy-password');
+    if (inputRouvyPassword) inputRouvyPassword.value = rouvyPassword;
+    const inputRouvyPasswordModal = document.getElementById('input-rouvy-password-modal');
+    if (inputRouvyPasswordModal) inputRouvyPasswordModal.value = rouvyPassword;
+
     // Dynamically build and update Withings authorize link
     const updateWithingsLink = () => {
         const clientId = inputWithingsClientId ? inputWithingsClientId.value.trim() : "";
@@ -421,6 +432,12 @@ FrejaUIController.prototype.initializeUI = function() {
     if (chkWithings) {
         chkWithings.checked = withingsAllowed;
     }
+
+    const rouvyAllowed = localStorage.getItem("freja_tool_get_rouvy_data_allowed") === "true";
+    const chkRouvy = document.getElementById('chk-tool-get_rouvy_data');
+    if (chkRouvy) chkRouvy.checked = rouvyAllowed;
+    const chkRouvyModal = document.getElementById('chk-tool-get_rouvy_data_modal');
+    if (chkRouvyModal) chkRouvyModal.checked = rouvyAllowed;
 
     const capWithings = document.getElementById('cap-withings');
     if (capWithings) {

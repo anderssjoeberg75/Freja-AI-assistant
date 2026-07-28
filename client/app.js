@@ -197,7 +197,7 @@ class FrejaUIController {
             const res = await fetch('/api/sync/status');
             if (res.ok) {
                 const statusData = await res.json();
-                ['garmin', 'strava', 'withings', 'google_calendar'].forEach(provider => {
+                ['garmin', 'strava', 'withings', 'fitbit', 'rouvy', 'google_calendar'].forEach(provider => {
                     if (statusData.states && statusData.states[provider] === 'syncing') {
                         this.pollSyncStatus(provider);
                     }
@@ -227,6 +227,8 @@ class FrejaUIController {
                     "freja_mem0_apikey",
                     "freja_garmin_email",
                     "freja_garmin_password",
+                    "freja_rouvy_email",
+                    "freja_rouvy_password",
                     "freja_strava_client_id",
                     "freja_strava_client_secret",
                     "freja_strava_refresh_token",
@@ -237,6 +239,7 @@ class FrejaUIController {
                     "freja_google_calendar_client_secret",
                     "freja_google_calendar_refresh_token",
                     "freja_tool_get_garmin_health_allowed",
+                    "freja_tool_get_rouvy_data_allowed",
                     "freja_tool_get_strava_data_allowed",
                     "freja_tool_get_strava_activity_analysis_allowed",
                     "freja_tool_get_strava_athlete_stats_allowed",
