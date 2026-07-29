@@ -8,6 +8,10 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from backend.database import get_api_key
 from backend.config import PROJECT_ROOT, ELEVENLABS_PLACEHOLDER_KEY_HASH
 
+import re
+
+_VOICE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
 router = APIRouter()
 
 CACHE_DIR = os.path.join(PROJECT_ROOT, "backend", "cache", "voice")
@@ -39,6 +43,8 @@ def _evict_cache_if_needed():
 
 @router.post("/api/elevenlabs/tts/{voice_id}")
 async def proxy_elevenlabs_tts(voice_id: str, request: Request):
+    if not _VOICE_ID_PATTERN.match(voice_id):
+        raise HTTPException(status_code=400, detail="Invalid voice_id format.")
     try:
         payload = await request.json()
     except Exception:

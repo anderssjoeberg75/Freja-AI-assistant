@@ -54,6 +54,8 @@ def _close_truncated_json(text: str):
 
     repaired = text
     if in_string:
+        if escape:
+            repaired = repaired[:-1]
         repaired += '"'
 
     repaired = repaired.rstrip().rstrip(",")

@@ -2262,7 +2262,7 @@ FrejaUIController.prototype.loadGarminDashboardUI = async function () {
 
             // "Ingen" is the Swedish placeholder the backend substitutes for a null workout_type.
             const workoutInfo = log.workout_type && log.workout_type !== "Ingen"
-                ? ` | ${log.workout_type} (${log.workout_duration}m)`
+                ? ` | ${this.escapeHTML(log.workout_type)} (${log.workout_duration}m)`
                 : "";
             const bbInfo = log.body_battery ? ` | BB: ${log.body_battery}` : "";
             const hrvInfo = log.hrv ? ` | HRV: ${log.hrv}ms` : "";
@@ -2358,7 +2358,7 @@ FrejaUIController.prototype.loadStravaDashboardUI = async function () {
 
             item.innerHTML = `
                 <div style="flex: 1; color: var(--color-text-bright);">
-                    <span style="color: var(--color-primary);">${log.date}</span>: <strong style="color: var(--color-accent);">${log.type}</strong> - ${log.name} (${km} | ${mins}${speedInfo}${elevInfo}${hrInfo}${calInfo})
+                    <span style="color: var(--color-primary);">${this.escapeHTML(log.date)}</span>: <strong style="color: var(--color-accent);">${this.escapeHTML(log.type)}</strong> - ${this.escapeHTML(log.name)} (${km} | ${mins}${speedInfo}${elevInfo}${hrInfo}${calInfo})
                 </div>
                 <button class="strava-delete-btn" data-id="${log.id}" title="Delete activity" style="background: transparent; border: none; color: #ff3b30; cursor: pointer; padding: 2px 6px;">
                     <i class="fa-solid fa-trash-can"></i>
@@ -2624,7 +2624,33 @@ FrejaUIController.prototype.pollSyncStatus = async function (provider) {
 
     self.writeLog(`SYNC BACKGROUND TASK STARTED FOR ${provider.toUpperCase()}`, "sys");
 
+    let pollAttempts = 0;
+    const maxPollAttempts = 60; // 2 minutes max polling timeout
+
     this[`syncInterval_${provider}`] = setInterval(async () => {
+        pollAttempts++;
+        if (pollAttempts > maxPollAttempts) {
+            clearInterval(self[`syncInterval_${provider}`]);
+            self[`syncInterval_${provider}`] = null;
+
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = provider === 'google_calendar'
+                    ? `<i class="fa-solid fa-arrows-rotate"></i> SYNC CALENDAR`
+                    : `<i class="fa-solid fa-arrows-rotate"></i> SYNC DEVICE`;
+            }
+            if (btnAll) {
+                btnAll.disabled = false;
+                btnAll.innerHTML = `<i class="fa-solid fa-clock-rotate-left"></i> FETCH ALL HISTORY`;
+            }
+            if (capItem) {
+                capItem.classList.remove('syncing-blink');
+            }
+
+            self.writeLog(`${provider.toUpperCase()} SYNC TIMEOUT: Synkroniseringen tog för lång tid`, "warn");
+            return;
+        }
+
         try {
             const res = await fetch('/api/sync/status');
             if (res.ok) {

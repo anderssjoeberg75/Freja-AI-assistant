@@ -248,12 +248,12 @@ def init_db():
     if row is None or not row[0]:
         new_token = secrets.token_urlsafe(32)
         cursor.execute("INSERT INTO api_keys (key_name, key_value) VALUES ('freja_access_token', ?)", (encrypt_value(new_token),))
-        print(f"[FREJA] Generated a new access token: {new_token}")
+        print("[FREJA] Generated a new secure access token.")
     else:
         decrypted_token = decrypt_value(row[0]).strip()
         if decrypted_token in LEGACY_WEAK_TOKENS or row[0] in LEGACY_WEAK_TOKENS:
             new_token = secrets.token_urlsafe(32)
             cursor.execute("UPDATE api_keys SET key_value = ? WHERE key_name = 'freja_access_token'", (encrypt_value(new_token),))
-            print(f"[FREJA] Rotated a weak default token to a new random access token: {new_token}")
+            print("[FREJA] Rotated a weak default token to a new random access token.")
     conn.commit()
     conn.close()

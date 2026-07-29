@@ -2,6 +2,9 @@
  * F.R.E.J.A. UI Controller - Event Bindings Module
  */
 FrejaUIController.prototype.bindEvents = function () {
+    if (this._eventsBound) return;
+    this._eventsBound = true;
+
     const self = this;
 
     const shield = document.getElementById('interaction-shield');
@@ -1688,48 +1691,6 @@ FrejaUIController.prototype.bindEvents = function () {
         }
     });
 
-    // GitHub Update & Restart button
-    const btnUpdateGithub = document.getElementById('btn-update-github');
-    if (btnUpdateGithub) {
-        btnUpdateGithub.addEventListener('click', async () => {
-            soundSynth.playClick();
-            self.writeLog("INITIERAR KODHÄMTNING FRÅN GITHUB...", "sys");
-            if (!confirm("Hämta senaste koden från GitHub (git pull) och starta om Freja?")) {
-                self.writeLog("KODHÄMTNING AVBRUTEN AV ANVÄNDAREN.", "warn");
-                return;
-            }
-
-            self.writeLog("HÄMTAR SENASTE KOD FRÅN GITHUB & STARTAR OM...", "sys");
-            soundSynth.playNotify();
-
-            try {
-                const token = localStorage.getItem('freja_access_token') || "";
-                const headers = { 'Content-Type': 'application/json' };
-                if (token) headers['X-Freja-Token'] = token;
-
-                const res = await fetch('/api/system/update', {
-                    method: 'POST',
-                    headers: headers
-                });
-
-                const data = await res.json();
-                if (res.ok && data.status === 'success') {
-                    self.writeLog("UPPDATERING LADDADES NER. VÄNTAR PÅ OMSTART...", "sys");
-                    soundSynth.playNotify();
-                    self.pollClientRestart();
-                } else {
-                    self.writeLog(`FEL VID UPPDATERING: ${data.message || res.statusText}`, "err");
-                    soundSynth.playError();
-                    alert("Fel vid uppdatering: " + (data.message || res.statusText));
-                }
-            } catch (err) {
-                console.error(err);
-                self.writeLog("NÄTVERKSFEL VID UPPDATERING FRÅN GITHUB", "err");
-                soundSynth.playError();
-                alert("Kunde inte kontakta servern för uppdatering.");
-            }
-        });
-    }
 
     // Open Accent Themes selector modal
     const btnThemeToggle = document.getElementById('btn-theme-toggle');

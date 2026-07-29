@@ -168,21 +168,18 @@ class FrejaUIController {
     }
 
     async initAsync() {
+        try {
+            await this.loadKeysFromServer();
+        } catch (e) {
+            console.error("[FREJA] Failed to load initial keys:", e);
+        }
+
         // Initialize UI and bind event listeners safely
         if (typeof this.initializeUI === 'function') {
             this.initializeUI();
         }
         if (typeof this.bindEvents === 'function') {
             this.bindEvents();
-        }
-
-        try {
-            await this.loadKeysFromServer();
-            if (typeof this.initializeUI === 'function') {
-                this.initializeUI();
-            }
-        } catch (e) {
-            console.error("[FREJA] Failed to load initial keys:", e);
         }
 
         this.startHeartbeatLoop();
