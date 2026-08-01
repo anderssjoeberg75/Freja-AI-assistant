@@ -4,6 +4,7 @@ import datetime
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 from backend.database import get_db_connection
+from backend.services import converse_service
 
 router = APIRouter()
 
@@ -11,6 +12,10 @@ class ChatMessage(BaseModel):
     sender: str
     content: str = Field(max_length=50_000)
     channel: str = "web"
+
+class ConverseRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=50_000)
+    channel: str = "android"
 
 @router.get("/api/chat/history")
 async def get_chat_history(limit: int = Query(50, ge=1, le=500, description="Number of messages to fetch")):
@@ -54,6 +59,19 @@ async def save_chat_message(message: ChatMessage):
         return {"status": "success", "message": "Message saved to history."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+@router.post("/api/chat/converse")
+async def converse(req: ConverseRequest):
+    """Runs one full Freja turn (system prompt + tool loop + history) and returns her reply.
+    Used by the Android voice client: request {text, channel} -> {reply}. Existing web/Telegram
+    surfaces are unaffected - this only adds a new endpoint."""
+    try:
+        reply = await converse_service.generate_freja_reply(req.text, channel=req.channel)
+        return {"reply": reply}
+    except converse_service.ProviderUnavailable as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Converse failed: {str(e)}")
 
 @router.post("/api/chat/clear")
 async def clear_chat_history():
