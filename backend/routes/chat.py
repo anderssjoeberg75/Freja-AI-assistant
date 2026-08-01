@@ -16,6 +16,9 @@ class ChatMessage(BaseModel):
 class ConverseRequest(BaseModel):
     text: str = Field(min_length=1, max_length=50_000)
     channel: str = "android"
+    # Optional inline image (raw base64 JPEG, no data: prefix) for multimodal turns, e.g. the
+    # Android camera. Bounded to keep request payloads sane; only the Gemini arm uses it.
+    image_base64: str | None = Field(default=None, max_length=12_000_000)
 
 @router.get("/api/chat/history")
 async def get_chat_history(limit: int = Query(50, ge=1, le=500, description="Number of messages to fetch")):
@@ -66,7 +69,9 @@ async def converse(req: ConverseRequest):
     Used by the Android voice client: request {text, channel} -> {reply}. Existing web/Telegram
     surfaces are unaffected - this only adds a new endpoint."""
     try:
-        reply = await converse_service.generate_freja_reply(req.text, channel=req.channel)
+        reply = await converse_service.generate_freja_reply(
+            req.text, channel=req.channel, image_base64=req.image_base64
+        )
         return {"reply": reply}
     except converse_service.ProviderUnavailable as e:
         raise HTTPException(status_code=503, detail=str(e))

@@ -42,7 +42,7 @@ def test_converse_requires_auth():
 def test_converse_returns_reply(monkeypatch):
     headers = _seed_token()
 
-    async def fake_reply(text, *, channel="android"):
+    async def fake_reply(text, *, channel="android", image_base64=None):
         assert text == "Hur ser dagens pass ut?"
         assert channel == "android"
         return "Dagens pass ar 40 minuter lugn lopning."
@@ -62,7 +62,7 @@ def test_converse_returns_reply(monkeypatch):
 def test_converse_provider_unavailable_returns_503(monkeypatch):
     headers = _seed_token()
 
-    async def fake_reply(text, *, channel="android"):
+    async def fake_reply(text, *, channel="android", image_base64=None):
         raise converse_service.ProviderUnavailable("no provider")
 
     monkeypatch.setattr(converse_service, "generate_freja_reply", fake_reply)

@@ -51,6 +51,49 @@ async def test_generate_freja_reply_returns_text_and_persists_history(monkeypatc
 
 
 @pytest.mark.asyncio
+async def test_generate_freja_reply_attaches_image_to_user_turn(monkeypatch):
+    _seed_provider_gemini()
+
+    captured = {}
+
+    async def fake_gemini(contents, api_key, system_prompt):
+        captured["contents"] = contents
+        return "Jag ser en cykel."
+
+    monkeypatch.setattr(converse_service, "query_gemini_with_tools", fake_gemini)
+    monkeypatch.setattr(converse_service, "build_chat_context_block", lambda: "")
+
+    reply = await converse_service.generate_freja_reply(
+        "Vad ser du?", channel="android", image_base64="ZmFrZQ=="
+    )
+
+    assert reply == "Jag ser en cykel."
+    parts = captured["contents"][-1]["parts"]
+    assert parts[0]["text"] == "Vad ser du?"
+    assert parts[1]["inlineData"]["mimeType"] == "image/jpeg"
+    assert parts[1]["inlineData"]["data"] == "ZmFrZQ=="
+
+
+@pytest.mark.asyncio
+async def test_generate_freja_reply_no_image_means_text_only_turn(monkeypatch):
+    _seed_provider_gemini()
+
+    captured = {}
+
+    async def fake_gemini(contents, api_key, system_prompt):
+        captured["contents"] = contents
+        return "ok"
+
+    monkeypatch.setattr(converse_service, "query_gemini_with_tools", fake_gemini)
+    monkeypatch.setattr(converse_service, "build_chat_context_block", lambda: "")
+
+    await converse_service.generate_freja_reply("Hej", channel="android")
+
+    parts = captured["contents"][-1]["parts"]
+    assert len(parts) == 1 and parts[0]["text"] == "Hej"
+
+
+@pytest.mark.asyncio
 async def test_generate_freja_reply_raises_when_no_provider(monkeypatch):
     set_api_key("freja_gemini_apikey", "")   # no Gemini key
     set_api_key("freja_llm_provider", "auto")

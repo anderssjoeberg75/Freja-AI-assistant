@@ -113,10 +113,16 @@ def _build_system_prompt(persona_intro: str) -> str:
     return prompt
 
 
-async def generate_freja_reply(user_text: str, *, channel: str = "android") -> str:
+async def generate_freja_reply(
+    user_text: str, *, channel: str = "android", image_base64: str | None = None
+) -> str:
     """Runs one full Freja turn and returns her Swedish reply. Persists both the user's
     message and the reply to chat_history under `channel`. Raises ProviderUnavailable when no
     LLM provider is configured/reachable.
+
+    When `image_base64` (a raw base64 JPEG, no data: prefix) is given, it is attached to the
+    user turn as an inlineData part - matching the web client's format. Only the Gemini arm is
+    multimodal; the Ollama arm carries text only, so on Ollama the image is silently ignored.
 
     History is loaded before the user's message is persisted, so the current turn is appended
     exactly once (never duplicated by the history read)."""
@@ -129,8 +135,12 @@ async def generate_freja_reply(user_text: str, *, channel: str = "android") -> s
                 "No LLM provider available: no Gemini key and Ollama is unreachable."
             )
 
+    user_parts: list[dict] = [{"text": user_text}]
+    if image_base64:
+        user_parts.append({"inlineData": {"mimeType": "image/jpeg", "data": image_base64}})
+
     contents = _load_recent_contents()
-    contents.append({"role": "user", "parts": [{"text": user_text}]})
+    contents.append({"role": "user", "parts": user_parts})
     system_prompt = _build_system_prompt(VOICE_PERSONA_INTRO)
 
     async def _gemini_arm():
