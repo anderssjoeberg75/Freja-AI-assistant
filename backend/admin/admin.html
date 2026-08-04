@@ -779,6 +779,21 @@
                             <input type="password" id="key-freja_access_token" class="input-control" placeholder="Enter the access token...">
                             <button type="button" class="toggle-btn" onclick="toggleVisibility('key-freja_access_token')"><i class="fa-solid fa-eye"></i></button>
                         </div>
+                        <button type="button" onclick="showTokenQr()" style="margin-top:8px; width:100%; padding:8px; cursor:pointer; background:transparent; border:1px solid currentColor; border-radius:6px; color:inherit; font:inherit;">
+                            <i class="fa-solid fa-qrcode"></i> Visa QR-kod för mobil
+                        </button>
+                    </div>
+
+                    <!-- QR modal: scan the access token + backend URL straight into the Freja mobile app -->
+                    <div id="admin-qr-modal" onclick="if(event.target===this)closeTokenQr()" style="display:none; position:fixed; inset:0; z-index:99999; background:rgba(0,0,0,0.7); align-items:center; justify-content:center;">
+                        <div style="max-width:320px; width:90%; text-align:center; background:#ffffff; color:#0f172a; border-radius:10px; padding:20px; box-shadow:0 8px 30px rgba(0,0,0,0.45);">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                                <strong style="font-size:14px;">Skanna för att ansluta</strong>
+                                <button type="button" onclick="closeTokenQr()" style="background:none; border:none; font-size:22px; cursor:pointer; color:#0f172a; line-height:1;">&times;</button>
+                            </div>
+                            <img id="admin-qr-img" alt="QR-kod" style="width:240px; height:240px;">
+                            <p style="margin-top:10px; font-size:11px; color:#64748b;">Skanna i Freja-appen: Inställningar → Skanna QR-kod. Innehåller din access-token — visa den privat.</p>
+                        </div>
                     </div>
 
                     <!-- Allowed IPs -->
@@ -1046,6 +1061,36 @@
             if (el) {
                 el.type = el.type === 'password' ? 'text' : 'password';
             }
+        }
+
+        // Render the stored access token + this server's URL as a QR the phone scans
+        // (GET /api/system/token-qr). The admin portal is served by the backend, so the
+        // relative path hits it directly; we attach the token header ourselves.
+        async function showTokenQr() {
+            const token = getActiveToken();
+            if (!token) { showToast('Ingen access-token angiven.', true); return; }
+            try {
+                const res = await fetch('/api/system/token-qr', { headers: { 'X-Freja-Token': token } });
+                if (res.status === 400) { showToast('Ingen access-token är satt på servern än.', true); return; }
+                if (res.status === 401) { showToast('Ogiltig token.', true); return; }
+                if (res.status === 500) { showToast("Servern saknar paketet 'segno' (pip install segno + starta om).", true); return; }
+                if (!res.ok) { showToast('Kunde inte hämta QR-koden (' + res.status + ').', true); return; }
+                const blob = await res.blob();
+                if (window._adminQrUrl) URL.revokeObjectURL(window._adminQrUrl);
+                window._adminQrUrl = URL.createObjectURL(blob);
+                const img = document.getElementById('admin-qr-img');
+                if (img) img.src = window._adminQrUrl;
+                const modal = document.getElementById('admin-qr-modal');
+                if (modal) modal.style.display = 'flex';
+            } catch (e) {
+                showToast('Kunde inte hämta QR-koden.', true);
+            }
+        }
+
+        function closeTokenQr() {
+            const modal = document.getElementById('admin-qr-modal');
+            if (modal) modal.style.display = 'none';
+            if (window._adminQrUrl) { URL.revokeObjectURL(window._adminQrUrl); window._adminQrUrl = null; }
         }
 
         function showToast(msg, isError = false) {

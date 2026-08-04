@@ -276,21 +276,6 @@
                         <button type="button" id="btn-toggle-access-token" class="btn-toggle-input"><i class="fa-solid fa-eye-slash"></i></button>
                     </div>
                     <p class="settings-help">This token protects your backend from unauthorized access. Save the same token in the browser to connect.</p>
-                    <button type="button" id="btn-show-token-qr" class="hud-btn btn-secondary" style="margin-top: 8px; width: 100%;">
-                        <i class="fa-solid fa-qrcode"></i> Visa QR-kod för mobil
-                    </button>
-                </div>
-
-                <!-- QR modal: scan the access token + backend URL straight into the Freja mobile app -->
-                <div id="qr-modal" style="display:none; position:fixed; inset:0; z-index:9999; background:rgba(0,0,0,0.78); align-items:center; justify-content:center;">
-                    <div style="max-width:340px; width:90%; text-align:center; background:#0b0f19; border:1px solid #00f0ff; border-radius:8px; padding:20px; box-shadow:0 0 24px rgba(0,240,255,0.25);">
-                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-                            <h2 style="font-size:15px; margin:0; color:#00f0ff;"><i class="fa-solid fa-qrcode"></i> SKANNA FÖR ATT ANSLUTA</h2>
-                            <button type="button" id="btn-close-qr" style="background:none; border:none; color:#00f0ff; font-size:22px; cursor:pointer; line-height:1;">&times;</button>
-                        </div>
-                        <img id="qr-modal-img" alt="QR-kod" style="width:240px; height:240px; background:#fff; padding:8px; border-radius:8px;">
-                        <p style="margin-top:12px; font-size:11px; color:#8892b0;">Skanna i Freja-appen: Inställningar → Skanna QR-kod. QR-koden innehåller din access-token — visa den bara privat.</p>
-                    </div>
                 </div>
 
                 <div class="settings-group">
