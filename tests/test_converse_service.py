@@ -75,32 +75,26 @@ async def test_generate_freja_reply_attaches_image_to_user_turn(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_image_turn_routes_to_gemini_even_when_provider_prefers_ollama(monkeypatch):
-    # Vision is Gemini-only. Even when freja_llm_provider prefers Ollama for text, an image
-    # turn must go to the Gemini arm (the multimodal one) instead of being silently dropped
-    # by Ollama. A Gemini key is configured, so the image can be analysed.
-    set_api_key("freja_llm_provider", "ollama")
+async def test_image_turn_uses_local_ollama_vision_when_provider_is_ollama_first(monkeypatch):
+    # Ollama-first setup ("auto"/"ollama"): an image turn must use the LOCAL vision model
+    # (llava via ollama_client.generate_vision_text), NOT Gemini - even though a Gemini key is
+    # configured. Keeps vision free/local and avoids the Gemini spend cap.
+    set_api_key("freja_llm_provider", "auto")
     set_api_key("freja_gemini_apikey", "test-key")
 
     calls = []
 
-    async def fake_gemini(contents, api_key, system_prompt):
-        calls.append("gemini")
+    async def fake_vision(prompt, image_base64, system_instruction=""):
+        calls.append("ollama_vision")
+        assert image_base64 == "ZmFrZQ=="
         return "Jag ser en cykel."
 
-    async def fake_ollama(contents, system_prompt):
-        calls.append("ollama")
-        return "text only, image dropped"
+    async def fake_gemini(contents, api_key, system_prompt):
+        calls.append("gemini")
+        return "should not be used"
 
-    # Simulate the preference actually routing text to Ollama, so a broken image path would
-    # end up there. The fix must bypass this for image turns.
-    async def fake_dispatch(label, ollama_arm, gemini_arm):
-        calls.append("dispatch")
-        return await ollama_arm()
-
+    monkeypatch.setattr(converse_service.ollama_client, "generate_vision_text", fake_vision)
     monkeypatch.setattr(converse_service, "query_gemini_with_tools", fake_gemini)
-    monkeypatch.setattr(converse_service, "_telegram_tool_loop_ollama", fake_ollama)
-    monkeypatch.setattr(converse_service.llm_client, "_dispatch", fake_dispatch)
     monkeypatch.setattr(converse_service, "build_chat_context_block", lambda: "")
 
     reply = await converse_service.generate_freja_reply(
@@ -108,7 +102,7 @@ async def test_image_turn_routes_to_gemini_even_when_provider_prefers_ollama(mon
     )
 
     assert reply == "Jag ser en cykel."
-    assert calls == ["gemini"], f"image turn must use the Gemini vision arm, got {calls}"
+    assert calls == ["ollama_vision"], f"image turn must use local Ollama vision, got {calls}"
 
 
 @pytest.mark.asyncio

@@ -16,7 +16,7 @@ import datetime
 import logging
 
 from backend.database import get_db_connection
-from backend.services import gemini_client, llm_client
+from backend.services import gemini_client, llm_client, ollama_client
 from backend.services.telegram_service import (
     query_gemini_with_tools,
     _telegram_tool_loop_ollama,
@@ -149,11 +149,19 @@ async def generate_freja_reply(
     async def _ollama_arm():
         return await _telegram_tool_loop_ollama(contents, system_prompt)
 
-    # Vision is Gemini-only. When an image is attached and a Gemini key is available, route
-    # this turn straight to Gemini regardless of the freja_llm_provider preference - otherwise
-    # "auto"/"ollama" sends it to Ollama, which silently drops the image and answers blind.
-    if image_base64 and gemini_key:
-        reply = await _gemini_arm()
+    if image_base64:
+        # Vision needs a multimodal model. Route by the operator's provider preference so an
+        # Ollama-first setup uses the LOCAL vision model (get_ollama_vision_model, e.g. llava -
+        # no Gemini spend), while a Gemini-first setup uses Gemini's multimodal arm. The
+        # inlineData part built above is only consumed by the Gemini arm; the Ollama vision arm
+        # takes the raw image directly.
+        preference = llm_client.get_provider_preference()
+        if preference in ("gemini", "auto_gemini") and gemini_key:
+            reply = await _gemini_arm()
+        else:
+            reply = await ollama_client.generate_vision_text(
+                user_text, image_base64, system_instruction=system_prompt
+            )
     else:
         reply = await llm_client._dispatch("android converse", _ollama_arm, _gemini_arm)
 

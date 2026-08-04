@@ -14,6 +14,9 @@ from backend.database import get_api_key
 # hardware Ollama happens to be running on - see the README's AI provider section.
 DEFAULT_OLLAMA_BASE_URL = "http://192.168.107.15:11434"
 DEFAULT_OLLAMA_MODEL = "qwen2.5:14b"
+# The text model above is usually not multimodal, so image turns use a dedicated vision model
+# (e.g. llava). Kept separate so text keeps running on the faster text model.
+DEFAULT_OLLAMA_VISION_MODEL = "llava:7b"
 
 # Context window (prompt + reply) requested per call. It sets the KV cache Ollama allocates,
 # so on a GPU it is the number that decides whether the model still fits in VRAM: at 12288,
@@ -46,6 +49,13 @@ def get_ollama_model() -> str:
     """Returns the configured Ollama model name (settings key 'freja_ollama_model'),
     falling back to the project default."""
     return get_api_key("freja_ollama_model") or DEFAULT_OLLAMA_MODEL
+
+
+def get_ollama_vision_model() -> str:
+    """Returns the Ollama model used for image turns (settings key
+    'freja_ollama_vision_model'), falling back to the project default (llava). Separate from
+    the text model, which is usually not multimodal."""
+    return get_api_key("freja_ollama_vision_model") or DEFAULT_OLLAMA_VISION_MODEL
 
 
 def get_ollama_num_ctx() -> int:
@@ -148,6 +158,37 @@ async def generate_text(prompt: str, system_instruction: str = "",
         "options": {
             "temperature": temperature,
             "num_ctx": get_ollama_num_ctx(),
+            "num_predict": max_tokens,
+        },
+    }
+    url = f"{get_ollama_base_url()}/api/chat"
+    async with shared_client() as client:
+        resp = await client.post(url, json=payload, timeout=timeout)
+        resp.raise_for_status()
+        resp_json = resp.json()
+
+    return resp_json.get("message", {}).get("content", "")
+
+
+async def generate_vision_text(prompt: str, image_base64: str, system_instruction: str = "",
+                               temperature: float = 0.2, timeout: float = 120.0,
+                               max_tokens: int = DEFAULT_TEXT_MAX_TOKENS) -> str:
+    """Single-turn multimodal call to the local Ollama vision model (get_ollama_vision_model,
+    e.g. llava). `image_base64` is a raw base64 JPEG (no data: prefix), attached via Ollama's
+    per-message `images` field. Timeout is generous because a vision model often has to load
+    (swapping out the text model) on the first image after a quiet spell."""
+    messages = []
+    if system_instruction:
+        messages.append({"role": "system", "content": system_instruction})
+    messages.append({"role": "user", "content": prompt, "images": [image_base64]})
+
+    payload = {
+        "model": get_ollama_vision_model(),
+        "messages": messages,
+        "stream": False,
+        "keep_alive": get_ollama_keep_alive(),
+        "options": {
+            "temperature": temperature,
             "num_predict": max_tokens,
         },
     }
