@@ -113,6 +113,16 @@ def _build_system_prompt(persona_intro: str) -> str:
     return prompt
 
 
+# A small local vision model (llava:7b) follows a short, focused instruction far better than
+# Freja's full system prompt (persona + PT context + tool directives), which makes it ramble
+# about training plans instead of describing the picture. Keep the image instruction minimal.
+VISION_SYSTEM_INSTRUCTION = (
+    "You are Freja. Look carefully at the attached image and answer the user's question about "
+    "it. Describe what you actually see in the image, briefly and naturally. Do not mention "
+    "training plans, code, or tools unless they are visible in the image. Always reply in Swedish."
+)
+
+
 async def generate_freja_reply(
     user_text: str, *, channel: str = "android", image_base64: str | None = None
 ) -> str:
@@ -160,7 +170,7 @@ async def generate_freja_reply(
             reply = await _gemini_arm()
         else:
             reply = await ollama_client.generate_vision_text(
-                user_text, image_base64, system_instruction=system_prompt
+                user_text, image_base64, system_instruction=VISION_SYSTEM_INSTRUCTION
             )
     else:
         reply = await llm_client._dispatch("android converse", _ollama_arm, _gemini_arm)
