@@ -76,7 +76,17 @@ async def converse(req: ConverseRequest):
     except converse_service.ProviderUnavailable as e:
         raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Converse failed: {str(e)}")
+        msg = str(e)
+        low = msg.lower()
+        # A Gemini quota / spend-cap hit (HTTP 429 RESOURCE_EXHAUSTED) is a temporary,
+        # upstream condition - not a server bug. Surface it as a clear 503 so the client can
+        # tell the user "quota reached, try later" and stay online, rather than a naked 500.
+        if "429" in msg or "resource_exhausted" in low or "spending cap" in low or "quota" in low:
+            raise HTTPException(
+                status_code=503,
+                detail="Gemini-kvoten är slut just nu (spending cap). Bildanalys pausad tills kvoten återställs.",
+            )
+        raise HTTPException(status_code=500, detail=f"Converse failed: {msg}")
 
 @router.post("/api/chat/clear")
 async def clear_chat_history():
