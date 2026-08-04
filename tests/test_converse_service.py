@@ -75,6 +75,43 @@ async def test_generate_freja_reply_attaches_image_to_user_turn(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_image_turn_routes_to_gemini_even_when_provider_prefers_ollama(monkeypatch):
+    # Vision is Gemini-only. Even when freja_llm_provider prefers Ollama for text, an image
+    # turn must go to the Gemini arm (the multimodal one) instead of being silently dropped
+    # by Ollama. A Gemini key is configured, so the image can be analysed.
+    set_api_key("freja_llm_provider", "ollama")
+    set_api_key("freja_gemini_apikey", "test-key")
+
+    calls = []
+
+    async def fake_gemini(contents, api_key, system_prompt):
+        calls.append("gemini")
+        return "Jag ser en cykel."
+
+    async def fake_ollama(contents, system_prompt):
+        calls.append("ollama")
+        return "text only, image dropped"
+
+    # Simulate the preference actually routing text to Ollama, so a broken image path would
+    # end up there. The fix must bypass this for image turns.
+    async def fake_dispatch(label, ollama_arm, gemini_arm):
+        calls.append("dispatch")
+        return await ollama_arm()
+
+    monkeypatch.setattr(converse_service, "query_gemini_with_tools", fake_gemini)
+    monkeypatch.setattr(converse_service, "_telegram_tool_loop_ollama", fake_ollama)
+    monkeypatch.setattr(converse_service.llm_client, "_dispatch", fake_dispatch)
+    monkeypatch.setattr(converse_service, "build_chat_context_block", lambda: "")
+
+    reply = await converse_service.generate_freja_reply(
+        "Vad ser du?", channel="android", image_base64="ZmFrZQ=="
+    )
+
+    assert reply == "Jag ser en cykel."
+    assert calls == ["gemini"], f"image turn must use the Gemini vision arm, got {calls}"
+
+
+@pytest.mark.asyncio
 async def test_generate_freja_reply_no_image_means_text_only_turn(monkeypatch):
     _seed_provider_gemini()
 

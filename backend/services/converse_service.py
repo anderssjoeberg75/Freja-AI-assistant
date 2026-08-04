@@ -149,7 +149,13 @@ async def generate_freja_reply(
     async def _ollama_arm():
         return await _telegram_tool_loop_ollama(contents, system_prompt)
 
-    reply = await llm_client._dispatch("android converse", _ollama_arm, _gemini_arm)
+    # Vision is Gemini-only. When an image is attached and a Gemini key is available, route
+    # this turn straight to Gemini regardless of the freja_llm_provider preference - otherwise
+    # "auto"/"ollama" sends it to Ollama, which silently drops the image and answers blind.
+    if image_base64 and gemini_key:
+        reply = await _gemini_arm()
+    else:
+        reply = await llm_client._dispatch("android converse", _ollama_arm, _gemini_arm)
 
     _persist("user", user_text, channel)
     _persist("assistant", reply, channel)
