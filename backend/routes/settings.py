@@ -3,6 +3,7 @@
 import asyncio
 import collections
 import datetime
+import io
 import logging
 import os
 import re
@@ -10,10 +11,10 @@ import sys
 import subprocess
 import json
 from fastapi import APIRouter, HTTPException, Request, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 
 from backend.config import PROJECT_ROOT
-from backend.database import get_all_api_keys, set_api_key
+from backend.database import get_all_api_keys, get_api_key, set_api_key
 
 router = APIRouter()
 
@@ -134,6 +135,37 @@ async def post_keys(request: Request):
     except Exception as e:
         add_system_log("ERROR", f"Error while saving settings: {e}")
         raise HTTPException(status_code=400, detail=str(e))
+
+
+def build_token_qr_payload(base_url: str, token: str) -> str:
+    """Compact JSON a mobile client scans to auto-fill its connection settings."""
+    return json.dumps({"url": base_url.rstrip("/"), "token": token}, separators=(",", ":"))
+
+
+@router.get("/api/system/token-qr")
+async def get_token_qr(request: Request, url: str = Query("", description="Override the backend URL embedded in the QR; defaults to this request's base URL")):
+    """Renders the Freja access token together with this server's base URL as a QR-code PNG,
+    so a mobile client can scan its connection settings instead of typing them by hand.
+
+    The payload is a compact JSON object ``{"url": ..., "token": ...}``. The endpoint sits
+    behind the access token (FrejaAuthMiddleware), so it never exposes anything the caller
+    does not already hold - it just re-encodes it for transfer to a phone."""
+    token = get_api_key("freja_access_token") or ""
+    if not token:
+        raise HTTPException(status_code=400, detail="No access token is configured yet.")
+    try:
+        import segno
+    except ImportError:
+        raise HTTPException(
+            status_code=500,
+            detail="QR generation requires the 'segno' package on the server (pip install segno).",
+        )
+    base_url = url.strip() or str(request.base_url)
+    payload = build_token_qr_payload(base_url, token)
+    buf = io.BytesIO()
+    segno.make(payload, error="m").save(buf, kind="png", scale=6, border=2)
+    return Response(content=buf.getvalue(), media_type="image/png")
+
 
 async def _delayed_restart():
     await asyncio.sleep(1.5)

@@ -7,6 +7,7 @@ playwright
 duckduckgo_search>=6.0.0
 garminconnect
 cryptography>=41.0,<44
+segno>=1.6,<2
 pytest
 pytest-asyncio
 SQLAlchemy>=2.0.0

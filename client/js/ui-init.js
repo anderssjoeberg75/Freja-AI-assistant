@@ -10,6 +10,41 @@ FrejaUIController.prototype.initializeUI = function() {
     const inputBackendUrl = document.getElementById('input-backend-url');
     if (inputBackendUrl) inputBackendUrl.value = backendUrl;
 
+    // "Visa QR-kod" — render the server's stored access token + backend URL as a QR the phone
+    // scans (GET /api/system/token-qr; the global fetch wrapper in app.js attaches the token
+    // header and backend routing). The token is a secret, so the modal warns to show it privately.
+    const btnShowQr = document.getElementById('btn-show-token-qr');
+    const qrModal = document.getElementById('qr-modal');
+    const qrImg = document.getElementById('qr-modal-img');
+    const btnCloseQr = document.getElementById('btn-close-qr');
+    let qrObjectUrl = null;
+    const closeQr = () => {
+        if (qrModal) qrModal.style.display = 'none';
+        if (qrObjectUrl) { URL.revokeObjectURL(qrObjectUrl); qrObjectUrl = null; }
+    };
+    if (btnShowQr) {
+        btnShowQr.addEventListener('click', async () => {
+            if (!(localStorage.getItem('freja_access_token') || "")) {
+                alert("Spara din access-token först."); return;
+            }
+            try {
+                const res = await fetch('/api/system/token-qr');
+                if (res.status === 400) { alert("Ingen access-token är satt på servern än."); return; }
+                if (res.status === 401) { alert("Ogiltig token — verifiera din session först."); return; }
+                if (!res.ok) { alert("Kunde inte hämta QR-koden (" + res.status + ")."); return; }
+                const blob = await res.blob();
+                if (qrObjectUrl) URL.revokeObjectURL(qrObjectUrl);
+                qrObjectUrl = URL.createObjectURL(blob);
+                if (qrImg) qrImg.src = qrObjectUrl;
+                if (qrModal) qrModal.style.display = 'flex';
+            } catch (e) {
+                alert("Kunde inte hämta QR-koden.");
+            }
+        });
+    }
+    if (btnCloseQr) btnCloseQr.addEventListener('click', closeQr);
+    if (qrModal) qrModal.addEventListener('click', (e) => { if (e.target === qrModal) closeQr(); });
+
     // Load voice speech rates
     const rate = localStorage.getItem("freja_speech_rate") || "1.0";
     const pitch = localStorage.getItem("freja_speech_pitch") || "1.0";
