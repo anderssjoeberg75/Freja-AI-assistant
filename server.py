@@ -48,8 +48,9 @@ from backend.routes.learning import router as learning_router
 from backend.routes.llm import router as llm_router
 from backend.routes.fitbit import router as fitbit_router
 from backend.routes.rouvy import router as rouvy_router
+from backend.routes.auth import router as auth_router
 
-# Initialize the SQLite database schemas
+# Initialize the database schemas
 init_db()
 
 from contextlib import asynccontextmanager
@@ -144,6 +145,7 @@ app.include_router(tools_router)
 app.include_router(trainer_router)
 app.include_router(learning_router)
 app.include_router(llm_router)
+app.include_router(auth_router)
 
 # Paths
 ADMIN_HTML = os.path.join(PROJECT_ROOT, "backend", "admin", "admin.html")

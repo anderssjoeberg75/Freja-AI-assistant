@@ -733,6 +733,9 @@
                 <div class="status-info">
                     <span class="status-label">DATABAS & KEYS</span>
                     <span class="status-val" id="val-db-status">WAL Mode (SQLite)</span>
+                    <button type="button" id="btn-setup-postgres" onclick="setupPostgres()" style="margin-top:6px; font-size:10px; padding:3px 8px; cursor:pointer; background:rgba(255,255,255,0.08); border:1px solid currentColor; border-radius:4px; color:inherit; display:none;">
+                        <i class="fa-solid fa-database"></i> BYT TILL POSTGRESQL
+                    </button>
                 </div>
             </div>
             <div class="status-card">
@@ -1333,6 +1336,8 @@
                     setActiveToken(data['freja_access_token']);
                 }
 
+                // Update DB status
+                checkDbStatus();
                 // Update Telegram status
                 checkTelegramStatus();
                 // Update Instagram status
@@ -1342,6 +1347,57 @@
             } catch (err) {
                 console.error(err);
                 showToast('Could not reach the backend API.', true);
+            }
+        }
+
+        async function checkDbStatus() {
+            const token = getActiveToken();
+            const headers = {};
+            if (token) headers['X-Freja-Token'] = token;
+
+            try {
+                const res = await fetch('/api/system/db-status', { headers: headers });
+                if (res.ok) {
+                    const data = await res.json();
+                    const el = document.getElementById('val-db-status');
+                    const btnPostgres = document.getElementById('btn-setup-postgres');
+                    if (el && data.label) {
+                        el.innerText = data.label;
+                        el.style.color = data.type === 'postgresql' ? 'var(--color-success)' : 'var(--color-primary)';
+                    }
+                    if (btnPostgres) {
+                        btnPostgres.style.display = data.type === 'sqlite' ? 'inline-block' : 'none';
+                    }
+                }
+            } catch (e) {}
+        }
+
+        async function setupPostgres() {
+            if (!confirm("Vill du skapa/initiera PostgreSQL på servern och migrera all befintlig data från SQLite till PostgreSQL? Backend kommer att starta om automatiskt efteråt.")) {
+                return;
+            }
+
+            showToast("Initierar PostgreSQL och migrerar data...", false);
+            const token = getActiveToken();
+            const headers = { 'Content-Type': 'application/json' };
+            if (token) headers['X-Freja-Token'] = token;
+
+            try {
+                const res = await fetch('/api/system/setup-postgres', {
+                    method: 'POST',
+                    headers: headers
+                });
+
+                const data = await res.json();
+                if (res.ok && data.status === 'success') {
+                    showToast((data.message || "PostgreSQL initierat och data migrerad!") + "\n\nServern startar om...", false);
+                    setTimeout(pollServerRestart, 2000);
+                } else {
+                    showToast('Fel vid PostgreSQL-initiering: ' + (data.detail || data.message || res.statusText), true);
+                }
+            } catch (err) {
+                console.error(err);
+                showToast('Ett nätverksfel uppstod vid inställning av PostgreSQL.', true);
             }
         }
 
@@ -1585,6 +1641,7 @@
         document.addEventListener('DOMContentLoaded', () => {
             buildToolsGrid();
             loadBackendSettings();
+            checkDbStatus();
             loadSystemLogs();
             setInterval(loadSystemLogs, 2500);
             setInterval(checkLlmStatus, 15000);

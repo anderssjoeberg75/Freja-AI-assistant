@@ -297,6 +297,117 @@ FrejaUIController.prototype.bindEvents = function () {
         modalSettings.classList.remove('active');
     });
 
+    // User Auth Modal Event Handlers
+    const btnUserAuth = document.getElementById('btn-user-auth');
+    const modalUserAuth = document.getElementById('modal-user-auth');
+    const btnCloseAuth = document.getElementById('btn-close-auth');
+    const btnAuthModeToggle = document.getElementById('btn-auth-mode-toggle');
+    const btnAuthSubmit = document.getElementById('btn-auth-submit');
+    const inputAuthEmail = document.getElementById('input-auth-email');
+    const inputAuthPassword = document.getElementById('input-auth-password');
+    const inputAuthName = document.getElementById('input-auth-name');
+    const groupAuthName = document.getElementById('group-auth-name');
+    const authStatusBanner = document.getElementById('auth-status-banner');
+    const authErrorMsg = document.getElementById('auth-error-msg');
+
+    let isRegisterMode = false;
+
+    function updateAuthStatusDisplay() {
+        const token = localStorage.getItem("freja_jwt_token");
+        const userEmail = localStorage.getItem("freja_user_email");
+        if (token && userEmail) {
+            if (authStatusBanner) {
+                authStatusBanner.innerHTML = `<i class="fa-solid fa-circle-check" style="color: #30d158; margin-right: 6px;"></i> Inloggad som: <strong>${userEmail}</strong>`;
+            }
+            if (btnAuthSubmit) btnAuthSubmit.textContent = "LOGGA UT";
+        } else {
+            if (authStatusBanner) {
+                authStatusBanner.innerHTML = `<i class="fa-solid fa-circle-info" style="margin-right: 6px;"></i> Standardläge (Enskild användare / Admin)`;
+            }
+            if (btnAuthSubmit) btnAuthSubmit.textContent = isRegisterMode ? "SKAPA KONTO" : "LOGGA IN";
+        }
+    }
+
+    if (btnUserAuth && modalUserAuth) {
+        btnUserAuth.addEventListener('click', () => {
+            soundSynth.playClick();
+            updateAuthStatusDisplay();
+            modalUserAuth.classList.add('active');
+        });
+    }
+
+    if (btnCloseAuth && modalUserAuth) {
+        btnCloseAuth.addEventListener('click', () => {
+            soundSynth.playClick();
+            modalUserAuth.classList.remove('active');
+        });
+    }
+
+    if (btnAuthModeToggle) {
+        btnAuthModeToggle.addEventListener('click', () => {
+            soundSynth.playClick();
+            isRegisterMode = !isRegisterMode;
+            if (groupAuthName) groupAuthName.style.display = isRegisterMode ? 'flex' : 'none';
+            btnAuthModeToggle.textContent = isRegisterMode ? "Redan konto? Logga in" : "Skapa nytt konto";
+            updateAuthStatusDisplay();
+        });
+    }
+
+    if (btnAuthSubmit) {
+        btnAuthSubmit.addEventListener('click', async () => {
+            soundSynth.playClick();
+            if (authErrorMsg) authErrorMsg.style.display = 'none';
+
+            // If already logged in, clicking the button logs out
+            if (localStorage.getItem("freja_jwt_token")) {
+                localStorage.removeItem("freja_jwt_token");
+                localStorage.removeItem("freja_user_email");
+                updateAuthStatusDisplay();
+                alert("Du har loggats ut.");
+                return;
+            }
+
+            const email = inputAuthEmail ? inputAuthEmail.value.trim() : '';
+            const password = inputAuthPassword ? inputAuthPassword.value.trim() : '';
+            const name = inputAuthName ? inputAuthName.value.trim() : '';
+
+            if (!email || !password) {
+                if (authErrorMsg) {
+                    authErrorMsg.textContent = "Ange både e-post och lösenord.";
+                    authErrorMsg.style.display = 'block';
+                }
+                return;
+            }
+
+            const endpoint = isRegisterMode ? '/api/auth/register' : '/api/auth/login';
+            const payload = isRegisterMode ? { email, password, name } : { email, password };
+
+            try {
+                const res = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                    throw new Error(data.detail || "Autentisering misslyckades");
+                }
+
+                localStorage.setItem("freja_jwt_token", data.access_token);
+                localStorage.setItem("freja_user_email", data.email);
+                updateAuthStatusDisplay();
+                if (modalUserAuth) modalUserAuth.classList.remove('active');
+                alert(`Välkommen! Inloggad som ${data.email}`);
+                location.reload();
+            } catch (err) {
+                if (authErrorMsg) {
+                    authErrorMsg.textContent = err.message;
+                    authErrorMsg.style.display = 'block';
+                }
+            }
+        });
+    }
+
     // Toggle Access Token visibility mask
     const btnToggleAccessToken = document.getElementById('btn-toggle-access-token');
     const inputAccessTokenField = document.getElementById('input-access-token');

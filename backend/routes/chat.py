@@ -1,9 +1,10 @@
-"""Chat history routes using FastAPI."""
-
 import datetime
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from backend.database import get_db_connection
+from sqlalchemy import text
+from backend.database import get_db_session
+from backend.models import User, ChatHistory
+from backend.routes.auth import get_current_user
 from backend.services import converse_service
 
 router = APIRouter()
@@ -16,58 +17,60 @@ class ChatMessage(BaseModel):
 class ConverseRequest(BaseModel):
     text: str = Field(min_length=1, max_length=50_000)
     channel: str = "android"
-    # Optional inline image (raw base64 JPEG, no data: prefix) for multimodal turns, e.g. the
-    # Android camera. Bounded to keep request payloads sane; only the Gemini arm uses it.
     image_base64: str | None = Field(default=None, max_length=12_000_000)
 
 @router.get("/api/chat/history")
-async def get_chat_history(limit: int = Query(50, ge=1, le=500, description="Number of messages to fetch")):
+async def get_chat_history(
+    limit: int = Query(50, ge=1, le=500, description="Number of messages to fetch"),
+    current_user: User = Depends(get_current_user)
+):
     try:
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                SELECT sender, content, timestamp, channel 
-                FROM chat_history 
-                ORDER BY id DESC 
-                LIMIT ?
-            ''', (limit,))
-            rows = cursor.fetchall()
-        
-        # Format in chronological order
-        rows.reverse()
-        
-        results = []
-        for row in rows:
-            results.append({
-                "sender": row[0],
-                "content": row[1],
-                "timestamp": row[2],
-                "channel": row[3]
-            })
-        return results
+        with get_db_session() as db:
+            messages = db.query(ChatHistory)\
+                .filter((ChatHistory.user_id == current_user.id) | (ChatHistory.user_id.is_(None)))\
+                .order_by(ChatHistory.id.desc())\
+                .limit(limit)\
+                .all()
+
+        messages.reverse()
+        return [
+            {
+                "sender": m.sender,
+                "content": m.content,
+                "timestamp": m.timestamp,
+                "channel": m.channel
+            }
+            for m in messages
+        ]
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 @router.post("/api/chat/message")
-async def save_chat_message(message: ChatMessage):
+async def save_chat_message(
+    message: ChatMessage,
+    current_user: User = Depends(get_current_user)
+):
     try:
-        timestamp = datetime.datetime.now().isoformat()
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                INSERT INTO chat_history (sender, content, timestamp, channel)
-                VALUES (?, ?, ?, ?)
-            ''', (message.sender, message.content, timestamp, message.channel))
-            conn.commit()
+        timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        with get_db_session() as db:
+            msg = ChatHistory(
+                user_id=current_user.id,
+                sender=message.sender,
+                content=message.content,
+                timestamp=timestamp,
+                channel=message.channel
+            )
+            db.add(msg)
+            db.commit()
         return {"status": "success", "message": "Message saved to history."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 @router.post("/api/chat/converse")
-async def converse(req: ConverseRequest):
-    """Runs one full Freja turn (system prompt + tool loop + history) and returns her reply.
-    Used by the Android voice client: request {text, channel} -> {reply}. Existing web/Telegram
-    surfaces are unaffected - this only adds a new endpoint."""
+async def converse(
+    req: ConverseRequest,
+    current_user: User = Depends(get_current_user)
+):
     try:
         reply = await converse_service.generate_freja_reply(
             req.text, channel=req.channel, image_base64=req.image_base64
@@ -78,9 +81,6 @@ async def converse(req: ConverseRequest):
     except Exception as e:
         msg = str(e)
         low = msg.lower()
-        # A Gemini quota / spend-cap hit (HTTP 429 RESOURCE_EXHAUSTED) is a temporary,
-        # upstream condition - not a server bug. Surface it as a clear 503 so the client can
-        # tell the user "quota reached, try later" and stay online, rather than a naked 500.
         if "429" in msg or "resource_exhausted" in low or "spending cap" in low or "quota" in low:
             raise HTTPException(
                 status_code=503,
@@ -89,12 +89,11 @@ async def converse(req: ConverseRequest):
         raise HTTPException(status_code=500, detail=f"Converse failed: {msg}")
 
 @router.post("/api/chat/clear")
-async def clear_chat_history():
+async def clear_chat_history(current_user: User = Depends(get_current_user)):
     try:
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('DELETE FROM chat_history')
-            conn.commit()
+        with get_db_session() as db:
+            db.query(ChatHistory).filter(ChatHistory.user_id == current_user.id).delete()
+            db.commit()
         return {"status": "success", "message": "Chat history cleared."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")

@@ -73,6 +73,9 @@
                 <button id="btn-theme-toggle" class="hud-btn-icon" title="Change Theme">
                     <i class="fa-solid fa-palette"></i>
                 </button>
+                <button id="btn-user-auth" class="hud-btn-icon" title="Användarkonto / Inloggning">
+                    <i class="fa-solid fa-user-lock"></i>
+                </button>
                 <button id="btn-settings" class="hud-btn-icon" title="Settings">
                     <i class="fa-solid fa-sliders"></i>
                 </button>
@@ -341,6 +344,38 @@
             <div class="modal-footer">
                 <button id="btn-reset-settings" class="hud-btn btn-secondary">RESET ALL</button>
                 <button id="btn-save-settings" class="hud-btn btn-primary">SAVE CONFIGURATION</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- USER AUTH MODAL -->
+    <div class="hud-modal" id="modal-user-auth">
+        <div class="modal-content glass-morphic" style="max-width: 440px;">
+            <div class="modal-header">
+                <h2><i class="fa-solid fa-user-shield"></i> FREJA ANVÄNDARKONTO</h2>
+                <button class="modal-close" id="btn-close-auth">&times;</button>
+            </div>
+            <div class="modal-body" style="display: flex; flex-direction: column; gap: 15px;">
+                <div id="auth-status-banner" style="font-size: 13px; color: var(--color-primary); background: rgba(0, 240, 255, 0.08); padding: 10px 14px; border-radius: 6px; border: 1px solid var(--color-border);">
+                    Standardläge (Admin / Enskild användare)
+                </div>
+                <div class="settings-group">
+                    <label for="input-auth-email">E-postadress</label>
+                    <input type="email" id="input-auth-email" class="hud-input" placeholder="din.epost@doman.se">
+                </div>
+                <div class="settings-group">
+                    <label for="input-auth-password">Lösenord</label>
+                    <input type="password" id="input-auth-password" class="hud-input" placeholder="••••••••">
+                </div>
+                <div class="settings-group" id="group-auth-name" style="display: none;">
+                    <label for="input-auth-name">Namn</label>
+                    <input type="text" id="input-auth-name" class="hud-input" placeholder="Ditt namn">
+                </div>
+                <div id="auth-error-msg" style="color: #ff3b30; font-size: 12px; display: none;"></div>
+            </div>
+            <div class="modal-footer" style="display: flex; justify-content: space-between;">
+                <button id="btn-auth-mode-toggle" class="hud-btn btn-secondary" style="font-size: 11px;">Skapa nytt konto</button>
+                <button id="btn-auth-submit" class="hud-btn btn-primary">LOGGA IN</button>
             </div>
         </div>
     </div>

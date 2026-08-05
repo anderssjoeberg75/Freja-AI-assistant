@@ -15,12 +15,13 @@ import secrets
 import sqlite3
 from contextlib import contextmanager
 
-from backend.config import DB_FILE
+from backend.config import DB_FILE, DATABASE_URL
 from backend.crypto_utils import encrypt_value, decrypt_value
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
-engine = create_engine(f"sqlite:///{DB_FILE}", connect_args={"timeout": 30})
+connect_args = {"timeout": 30} if DATABASE_URL.startswith("sqlite") else {}
+engine = create_engine(DATABASE_URL, connect_args=connect_args, pool_pre_ping=True)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 @contextmanager
@@ -35,13 +36,35 @@ def get_db_session():
 
 @contextmanager
 def get_db_connection():
-    """Context manager for SQLite database connections, enabling WAL mode and timeout."""
-    conn = sqlite3.connect(DB_FILE, timeout=30)
-    conn.execute("PRAGMA journal_mode=WAL")
-    try:
-        yield conn
-    finally:
-        conn.close()
+    """Context manager for database connections, enabling WAL mode for SQLite or raw connection for PostgreSQL."""
+    if DATABASE_URL.startswith("sqlite"):
+        conn = sqlite3.connect(DB_FILE, timeout=30)
+        conn.execute("PRAGMA journal_mode=WAL")
+        try:
+            yield conn
+        finally:
+            conn.close()
+    else:
+        conn = engine.raw_connection()
+        try:
+            yield conn
+        finally:
+            conn.close()
+
+
+def get_db_info():
+    """Returns database engine type and status label."""
+    if DATABASE_URL.startswith("postgresql://") or DATABASE_URL.startswith("postgres://"):
+        return {
+            "type": "postgresql",
+            "label": "PostgreSQL",
+            "is_sqlite": False
+        }
+    return {
+        "type": "sqlite",
+        "label": "WAL Mode (SQLite)",
+        "is_sqlite": True
+    }
 
 
 # Legacy setting names kept working after the `freja_`-prefixed rename. `get_api_key()`
@@ -164,96 +187,29 @@ def _ensure_columns(cursor, table: str, columns: list):
 
 
 def init_db():
-    """Initializes the SQLite database and creates the keys and other tables if they don't exist."""
+    """Initializes the database schema and creates tables if they don't exist."""
     from backend.models import Base
     Base.metadata.create_all(bind=engine)
 
-    conn = sqlite3.connect(DB_FILE, timeout=30)
-    conn.execute("PRAGMA journal_mode=WAL")
-    cursor = conn.cursor()
-
-    # Backfill columns added to garmin_health after the initial schema (stress + sleep stages).
-    _ensure_columns(cursor, "garmin_health", [
-        ("stress_avg", "INTEGER"),
-        ("stress_max", "INTEGER"),
-        ("sleep_deep_hours", "REAL"),
-        ("sleep_light_hours", "REAL"),
-        ("sleep_rem_hours", "REAL"),
-        ("sleep_awake_hours", "REAL"),
-        ("vo2max", "REAL"),
-        ("intensity_minutes", "INTEGER"),
-        ("sleep_score", "INTEGER"),
-        ("training_load_acute", "REAL"),
-        ("training_load_chronic", "REAL"),
-        ("acwr", "REAL"),
-        ("acwr_status", "TEXT"),
-        ("load_aerobic_low", "REAL"),
-        ("load_aerobic_high", "REAL"),
-        ("load_anaerobic", "REAL"),
-        ("training_readiness", "INTEGER"),
-        ("training_readiness_level", "TEXT"),
-        ("training_readiness_feedback", "TEXT"),
-    ])
-
-    # Backfill the detail-fetch marker, raw type key and lap count added to garmin_activities
-    # (#182/#183/#185).
-    _ensure_columns(cursor, "garmin_activities", [
-        ("detail_fetched_at", "TEXT"),
-        ("raw_type_key", "TEXT"),
-        ("lap_count", "INTEGER"),
-    ])
-
-    # Backfill source/activity_id added to trainer_strength_logs for Garmin auto-import
-    # (Issue #183). Existing rows have no source recorded - default them to 'manual' so
-    # nothing already logged is mistaken for a Garmin import.
-    _ensure_columns(cursor, "trainer_strength_logs", [
-        ("source", "TEXT"),
-        ("activity_id", "TEXT"),
-    ])
-    cursor.execute("UPDATE trainer_strength_logs SET source = 'manual' WHERE source IS NULL")
-
-    # Backfill the baselines_updated_at column added to trainer_profile for the
-    # weekly baseline auto-update (Issue #35).
-    _ensure_columns(cursor, "trainer_profile", [
-        ("baselines_updated_at", "TEXT"),
-    ])
-
-    # Backfill indexes for existing databases (issue #65, #162, #163)
-    cursor.execute("CREATE INDEX IF NOT EXISTS ix_trainer_bookings_workout_date ON trainer_bookings (workout_date)")
-    cursor.execute("CREATE INDEX IF NOT EXISTS ix_trainer_bookings_plan_id ON trainer_bookings (plan_id)")
-    cursor.execute("CREATE INDEX IF NOT EXISTS ix_strava_activities_date ON strava_activities (date)")
-    cursor.execute("CREATE INDEX IF NOT EXISTS ix_garmin_activities_date ON garmin_activities (date)")
-    cursor.execute("CREATE INDEX IF NOT EXISTS ix_trainer_plans_date ON trainer_plans (date)")
-    cursor.execute("CREATE INDEX IF NOT EXISTS ix_trainer_injury_logs_date ON trainer_injury_logs (date)")
-    cursor.execute("CREATE INDEX IF NOT EXISTS ix_trainer_strength_logs_date ON trainer_strength_logs (date)")
-    cursor.execute("CREATE INDEX IF NOT EXISTS ix_fitbit_health_date ON fitbit_health (date)")
-
-    # Clean up legacy demo/seed rows if present in the database so fake test data
-    # (e.g. "Lunch med Maria", "Läkarbesök", dummy Strava activities) never persists.
-    cursor.execute("DELETE FROM google_calendar_events WHERE summary IN ('Möte med Sven', 'Lunch med Maria', 'Designgenomgång', 'Läkarbesök')")
-    cursor.execute("""
-        DELETE FROM strava_activities
-        WHERE id < 0 OR name IN (
-            'Morgonlöpning i skogen', 'Distanscykling landsväg', 'Intervallpass bana',
-            'Morgonlöpning i parken', 'Kvällscykling', 'Styrkepass - Ben & Bål',
-            'Snabbdistans Löpning', 'Aktiv återhämtning Promenad'
-        )
-    """)
-    cursor.execute("DELETE FROM withings_measurements WHERE date BETWEEN '2026-06-13' AND '2026-06-19' AND weight = 78.5 AND fat_ratio = 18.2")
-    cursor.execute("DELETE FROM garmin_health WHERE date BETWEEN '2026-06-13' AND '2026-06-19' AND steps IN (10450, 8200, 12100, 9300, 11000, 7100, 8900)")
-    # Seed a strong random access token on first start, and rotate away from known weak/legacy defaults.
-    LEGACY_WEAK_TOKENS = ('freja_secret', 'freja1234')
-    cursor.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_access_token'")
-    row = cursor.fetchone()
-    if row is None or not row[0]:
-        new_token = secrets.token_urlsafe(32)
-        cursor.execute("INSERT INTO api_keys (key_name, key_value) VALUES ('freja_access_token', ?)", (encrypt_value(new_token),))
-        print("[FREJA] Generated a new secure access token.")
-    else:
-        decrypted_token = decrypt_value(row[0]).strip()
-        if decrypted_token in LEGACY_WEAK_TOKENS or row[0] in LEGACY_WEAK_TOKENS:
+    with get_db_session() as db:
+        # Seed a strong random access token on first start, and rotate away from known weak/legacy defaults.
+        LEGACY_WEAK_TOKENS = ('freja_secret', 'freja1234')
+        row = db.execute(text("SELECT key_value FROM api_keys WHERE key_name = 'freja_access_token'")).fetchone()
+        if row is None or not row[0]:
             new_token = secrets.token_urlsafe(32)
-            cursor.execute("UPDATE api_keys SET key_value = ? WHERE key_name = 'freja_access_token'", (encrypt_value(new_token),))
-            print("[FREJA] Rotated a weak default token to a new random access token.")
-    conn.commit()
-    conn.close()
+            db.execute(
+                text("INSERT INTO api_keys (key_name, key_value, user_id) VALUES ('freja_access_token', :val, 1) ON CONFLICT(key_name) DO UPDATE SET key_value = EXCLUDED.key_value"),
+                {"val": encrypt_value(new_token)}
+            )
+            db.commit()
+            print("[FREJA] Generated a new secure access token.")
+        else:
+            decrypted_token = decrypt_value(row[0]).strip()
+            if decrypted_token in LEGACY_WEAK_TOKENS or row[0] in LEGACY_WEAK_TOKENS:
+                new_token = secrets.token_urlsafe(32)
+                db.execute(
+                    text("UPDATE api_keys SET key_value = :val WHERE key_name = 'freja_access_token'"),
+                    {"val": encrypt_value(new_token)}
+                )
+                db.commit()
+                print("[FREJA] Rotated a weak default token to a new random access token.")

@@ -20,7 +20,9 @@ AUTH_EXEMPT_PATHS = {
     "/api/strava/callback",
     "/api/google_calendar/callback",
     "/api/instagram/auth",
-    "/api/instagram/callback"
+    "/api/instagram/callback",
+    "/api/auth/register",
+    "/api/auth/login"
 }
 
 # In-memory sliding-window rate limiter for failed auth attempts, keyed by client IP.
@@ -106,8 +108,8 @@ class FrejaAuthMiddleware(BaseHTTPMiddleware):
         path = request.url.path
         normalized_path = path.rstrip("/")
 
-        # 1. Bypass auth for CORS preflight (OPTIONS), non-API endpoints, and OAuth redirects.
-        if request.method == "OPTIONS" or not path.startswith("/api/") or normalized_path in AUTH_EXEMPT_PATHS:
+        # 1. Bypass auth for CORS preflight (OPTIONS), non-API endpoints, /api/auth/ routes, and OAuth redirects.
+        if request.method == "OPTIONS" or not path.startswith("/api/") or path.startswith("/api/auth/") or normalized_path in AUTH_EXEMPT_PATHS:
             return await call_next(request)
 
         ip = _client_ip(request)
@@ -153,7 +155,12 @@ class FrejaAuthMiddleware(BaseHTTPMiddleware):
             _record_success(ip)
             return await call_next(request)
 
-        # 4. Check X-Freja-Token header or 'token' query param against the token stored in SQLite.
+        # 4. Check for Bearer JWT token or X-Freja-Token header / 'token' query param
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            _record_success(ip)
+            return await call_next(request)
+
         token = request.headers.get("X-Freja-Token") or request.query_params.get("token")
 
         try:

@@ -168,6 +168,12 @@ async def get_token_qr(request: Request, url: str = Query("", description="Overr
     return Response(content=buf.getvalue(), media_type="image/png")
 
 
+@router.get("/api/system/db-status")
+async def get_db_status_endpoint():
+    from backend.database import get_db_info
+    return get_db_info()
+
+
 async def _delayed_restart():
     await asyncio.sleep(1.5)
     # Trigger systemd service restart or kill uvicorn parent process so systemd cleanly restarts service
@@ -264,10 +270,11 @@ async def setup_postgres():
         # Save DATABASE_URL in api_keys
         set_api_key("freja_database_url", target_url)
 
-        add_system_log("INFO", "PostgreSQL setup and data migration complete!")
+        add_system_log("INFO", "PostgreSQL setup and data migration complete! Scheduling restart...")
+        asyncio.create_task(_delayed_restart())
         return {
             "status": "success",
-            "message": "PostgreSQL-användare skapad, databas initierad och all data migrerad!",
+            "message": "PostgreSQL-användare skapad, databas initierad och all data migrerad! Servern startar om...",
             "db_user": db_user,
             "db_name": db_name,
             "db_password": db_pass,

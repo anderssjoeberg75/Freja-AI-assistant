@@ -12,3 +12,6 @@ pytest
 pytest-asyncio
 SQLAlchemy>=2.0.0
 alembic>=1.11.0
+psycopg2-binary>=2.9.0
+pyjwt>=2.8.0
+passlib[bcrypt]>=1.7.4
