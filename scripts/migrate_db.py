@@ -28,8 +28,12 @@ def migrate_database(source_url: str, target_url: str):
     source_engine = create_engine(source_url)
     target_engine = create_engine(target_url)
 
-    # Step 1: Ensure all tables exist on target
-    print("[FREJA DB MIGRATE] Creating target tables...")
+    # Step 1: Ensure target tables match current models (drop existing if old schema)
+    print("[FREJA DB MIGRATE] Recreating target tables...")
+    try:
+        Base.metadata.drop_all(bind=target_engine)
+    except Exception as e:
+        print(f"  Warning during drop_all: {e}")
     Base.metadata.create_all(bind=target_engine)
 
     source_meta = MetaData()
