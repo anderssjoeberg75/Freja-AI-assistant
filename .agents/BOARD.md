@@ -137,6 +137,214 @@ Pick either back up once those credentials exist.
 
 ---
 
+## Multi-tenant backend — analysis 2026-08-05
+
+Anders wants several separate people (not just multiple devices for himself) to use Freja,
+each with their own isolated data — own Garmin/Strava/Withings/Fitbit connection, own
+training plan, own chat history, own calendar. Analyzed the current backend end-to-end
+(`backend/middleware/auth.py`, `backend/routes/auth.py`, `backend/models.py`,
+`backend/database.py`, all 20 route files) to scope the work. Findings:
+
+- **A JWT user system already exists but is barely used.** `backend/routes/auth.py` has
+  working `register`/`login`/`me` + a `User` table (`backend/models.py:6`). Only
+  `chat.py` actually depends on `get_current_user`/`get_current_user_from_token` — every
+  other route file (garmin, strava, withings, fitbit, rouvy, google_calendar, trainer/*,
+  settings, tools, learning, telegram, instagram, mem0, elevenlabs, gemini, search, sync,
+  llm — 18 files) runs unauthenticated-by-identity against one global dataset.
+- **The data model is single-tenant, not multi-tenant.** Of ~20 tables in `models.py`, only
+  `ApiKey` and `ChatHistory` even have a `user_id` column, and `ApiKey.user_id` is dead
+  weight today — `get_api_key()`/`set_api_key()` (`database.py:116`) query by `key_name`
+  alone, so every credential (Garmin email/password, Strava/Withings/Fitbit/Google OAuth
+  tokens, Gemini key, the Telegram bot token, the shared access token itself) is one global
+  value, period. `TrainerProfile` even enforces `CheckConstraint('id = 1')` — the schema
+  physically forbids a second user's profile.
+- **A real security hole, independent of the multi-tenant decision:**
+  `FrejaAuthMiddleware.dispatch` (`backend/middleware/auth.py:159-162`) lets through *any*
+  `Authorization: Bearer <anything>` header without validating it — the JWT signature is
+  only actually checked inside `chat.py`'s own `Depends(get_current_user)`. Any other route
+  is reachable by sending a garbage Bearer token instead of the real `X-Freja-Token` shared
+  secret. Fix this regardless of which scope is chosen below.
+- **Two unrelated auth schemes coexist**: the web client (`client/app.js`,
+  `client/js/ui-events.js`) authenticates with one shared secret (`X-Freja-Token`, stored in
+  `localStorage.freja_access_token`), while `/api/chat/converse` (built for the Android app
+  per earlier work) uses per-user JWT `Bearer` tokens. Real multi-tenancy needs the web
+  client to move onto the same JWT login as Android.
+- `JWT_SECRET` (`backend/config.py:31`) defaults to a hardcoded string if the `JWT_SECRET`
+  env var isn't set — verify it's actually set on the server (192.168.107.15) before relying
+  on JWT for real account separation.
+- Background sync (`run_garmin_sync_task_blocking` etc. in `garmin.py`, and the Strava/
+  Withings/Fitbit/Rouvy equivalents) reads credentials and writes activity rows with no user
+  dimension at all; Garmin's cached-session token dir (`_garmin_token_dir()`,
+  `garmin.py:98`) is one fixed filesystem path shared by every caller.
+
+**This is a genuine multi-week architectural project**, not a quick config change — it
+touches the schema, every route file, every OAuth integration, background sync, and both
+clients. Broken into dependency-ordered tasks below so it can land incrementally without a
+big-bang rewrite; each phase keeps the app working for Anders' existing single-tenant data
+(migrated to `user_id=1`) throughout.
+
+### [T-037] Security fix: close the Bearer-token bypass in FrejaAuthMiddleware
+- Owner: claude
+- Status: todo
+- Priority: P1
+- Created-by: anders (via claude analysis)
+- Files: `backend/middleware/auth.py`, `backend/routes/auth.py`, `tests/test_api_auth.py`
+- Depends-on: none — do this first, independent of the multi-tenant work below.
+- Spec: `FrejaAuthMiddleware.dispatch` must actually verify a `Bearer` JWT (signature +
+  expiry, reusing `jwt.decode`/`JWT_SECRET` from `routes/auth.py`) before letting the
+  request through, not just check the header prefix. A request with an invalid/expired/
+  garbage Bearer token must get the same 401 treatment as a bad `X-Freja-Token`. Also
+  verify (and document in README/deploy notes) that `JWT_SECRET` is set to a real random
+  value via env on the production server, not left on the `config.py:31` default.
+- Handoff-notes: this is the one piece of this epic that's a live vulnerability today —
+  worth shipping and deploying (PULL FROM GITHUB & RESTART) on its own before the rest.
+
+### [T-038] Schema: add `user_id` to every per-user table + backfill migration
+- Owner: claude
+- Status: todo
+- Priority: P1
+- Created-by: anders (via claude analysis)
+- Files: `backend/models.py`, `backend/database.py` (migration/`_ensure_columns` logic,
+  mirroring the pattern already used for `TrainerStrengthLog.source`), new migration script
+  under `migrations/`
+- Depends-on: none (schema-only; T-040 depends on this)
+- Spec: add a non-nullable `user_id` (FK-shaped, `BigInteger`) to every table that holds
+  per-person data: `GarminHealth`, `GarminActivity`, `GarminActivityDetail`,
+  `GarminActivityZones`, `GarminActivityLap`, `GarminBenchmark`, `GarminPushedWorkout`,
+  `StravaActivity`, `WithingsMeasurement`, `FitbitHealth`, `GoogleCalendarEvent`,
+  `TrainerPlan`, `TrainerProfile`, `TrainerBooking`, `TrainerInjuryLog`,
+  `TrainerStrengthLog`. Composite/unique constraints that are currently global must become
+  per-user (e.g. `GoogleCalendarEvent.google_event_id` unique → unique on
+  `(user_id, google_event_id)`; `GarminActivity.activity_id` unique → unique on
+  `(user_id, activity_id)`). Drop `TrainerProfile`'s `CheckConstraint('id = 1')` — replace
+  the single-row assumption with one row per `user_id`. Decide and document whether
+  `LearnedKnowledge` stays a shared global knowledge base or becomes per-user (recommend:
+  stays global — it's Freja's own learned facts, not personal data); `CodexAuditLog` stays
+  global (server-admin audit trail, not user data). Migration backfills every existing row
+  to `user_id=1` (the existing "Admin" user) so Anders' current data isn't orphaned. Full
+  `pytest` still passing after the migration.
+
+### [T-039] Per-user credential storage: fix `ApiKey`/`get_api_key`/`set_api_key`
+- Owner: claude
+- Status: todo
+- Priority: P1
+- Created-by: anders (via claude analysis)
+- Files: `backend/database.py` (`get_api_key`, `set_api_key`, `ApiKey` usage),
+  `backend/models.py` (`ApiKey`), every `backend/routes/*.py` that calls
+  `get_api_key`/`set_api_key` for a per-user secret (Garmin/Strava/Withings/Fitbit/Google
+  Calendar/Rouvy/Instagram credentials and OAuth tokens)
+- Depends-on: T-038 (same migration pass)
+- Spec: `ApiKey`'s primary key changes from `key_name` alone to `(user_id, key_name)`;
+  `get_api_key`/`set_api_key` gain a required `user_id` parameter (no silent global
+  default). Every call site that reads a *personal* credential (Garmin email/password,
+  Strava/Withings/Fitbit/Google refresh tokens, Rouvy email/password, Instagram token) is
+  updated to pass the current user's id. Decide which keys stay genuinely global vs. become
+  per-user and document the split: LLM provider keys (`freja_gemini_apikey`,
+  `freja_claude_apikey`, Ollama URL/model), the Telegram bot token, and
+  `freja_allowed_origins`/`freja_allowed_ips` are server/deployment config — keep global.
+  Per-integration OAuth credentials and tokens must become per-user. `KEY_ALIASES` legacy
+  fallback still resolves correctly per-user. Existing global rows backfilled onto
+  `user_id=1` during the same migration as T-038.
+
+### [T-040] Enforce per-user scoping across all route files
+- Owner: claude
+- Status: todo
+- Priority: P1
+- Created-by: anders (via claude analysis)
+- Files: all 18 currently-unscoped route files under `backend/routes/**` (garmin, strava,
+  withings, fitbit, rouvy, google_calendar, trainer/*, settings, tools, learning, telegram,
+  instagram, mem0, elevenlabs, gemini_proxy, search, sync, llm), `tests/**`
+- Depends-on: T-038, T-039
+- Spec: every route that reads/writes a per-user table or credential adds
+  `current_user: User = Depends(get_current_user_from_token)` (the strict variant — the
+  `get_current_user` fallback-to-user-id-1 behavior in `routes/auth.py:84-102` should be
+  retired once every client speaks JWT, see T-043) and filters/writes with
+  `.filter(Model.user_id == current_user.id)`. No cross-user data leakage: add a regression
+  test per route family (mirrors the existing `test_garmin_routes.py` etc. shape) asserting
+  user A never sees user B's rows. Background/sync trigger endpoints
+  (`/api/garmin/sync`, `/api/strava/sync`, `/api/rouvy/sync`, …) sync only the calling
+  user's own account. Full `pytest` passing.
+
+### [T-041] Background sync + OAuth callbacks: per-user credentials and token storage
+- Owner: claude
+- Status: todo
+- Priority: P2
+- Created-by: anders (via claude analysis)
+- Files: `backend/routes/garmin.py` (`_garmin_token_dir`,
+  `run_garmin_sync_task_blocking`), `backend/routes/{strava,withings,fitbit,
+  google_calendar,rouvy}.py` (OAuth callback + sync task functions)
+- Depends-on: T-039, T-040
+- Spec: `_garmin_token_dir()` (`garmin.py:98`, currently one fixed path under
+  `.garminconnect`) becomes per-user (`.garminconnect/<user_id>/`), so two users' cached
+  Garmin sessions never collide. Every OAuth `/api/<provider>/callback` route stores the
+  resulting refresh token against the authenticating user (needs the OAuth `state`
+  parameter to carry/verify the user id across the redirect, since the browser leaves and
+  returns without custom headers — same constraint noted in `AUTH_EXEMPT_PATHS`'s comment
+  in `auth.py`). Any scheduled/cron-style sync (if one exists beyond on-demand
+  `/api/*/sync` calls — confirm) iterates over all users with a connected account for that
+  provider rather than assuming a single account.
+
+### [T-042] Web client: switch from shared `X-Freja-Token` to per-user JWT login
+- Owner: antigravity
+- Status: todo
+- Priority: P2
+- Created-by: anders (via claude analysis)
+- Files: `client/app.js`, `client/js/ui-events.js`, `client/js/ui-init.js`,
+  `client/markdown.js`, `client/index.html`, `client/style.css`
+- Depends-on: T-040 (server must actually enforce per-user identity before the client's
+  login screen means anything)
+- Spec: add a login/register screen (calling the already-built `POST /api/auth/register` /
+  `POST /api/auth/login`) that replaces today's single shared "paste the access token"
+  settings field. Store the returned JWT (`localStorage`, same slot pattern as today's
+  `freja_access_token`, or a new key — agent's call) and send it as `Authorization: Bearer
+  <token>` instead of `X-Freja-Token` on every request (the ~7 call sites listed in
+  `app.js`/`ui-events.js`/`ui-init.js`/`markdown.js` found via grep for
+  `freja_access_token`). Handle 401 (expired token) by returning to the login screen. Keep
+  it usable by more than one person on the same browser (logout clears the stored JWT).
+  Browser-verify: register a second test user, confirm their chat history / dashboards are
+  empty/separate from the first user's.
+- ▶ Antigravity prompt: "Wire the web client (`client/**`) to Freja's existing JWT auth
+  (`POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me` — see
+  `backend/routes/auth.py`) instead of the shared `X-Freja-Token` header. Add a login/
+  register screen, store the JWT, send it as `Authorization: Bearer <token>` on every API
+  call (replace the `X-Freja-Token` header logic in `app.js`, `js/ui-events.js`,
+  `js/ui-init.js`, `js/markdown.js`), and handle 401 by returning to login. Browser-verify
+  with two distinct registered users that their data (chat history, dashboards) is
+  isolated. This depends on backend task T-040 (per-user route scoping) being deployed
+  first — check `.agents/BOARD.md` T-040 status before starting."
+
+### [T-043] Telegram bot: multi-user chat_id → account mapping
+- Owner: claude
+- Status: todo
+- Priority: P3
+- Created-by: anders (via claude analysis)
+- Files: `backend/services/telegram_service.py`
+- Depends-on: T-040
+- Spec: today's bot is wired to one global `freja_telegram_chat_id`. Decide the model
+  (recommend: a `POST /api/auth/telegram/link` flow where a logged-in user links their
+  Telegram chat id to their account, stored as a per-user credential per T-039) and route
+  incoming messages to the linked user's data instead of the single global account. Lower
+  priority than the app/web surfaces — pick up after T-040/T-041 land and only if Anders
+  actually wants Telegram to be multi-user (otherwise it can stay pinned to `user_id=1`).
+
+### [T-044] Android app: switch to JWT login against the multi-tenant backend
+- Owner: claude
+- Status: blocked
+- Priority: P2
+- Created-by: anders (via claude analysis)
+- Depends-on: T-040, T-042 (client-side login pattern should match the web client's)
+- Note: lives in the separate native Kotlin/Compose Freja client repo (see prior session's
+  `android-client-project` context), not in this repo — this board entry is a pointer/
+  reminder, not something this repo's board can track to completion. `/api/chat/converse`
+  already accepts a JWT `Bearer` token via `get_current_user`
+  (`backend/routes/chat.py:72`); once T-040 lands, every other endpoint the Android app
+  calls will require the same. Add a login/register screen to the Android app calling
+  `/api/auth/login`/`/api/auth/register`, store the JWT securely (Android Keystore-backed,
+  not plain SharedPreferences), attach it as `Authorization: Bearer <token>`. Blocked until
+  someone opens that repo in an agent session.
+
+---
+
 ## Done
 
 - **[T-036 / GitHub Issues #190–#198, #203–#208]** Full GitHub Issues Batch Resolution & Rouvy Integration — DONE (2026-07-28, antigravity). Worked through and closed all open GitHub issues: PT profile auto_adjust, today_local context summary, week-based workout matching, multi-week generation schema, date-based trends, weather bounds check, calendar lookup window, DB connection consolidation, and the complete Rouvy indoor cycling integration (`backend/services/rouvy_client/`, `backend/routes/rouvy.py`, `get_rouvy_data` tool, `tests/test_rouvy_routes.py`, UI settings). All 447 tests passing.
