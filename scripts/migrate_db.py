@@ -35,16 +35,21 @@ def migrate_database(source_url: str, target_url: str):
     source_meta = MetaData()
     source_meta.reflect(bind=source_engine)
 
+    target_meta = MetaData()
+    target_meta.reflect(bind=target_engine)
+
     total_rows = 0
 
     # Iterate over tables in dependency order
     for table_name in Base.metadata.tables.keys():
-        if table_name not in source_meta.tables:
-            print(f"  - Table {table_name}: not found in source, skipping.")
+        if table_name not in source_meta.tables or table_name not in target_meta.tables:
+            print(f"  - Table {table_name}: missing in source or target, skipping.")
             continue
 
-        src_table = Table(table_name, source_meta, autoload_with=source_engine)
-        tgt_table = Table(table_name, Base.metadata, autoload_with=target_engine)
+        src_table = source_meta.tables[table_name]
+        tgt_table = target_meta.tables[table_name]
+
+        common_cols = set(src_table.columns.keys()).intersection(set(tgt_table.columns.keys()))
 
         with source_engine.connect() as src_conn:
             rows = src_conn.execute(src_table.select()).mappings().all()
@@ -53,11 +58,12 @@ def migrate_database(source_url: str, target_url: str):
             print(f"  - Table {table_name}: 0 rows.")
             continue
 
+        dict_rows = [{k: row[k] for k in common_cols if k in row} for row in rows]
+
         with target_engine.begin() as tgt_conn:
             # Delete existing rows on target for clean overwrite
             tgt_conn.execute(tgt_table.delete())
             # Insert in chunks of 500
-            dict_rows = [dict(row) for row in rows]
             chunk_size = 500
             for i in range(0, len(dict_rows), chunk_size):
                 chunk = dict_rows[i:i + chunk_size]
