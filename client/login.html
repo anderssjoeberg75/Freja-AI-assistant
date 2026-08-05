@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>F.R.E.J.A. // Logga in</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700;800&family=Orbitron:wght@400;600;800;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
+    <style>
+        /* Standalone auth-page layout - see register.html for why this doesn't use the
+           full HUD shell. */
+        body {
+            overflow: auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+        }
+        .auth-page-card {
+            width: 100%;
+            max-width: 420px;
+            padding: 32px 28px;
+        }
+        .auth-page-logo {
+            text-align: center;
+            margin-bottom: 22px;
+        }
+        .auth-page-logo .logo-text {
+            font-family: var(--font-display);
+            font-size: 22px;
+            font-weight: 800;
+            letter-spacing: 4px;
+            color: var(--color-primary);
+            text-shadow: var(--shadow-neon);
+        }
+        .auth-page-logo .logo-sub {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--color-text-muted);
+            letter-spacing: 2px;
+            margin-top: 6px;
+        }
+        .auth-page-form {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+        .auth-page-submit {
+            width: 100%;
+            margin-top: 4px;
+        }
+        .auth-page-footer {
+            text-align: center;
+            margin-top: 18px;
+            font-size: 12px;
+            color: var(--color-text-muted);
+        }
+        .auth-page-error, .auth-page-success {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            display: none;
+            padding: 8px 10px;
+            border-radius: 4px;
+        }
+        .auth-page-error {
+            color: #ff3b30;
+            border: 1px solid rgba(255, 59, 48, 0.35);
+            background: rgba(255, 59, 48, 0.08);
+        }
+        .auth-page-success {
+            color: #30d158;
+            border: 1px solid rgba(48, 209, 88, 0.35);
+            background: rgba(48, 209, 88, 0.08);
+        }
+    </style>
+</head>
+<body class="theme-cyan light-mode">
+    <div class="grid-overlay"></div>
+    <div class="scanlines"></div>
+    <div class="ambient-glow"></div>
+
+    <div class="auth-page-card glass-morphic">
+        <div class="auth-page-logo">
+            <span class="logo-text">[ F.R.E.J.A. ]</span>
+            <div class="logo-sub">LOGGA IN P&Aring; DITT KONTO</div>
+        </div>
+
+        <form class="auth-page-form" id="login-form" novalidate>
+            <div class="settings-group">
+                <label for="login-email">E-postadress</label>
+                <input type="email" id="login-email" class="hud-input" placeholder="din.epost@domain.se" autocomplete="email" required>
+            </div>
+            <div class="settings-group">
+                <label for="login-password">Lösenord</label>
+                <input type="password" id="login-password" class="hud-input" placeholder="••••••••" autocomplete="current-password" required>
+            </div>
+
+            <div class="auth-page-error" id="login-error"></div>
+            <div class="auth-page-success" id="login-success"></div>
+
+            <button type="submit" class="hud-btn btn-primary auth-page-submit" id="login-submit">
+                <i class="fa-solid fa-right-to-bracket"></i> LOGGA IN
+            </button>
+        </form>
+
+        <div class="auth-page-footer">
+            Inget konto än? <a href="register.html" class="hud-link">Skapa konto</a>
+        </div>
+    </div>
+
+    <script>
+        const form = document.getElementById('login-form');
+        const submitBtn = document.getElementById('login-submit');
+        const errorBox = document.getElementById('login-error');
+        const successBox = document.getElementById('login-success');
+
+        function showError(msg) {
+            errorBox.textContent = msg;
+            errorBox.style.display = 'block';
+            successBox.style.display = 'none';
+        }
+
+        form.addEventListener('submit', async (evt) => {
+            evt.preventDefault();
+            errorBox.style.display = 'none';
+            successBox.style.display = 'none';
+
+            const email = document.getElementById('login-email').value.trim();
+            const password = document.getElementById('login-password').value;
+
+            if (!email || !password) {
+                showError('Ange både e-post och lösenord.');
+                return;
+            }
+
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'LOGGAR IN...';
+
+            try {
+                const res = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password })
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                    throw new Error(data.detail || 'Inloggningen misslyckades.');
+                }
+
+                localStorage.setItem('freja_jwt_token', data.access_token);
+                localStorage.setItem('freja_user_email', data.email);
+
+                successBox.textContent = `Inloggad som ${data.email}. Du skickas vidare...`;
+                successBox.style.display = 'block';
+                setTimeout(() => { window.location.href = 'index.html'; }, 1000);
+            } catch (err) {
+                showError(err.message || 'Något gick fel. Försök igen.');
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '<i class="fa-solid fa-right-to-bracket"></i> LOGGA IN';
+            }
+        });
+    </script>
+</body>
+</html>

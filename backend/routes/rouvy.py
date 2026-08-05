@@ -4,7 +4,7 @@ import datetime
 import json
 import sqlite3
 from fastapi import APIRouter, HTTPException, Query, Request, BackgroundTasks
-from backend.database import get_db_connection, get_api_key
+from backend.database import get_db_connection, get_api_key, get_db_info
 from backend.services.sync_status import set_sync_state
 from backend.services.time_utils import today_local
 from backend.services.rouvy_client import RouvyClient, RouvyConfig, AuthenticationError, RouvyApiError
@@ -12,7 +12,18 @@ from backend.services.rouvy_client import RouvyClient, RouvyConfig, Authenticati
 router = APIRouter()
 
 def init_rouvy_db():
-    """Ensure Rouvy database tables exist."""
+    """Ensure Rouvy database tables exist.
+
+    Raw DDL (not routed through the SQLAlchemy models in `backend/models.py`), so unlike
+    everything else backed by `Base.metadata`, the dialect isn't handled automatically -
+    SQLite's `AUTOINCREMENT` has no Postgres equivalent and previously crashed the whole
+    server at import time as soon as `DATABASE_URL` pointed at Postgres (every other route
+    module is imported after this one in `server.py`).
+    """
+    autoincrement_id = (
+        "INTEGER PRIMARY KEY AUTOINCREMENT" if get_db_info()["type"] == "sqlite"
+        else "SERIAL PRIMARY KEY"
+    )
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute('''
@@ -69,9 +80,9 @@ def init_rouvy_db():
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
-        cursor.execute('''
+        cursor.execute(f'''
             CREATE TABLE IF NOT EXISTS rouvy_ftp_history (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id {autoincrement_id},
                 date TEXT UNIQUE,
                 ftp INTEGER,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
