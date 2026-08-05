@@ -1,16 +1,27 @@
-from sqlalchemy import Column, Integer, String, Float, CheckConstraint, UniqueConstraint
+from sqlalchemy import Column, Integer, BigInteger, String, Float, CheckConstraint, UniqueConstraint
 from sqlalchemy.orm import declarative_base
 
 Base = declarative_base()
 
+class User(Base):
+    __tablename__ = 'users'
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    email = Column(String, unique=True, nullable=False, index=True)
+    password_hash = Column(String, nullable=False)
+    name = Column(String, nullable=True)
+    created_at = Column(String, nullable=True)
+    is_active = Column(Integer, default=1)
+
 class ApiKey(Base):
     __tablename__ = 'api_keys'
+    user_id = Column(BigInteger, nullable=True, index=True, default=1)
     key_name = Column(String, primary_key=True)
     key_value = Column(String)
 
 class ChatHistory(Base):
     __tablename__ = 'chat_history'
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    user_id = Column(BigInteger, nullable=True, index=True, default=1)
     sender = Column(String)
     content = Column(String)
     timestamp = Column(String)
@@ -18,7 +29,7 @@ class ChatHistory(Base):
 
 class CodexAuditLog(Base):
     __tablename__ = 'codex_audit_log'
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
     timestamp = Column(String)
     tool = Column(String)
     command = Column(String)
@@ -27,7 +38,7 @@ class CodexAuditLog(Base):
 
 class LearnedKnowledge(Base):
     __tablename__ = 'learned_knowledge'
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
     topic = Column(String, unique=True)
     summary = Column(String)
     detailed_notes = Column(String)
@@ -81,7 +92,7 @@ class GarminActivity(Base):
     rows rather than being migrated away, since existing HUD reads and seed data depend on it.
     """
     __tablename__ = 'garmin_activities'
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
     activity_id = Column(String, unique=True, index=True)
     date = Column(String, index=True)
     start_time_local = Column(String)
@@ -152,7 +163,7 @@ class GarminActivityLap(Base):
     note: ~20 sessions/month averaging maybe 8 laps is ~160 rows/month - trivial for SQLite.
     """
     __tablename__ = 'garmin_activity_laps'
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
     activity_id = Column(String, index=True)
     lap_index = Column(Integer)
     date = Column(String, index=True)
@@ -191,8 +202,8 @@ class GarminPushedWorkout(Base):
     (plan_id, workout_date) so re-booking or re-pushing a plan updates the existing Garmin
     workout in place instead of silently duplicating it on the watch."""
     __tablename__ = 'garmin_pushed_workouts'
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    plan_id = Column(Integer, index=True)
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    plan_id = Column(BigInteger, index=True)
     workout_date = Column(String, index=True)   # YYYY-MM-DD, the session's date
     garmin_workout_id = Column(String)
     garmin_schedule_id = Column(String)
@@ -204,7 +215,7 @@ class GarminPushedWorkout(Base):
 
 class StravaActivity(Base):
     __tablename__ = 'strava_activities'
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
     name = Column(String)
     type = Column(String)
     date = Column(String, index=True)
@@ -250,7 +261,7 @@ class FitbitHealth(Base):
 
 class GoogleCalendarEvent(Base):
     __tablename__ = 'google_calendar_events'
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
     google_event_id = Column(String, unique=True)
     summary = Column(String)
     description = Column(String)
@@ -260,7 +271,7 @@ class GoogleCalendarEvent(Base):
 
 class TrainerPlan(Base):
     __tablename__ = 'trainer_plans'
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
     date = Column(String, index=True)
     goal = Column(String)
     advice_text = Column(String)
@@ -268,7 +279,7 @@ class TrainerPlan(Base):
 
 class TrainerProfile(Base):
     __tablename__ = 'trainer_profile'
-    id = Column(Integer, primary_key=True)
+    id = Column(BigInteger, primary_key=True)
     event = Column(String)
     event_date = Column(String)
     fitness_level = Column(String)
@@ -292,9 +303,9 @@ class TrainerProfile(Base):
 
 class TrainerBooking(Base):
     __tablename__ = 'trainer_bookings'
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    plan_id = Column(Integer, index=True)
-    event_id = Column(Integer)
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    plan_id = Column(BigInteger, index=True)
+    event_id = Column(BigInteger)
     workout_date = Column(String, index=True)
     week = Column(Integer, default=0)
 
@@ -306,7 +317,7 @@ class TrainerInjuryLog(Base):
     generation and the recovery optimizer so affected sessions get eased or swapped.
     """
     __tablename__ = 'trainer_injury_logs'
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
     date = Column(String, index=True)          # YYYY-MM-DD the problem was noted
     area = Column(String)          # body area, e.g. "Höger knä"
     severity = Column(Integer)     # 1-10, how limiting it is right now
@@ -323,7 +334,7 @@ class TrainerStrengthLog(Base):
     row is one exercise performed on a given date; `plan_id` links it back to the plan
     the session came from when known (nullable for ad-hoc logs)."""
     __tablename__ = 'trainer_strength_logs'
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
     date = Column(String, index=True)          # YYYY-MM-DD the set was performed
     exercise_name = Column(String)
     sets = Column(Integer)
@@ -331,7 +342,7 @@ class TrainerStrengthLog(Base):
     weight = Column(Float)         # load in kg (0/None for bodyweight)
     rpe = Column(Float)            # rate of perceived exertion (1-10), optional
     notes = Column(String)
-    plan_id = Column(Integer)      # source plan, nullable
+    plan_id = Column(BigInteger)      # source plan, nullable
     created_at = Column(String)
     # Issue #183: auto-imported Garmin sets vs hand-typed rows. Import only ever writes
     # source='garmin' rows and never overwrites a manual one; existing rows default to
