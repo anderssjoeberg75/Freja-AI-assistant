@@ -242,14 +242,15 @@ async def setup_postgres():
             
             subprocess.run("sudo systemctl start postgresql", shell=True, capture_output=True, text=True)
 
-            cmds = [
-                f"DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '{db_user}') THEN CREATE USER {db_user} WITH PASSWORD '{db_pass}'; ELSE ALTER USER {db_user} WITH PASSWORD '{db_pass}'; END IF; END $$;",
-                f"SELECT 'CREATE DATABASE {db_name} OWNER {db_user}' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '{db_name}')\\gexec",
-                f"GRANT ALL PRIVILEGES ON DATABASE {db_name} TO {db_user};"
-            ]
-            for c in cmds:
-                subprocess.run(["sudo", "-u", "postgres", "psql", "-c", c], capture_output=True, text=True, timeout=30)
+            # Create user if not exists or update password
+            create_user_sql = f"DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '{db_user}') THEN CREATE USER {db_user} WITH PASSWORD '{db_pass}'; ELSE ALTER USER {db_user} WITH PASSWORD '{db_pass}'; END IF; END $$;"
+            subprocess.run(["sudo", "-u", "postgres", "psql", "-c", create_user_sql], capture_output=True, text=True, timeout=30)
             
+            # Create database
+            subprocess.run(["sudo", "-u", "postgres", "createdb", "-O", db_user, db_name], capture_output=True, text=True, timeout=30)
+
+            # Grant permissions
+            subprocess.run(["sudo", "-u", "postgres", "psql", "-c", f"GRANT ALL PRIVILEGES ON DATABASE {db_name} TO {db_user};"], capture_output=True, text=True, timeout=30)
             subprocess.run(["sudo", "-u", "postgres", "psql", "-d", db_name, "-c", f"GRANT ALL ON SCHEMA public TO {db_user};"], capture_output=True, text=True, timeout=30)
 
         target_url = f"postgresql://{db_user}:{db_pass}@localhost:5432/{db_name}"
