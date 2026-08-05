@@ -48,6 +48,45 @@ def get_db_session():
         db.close()
 
 
+class _QmarkCompatCursor:
+    """Wraps a psycopg2 cursor so raw SQL written for SQLite's '?' placeholder style keeps
+    working unmodified against PostgreSQL. Every `cursor.execute(...)` call site reached
+    through `get_db_connection()` (database.py + every `backend/routes/**` module) uses
+    '?' purely as a bind-parameter placeholder, never as literal query text - verified by
+    inspecting every occurrence before adding this - so a blind '?' -> '%s' substitution on
+    the query string is safe. Centralizing the translation here means none of those ~30
+    call sites need to know or care which database backend is actually active, instead of
+    hand-converting each one (and every future one) to psycopg2's paramstyle.
+    """
+    def __init__(self, cursor):
+        self._cursor = cursor
+
+    def execute(self, query, params=None):
+        translated = query.replace("?", "%s")
+        if params is None:
+            return self._cursor.execute(translated)
+        return self._cursor.execute(translated, params)
+
+    def executemany(self, query, seq_of_params):
+        return self._cursor.executemany(query.replace("?", "%s"), seq_of_params)
+
+    def __getattr__(self, name):
+        return getattr(self._cursor, name)
+
+
+class _QmarkCompatConnection:
+    """Wraps a raw PostgreSQL connection so `.cursor()` returns a `_QmarkCompatCursor`;
+    every other attribute (commit, rollback, close, ...) passes straight through."""
+    def __init__(self, conn):
+        self._conn = conn
+
+    def cursor(self, *args, **kwargs):
+        return _QmarkCompatCursor(self._conn.cursor(*args, **kwargs))
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+
 @contextmanager
 def get_db_connection():
     """Context manager for database connections, enabling WAL mode for SQLite or raw connection for PostgreSQL."""
@@ -61,7 +100,7 @@ def get_db_connection():
     else:
         conn = engine.raw_connection()
         try:
-            yield conn
+            yield _QmarkCompatConnection(conn)
         finally:
             conn.close()
 
