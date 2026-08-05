@@ -244,20 +244,27 @@ async def setup_postgres():
             psql_check = subprocess.run(["which", "psql"], capture_output=True, text=True)
             if psql_check.returncode != 0:
                 add_system_log("INFO", "Installing PostgreSQL server packages...")
-                subprocess.run("sudo apt-get update && sudo apt-get install -y postgresql postgresql-contrib", shell=True, capture_output=True, text=True, timeout=120)
+                cmd = "apt-get update && apt-get install -y postgresql postgresql-contrib"
+                res = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=120)
+                if res.returncode != 0:
+                    subprocess.run("sudo " + cmd, shell=True, capture_output=True, text=True, timeout=120)
             
-            subprocess.run("sudo systemctl start postgresql", shell=True, capture_output=True, text=True)
+            subprocess.run("systemctl start postgresql || sudo systemctl start postgresql", shell=True, capture_output=True, text=True)
 
             # Create user if not exists or update password
             create_user_sql = f"DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '{db_user}') THEN CREATE USER {db_user} WITH PASSWORD '{db_pass}'; ELSE ALTER USER {db_user} WITH PASSWORD '{db_pass}'; END IF; END $$;"
-            subprocess.run(["sudo", "-u", "postgres", "psql", "-c", create_user_sql], capture_output=True, text=True, timeout=30)
+            res = subprocess.run(["su", "-", "postgres", "-c", f"psql -c \"{create_user_sql}\""], capture_output=True, text=True, timeout=30)
+            if res.returncode != 0:
+                subprocess.run(["sudo", "-u", "postgres", "psql", "-c", create_user_sql], capture_output=True, text=True, timeout=30)
             
             # Create database
-            subprocess.run(["sudo", "-u", "postgres", "createdb", "-O", db_user, db_name], capture_output=True, text=True, timeout=30)
+            res = subprocess.run(["su", "-", "postgres", "-c", f"createdb -O {db_user} {db_name}"], capture_output=True, text=True, timeout=30)
+            if res.returncode != 0:
+                subprocess.run(["sudo", "-u", "postgres", "createdb", "-O", db_user, db_name], capture_output=True, text=True, timeout=30)
 
             # Grant permissions
-            subprocess.run(["sudo", "-u", "postgres", "psql", "-c", f"GRANT ALL PRIVILEGES ON DATABASE {db_name} TO {db_user};"], capture_output=True, text=True, timeout=30)
-            subprocess.run(["sudo", "-u", "postgres", "psql", "-d", db_name, "-c", f"GRANT ALL ON SCHEMA public TO {db_user};"], capture_output=True, text=True, timeout=30)
+            subprocess.run(f"su - postgres -c \"psql -c 'GRANT ALL PRIVILEGES ON DATABASE {db_name} TO {db_user};'\" || sudo -u postgres psql -c 'GRANT ALL PRIVILEGES ON DATABASE {db_name} TO {db_user};'", shell=True, capture_output=True, text=True, timeout=30)
+            subprocess.run(f"su - postgres -c \"psql -d {db_name} -c 'GRANT ALL ON SCHEMA public TO {db_user};'\" || sudo -u postgres psql -d {db_name} -c 'GRANT ALL ON SCHEMA public TO {db_user};'", shell=True, capture_output=True, text=True, timeout=30)
 
         target_url = f"postgresql://{db_user}:{db_pass}@localhost:5432/{db_name}"
 

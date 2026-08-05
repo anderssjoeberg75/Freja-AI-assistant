@@ -20,8 +20,22 @@ from backend.crypto_utils import encrypt_value, decrypt_value
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
-connect_args = {"timeout": 30} if DATABASE_URL.startswith("sqlite") else {}
-engine = create_engine(DATABASE_URL, connect_args=connect_args, pool_pre_ping=True)
+active_db_url = DATABASE_URL
+if active_db_url.startswith("postgresql://") or active_db_url.startswith("postgres://"):
+    try:
+        temp_engine = create_engine(active_db_url, pool_pre_ping=True)
+        with temp_engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        engine = temp_engine
+    except Exception as _db_err:
+        import sys
+        print(f"[FREJA DB WARNING] Could not connect to PostgreSQL ({_db_err}). Falling back to SQLite.", file=sys.stderr)
+        active_db_url = f"sqlite:///{DB_FILE}"
+        engine = create_engine(active_db_url, connect_args={"timeout": 30}, pool_pre_ping=True)
+else:
+    engine = create_engine(active_db_url, connect_args={"timeout": 30}, pool_pre_ping=True)
+
+DATABASE_URL = active_db_url
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 @contextmanager
