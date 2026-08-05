@@ -13,6 +13,31 @@ Status: `todo · in-progress · review · blocked · done` · Priority: `P1 · P
 
 ## Active
 
+### [T-045] Fix: BigInteger primary keys silently break SQLite autoincrement
+- Owner: claude
+- Status: todo
+- Priority: P1
+- Created-by: claude (found 2026-08-05 while fixing the Postgres cutover crash)
+- Files: `backend/models.py`, every table with `Column(BigInteger, primary_key=True,
+  autoincrement=True)`, `tests/**`
+- Spec: discovered while restoring the production backend after the Postgres cutover
+  (see Done log entries below, same session) — running the **local** `pytest` suite (which
+  runs against SQLite) now gives **73 failing tests**, all `sqlite3.IntegrityError: NOT
+  NULL constraint failed: <table>.id`. Root cause: SQLite only auto-populates a primary key
+  on insert when the column's declared type is the literal keyword `INTEGER` (its special
+  rowid-alias behavior) — `BigInteger` renders as `BIGINT` in SQLite's dialect, which does
+  *not* get that treatment, so any insert that omits `id` (relying on autoincrement) now
+  fails. This was introduced by the recent `BigInteger` column-type migration (commit
+  `9a3ad75`, done for the Postgres cutover) and wasn't caught because nothing ran the full
+  suite against SQLite afterward. Confirmed via `git stash` that this pre-dates today's
+  session's own changes. Does **not** affect the live Postgres deployment (Postgres's
+  `BigInteger`+`autoincrement=True` correctly becomes a sequence/identity there) — only
+  SQLite (local dev, tests, and any SQLite-fallback deployment per `database.py`'s
+  connect-failure fallback). Fix options to weigh: revert to `Integer` for SQLite
+  specifically via a dialect-conditional column type, or keep `BigInteger` everywhere and
+  have `init_db()` do a dialect-specific fixup for SQLite. Full `pytest` must return to 0
+  failures against SQLite when done.
+
 ### [T-006] Admin portal: verify the AI provider selector against the live backend
 - Owner: anders (manual step, no agent work needed)
 - Status: todo
@@ -346,6 +371,39 @@ big-bang rewrite; each phase keeps the app working for Anders' existing single-t
 ---
 
 ## Done
+
+- **[Production incident]** Backend crash-looping on 192.168.107.15 after the Postgres
+  cutover (freja-backend restart counter over 580) — FIXED (2026-08-05, claude). Root cause
+  #1: `backend/routes/rouvy.py`'s `init_rouvy_db()` ran raw SQLite DDL
+  (`INTEGER PRIMARY KEY AUTOINCREMENT`, no Postgres equivalent) at *module import time* —
+  crashed the whole server before any route could load. Root cause #2, hit immediately
+  after fixing #1: `get_api_key()`/`set_api_key()` in `backend/database.py` (called at
+  server startup and on every request via the auth middleware) used SQLite's `?`
+  placeholder style, which psycopg2 rejects (needs `%s`) — same underlying gap as #1, just
+  one call deeper. Fixed #1 by branching the DDL on `get_db_info()["type"]`. Fixed #2 at
+  the root instead of patching call sites one by one: `get_db_connection()` now wraps the
+  raw Postgres connection/cursor so `?`-style SQL keeps working transparently
+  (`_QmarkCompatCursor`/`_QmarkCompatConnection`) — covers all ~27 existing raw-SQL call
+  sites across `database.py` and `backend/routes/**` (garmin, google_calendar, learning,
+  rouvy, strava, trainer/*, withings) without touching each one, and any future one.
+  Verified live: `systemctl status freja-backend` → `active (running)`; smoke-tested
+  `POST /api/auth/register` and `POST /api/auth/login` against the live server, both 200.
+  **Follow-up filed as T-045**: fixing this surfaced a separate, pre-existing regression —
+  73 local `pytest` failures against SQLite from a different recent migration
+  (`BigInteger` primary keys silently breaking SQLite's autoincrement). Does not affect the
+  live Postgres deployment; tracked separately since it's unrelated to this incident.
+- **[Client]** Standalone registration/login pages — DONE (2026-08-05, claude).
+  `client/register.html` + `client/login.html`: self-contained pages (no dependency on the
+  full HUD shell / audio-splash screen) calling the existing `/api/auth/register` and
+  `/api/auth/login` endpoints, styled with the existing `style.css` design tokens. Stores
+  the JWT under the same `freja_jwt_token`/`freja_user_email` localStorage keys the
+  in-HUD auth modal already uses (`client/index.html`'s `#modal-user-auth`, wired in
+  `client/js/ui-events.js` but not otherwise reachable behind the splash screen), so a
+  future request-signing pass (T-042) can pick either flow's session up. Reachable directly
+  at `http://192.168.107.15:8000/client/register.html` (bundled by `server.py`'s existing
+  `/client` static mount — no separate client process needed). Browser-verified via `curl`
+  smoke test against the live server: register → 200 + JWT, login with the same credentials
+  → 200 + JWT, both pages return 200.
 
 - **[T-036 / GitHub Issues #190–#198, #203–#208]** Full GitHub Issues Batch Resolution & Rouvy Integration — DONE (2026-07-28, antigravity). Worked through and closed all open GitHub issues: PT profile auto_adjust, today_local context summary, week-based workout matching, multi-week generation schema, date-based trends, weather bounds check, calendar lookup window, DB connection consolidation, and the complete Rouvy indoor cycling integration (`backend/services/rouvy_client/`, `backend/routes/rouvy.py`, `get_rouvy_data` tool, `tests/test_rouvy_routes.py`, UI settings). All 447 tests passing.
 - **[T-035]** Backend: route the Telegram bot through `llm_client` so it obeys the
