@@ -10,10 +10,11 @@ import re
 import sys
 import subprocess
 import json
+import secrets
 from fastapi import APIRouter, HTTPException, Request, Query
 from fastapi.responses import FileResponse, Response
 
-from backend.config import PROJECT_ROOT
+from backend.config import PROJECT_ROOT, DB_FILE
 from backend.database import get_all_api_keys, get_api_key, set_api_key
 
 router = APIRouter()
@@ -218,6 +219,62 @@ async def update_from_github():
     except Exception as e:
         add_system_log("ERROR", f"Uppdateringsfel: {e}")
         raise HTTPException(status_code=500, detail=f"Uppdateringsfel: {str(e)}")
+
+@router.post("/api/system/setup-postgres")
+async def setup_postgres():
+    """Configures PostgreSQL user 'freja' with a secure random password, creates 'frejadb',
+    installs psycopg2-binary, and migrates all data from SQLite keys.db to PostgreSQL."""
+    try:
+        db_pass = secrets.token_urlsafe(24)
+        db_user = "freja"
+        db_name = "frejadb"
+        add_system_log("INFO", f"Configuring PostgreSQL user '{db_user}' and database '{db_name}'...")
+
+        # Ensure psycopg2-binary is installed
+        subprocess.run([sys.executable, "-m", "pip", "install", "psycopg2-binary"], capture_output=True, text=True, timeout=60)
+
+        # Check/install PostgreSQL package if on Linux
+        if sys.platform != "win32":
+            psql_check = subprocess.run(["which", "psql"], capture_output=True, text=True)
+            if psql_check.returncode != 0:
+                add_system_log("INFO", "Installing PostgreSQL server packages...")
+                subprocess.run("sudo apt-get update && sudo apt-get install -y postgresql postgresql-contrib", shell=True, capture_output=True, text=True, timeout=120)
+            
+            subprocess.run("sudo systemctl start postgresql", shell=True, capture_output=True, text=True)
+
+            cmds = [
+                f"DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '{db_user}') THEN CREATE USER {db_user} WITH PASSWORD '{db_pass}'; ELSE ALTER USER {db_user} WITH PASSWORD '{db_pass}'; END IF; END $$;",
+                f"SELECT 'CREATE DATABASE {db_name} OWNER {db_user}' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '{db_name}')\\gexec",
+                f"GRANT ALL PRIVILEGES ON DATABASE {db_name} TO {db_user};"
+            ]
+            for c in cmds:
+                subprocess.run(["sudo", "-u", "postgres", "psql", "-c", c], capture_output=True, text=True, timeout=30)
+            
+            subprocess.run(["sudo", "-u", "postgres", "psql", "-d", db_name, "-c", f"GRANT ALL ON SCHEMA public TO {db_user};"], capture_output=True, text=True, timeout=30)
+
+        target_url = f"postgresql://{db_user}:{db_pass}@localhost:5432/{db_name}"
+
+        # Migrate data
+        add_system_log("INFO", f"Migrating all data from {DB_FILE} to PostgreSQL ({db_name})...")
+        from scripts.migrate_db import migrate_database
+        source_url = f"sqlite:///{DB_FILE}"
+        migrate_database(source_url, target_url)
+
+        # Save DATABASE_URL in api_keys
+        set_api_key("freja_database_url", target_url)
+
+        add_system_log("INFO", "PostgreSQL setup and data migration complete!")
+        return {
+            "status": "success",
+            "message": "PostgreSQL-användare skapad, databas initierad och all data migrerad!",
+            "db_user": db_user,
+            "db_name": db_name,
+            "db_password": db_pass,
+            "connection_url": target_url
+        }
+    except Exception as e:
+        add_system_log("ERROR", f"PostgreSQL setup failure: {e}")
+        raise HTTPException(status_code=500, detail=f"PostgreSQL-inställningsfel: {str(e)}")
 
 @router.get("/api/system/logs")
 async def get_system_logs():
