@@ -15,7 +15,10 @@ Status: `todo · in-progress · review · blocked · done` · Priority: `P1 · P
 
 ### [T-045] Fix: BigInteger primary keys silently break SQLite autoincrement
 - Owner: claude
-- Status: todo
+- Status: done (stale duplicate — actually resolved via `BigIntPK()` in `backend/models.py`,
+  see the Done-log entry below; full local `pytest` is green: 488 passed, 3 skipped, 0
+  SQLite failures as of 2026-08-06. This Active-section entry was never removed after the fix
+  landed — leaving it here as a visible marker rather than deleting history.)
 - Priority: P1
 - Created-by: claude (found 2026-08-05 while fixing the Postgres cutover crash)
 - Files: `backend/models.py`, every table with `Column(BigInteger, primary_key=True,
@@ -434,7 +437,7 @@ marked `done` and cross-linked, not reopened.
 
 ### [T-060] Bug: uvicorn reload=True always on in production, conflicts with the app's own restart flows — GitHub #213
 - Owner: claude
-- Status: todo
+- Status: done (2026-08-06, claude - see commit for detail)
 - Priority: P2
 - Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #213 for full detail)
 - Files: `server.py:178-182`
@@ -460,7 +463,7 @@ marked `done` and cross-linked, not reopened.
 
 ### [T-063] Improvement: duplicated, diverging 'git pull + restart' logic in two places — GitHub #216
 - Owner: claude
-- Status: todo
+- Status: done (2026-08-06, claude - see commit for detail)
 - Priority: P3
 - Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #216 for full detail)
 - Files: `backend/routes/settings.py` (`update_from_github`/`_delayed_restart`), `backend/services/tool_registry/system.py` (`exec_system_update`)
@@ -529,7 +532,7 @@ marked `done` and cross-linked, not reopened.
 
 ### [T-070] Improvement: fetch_activity_details loads the entire Garmin backlog into memory before capping — GitHub #223
 - Owner: claude
-- Status: todo
+- Status: done (2026-08-06, claude - see commit for detail)
 - Priority: P3
 - Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #223 for full detail)
 - Files: `backend/routes/garmin.py:333-354`
@@ -579,7 +582,7 @@ marked `done` and cross-linked, not reopened.
 
 ### [T-075] Bug: generate_text has no usable length cap (unbounded on Gemini, fixed 800 tokens on Ollama) — GitHub #228
 - Owner: claude
-- Status: todo
+- Status: done (2026-08-06, claude - see commit for detail)
 - Priority: P2
 - Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #228 for full detail)
 - Files: `backend/services/llm_client.py:116-124`, `backend/services/gemini_client.py:62-87`, `backend/services/ollama_client.py:134-160`, `backend/services/codex_service.py:683-685,766`
@@ -589,7 +592,7 @@ marked `done` and cross-linked, not reopened.
 
 ### [T-076] Bug: codex_audit_codebase_impl uses a 60s default timeout against prompts up to 180K chars — GitHub #229
 - Owner: claude
-- Status: todo
+- Status: done (2026-08-06, claude - see commit for detail)
 - Priority: P2
 - Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #229 for full detail)
 - Files: `backend/services/codex_service.py:683-685,688,766`
@@ -599,7 +602,7 @@ marked `done` and cross-linked, not reopened.
 
 ### [T-077] Bug: elevenlabs_proxy splices an unvalidated voice_id path param into the outbound URL — GitHub #230 (GitHub shows Closed/Completed — no fix found, still open)
 - Owner: claude
-- Status: todo
+- Status: done (2026-08-06, claude - see commit for detail)
 - Priority: P1
 - Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #230 for full detail)
 - Files: `backend/routes/elevenlabs_proxy.py:40-76`
@@ -715,7 +718,7 @@ marked `done` and cross-linked, not reopened.
 
 ### [T-090] Improvement: requirements.txt has unpinned packages and an unexplained cryptography<44 ceiling — GitHub #243
 - Owner: claude
-- Status: todo
+- Status: done (2026-08-06, claude - see commit for detail)
 - Priority: P3
 - Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #243 for full detail)
 - Files: `requirements.txt:1-13`
@@ -725,7 +728,7 @@ marked `done` and cross-linked, not reopened.
 
 ### [T-091] Bug: test_perform_search_success makes a real, unmocked network call to DuckDuckGo — GitHub #244
 - Owner: claude
-- Status: todo
+- Status: done (2026-08-06, claude - see commit for detail)
 - Priority: P3
 - Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #244 for full detail)
 - Files: `tests/test_search.py:1-23`

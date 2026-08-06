@@ -176,53 +176,33 @@ async def get_db_status_endpoint():
     return get_db_info()
 
 
-async def _delayed_restart():
-    await asyncio.sleep(1.5)
-    # Trigger systemd service restart or kill uvicorn parent process so systemd cleanly restarts service
-    try:
-        subprocess.run(["systemctl", "restart", "freja-backend"], check=False)
-    except Exception:
-        pass
-    try:
-        os.kill(os.getppid(), 9)
-    except Exception:
-        pass
-    os._exit(0)
-
 @router.post("/api/system/update")
 async def update_from_github():
     """Executes `git pull` from GitHub and restarts the server."""
     try:
-        add_system_log("INFO", "Starting update from GitHub (git pull)...")
-        result = subprocess.run(
-            ["git", "pull"],
-            cwd=str(PROJECT_ROOT),
-            capture_output=True,
-            text=True,
-            timeout=30
-        )
-        output = result.stdout.strip()
-        errors = result.stderr.strip()
-        full_log = output + ("\n" + errors if errors else "")
+        from backend.services.update_service import git_pull_latest, schedule_restart
 
-        if result.returncode != 0:
-            add_system_log("ERROR", f"Git pull failed: {full_log}")
+        add_system_log("INFO", "Starting update from GitHub (git pull)...")
+        result = await git_pull_latest()
+
+        if not result["ok"]:
+            add_system_log("ERROR", f"Git pull failed: {result['log']}")
             return {
                 "status": "error",
-                "message": f"Git pull failed (exit code {result.returncode})",
-                "log": full_log
+                "message": f"Git pull failed (exit code {result['exit_code']})",
+                "log": result["log"]
             }
 
-        add_system_log("INFO", f"Git pull completed: {output}")
+        add_system_log("INFO", f"Git pull completed: {result['log']}")
         add_system_log("INFO", "The server is restarting...")
 
         # Trigger delayed process exit so systemd/uvicorn restarts the server
-        asyncio.create_task(_delayed_restart())
+        asyncio.create_task(schedule_restart())
 
         return {
             "status": "success",
             "message": "Update downloaded from GitHub. The server is restarting...",
-            "log": full_log
+            "log": result["log"]
         }
     except Exception as e:
         add_system_log("ERROR", f"Uppdateringsfel: {e}")
@@ -280,7 +260,8 @@ async def setup_postgres():
         set_api_key("freja_database_url", target_url)
 
         add_system_log("INFO", "PostgreSQL setup and data migration complete! Scheduling restart...")
-        asyncio.create_task(_delayed_restart())
+        from backend.services.update_service import schedule_restart
+        asyncio.create_task(schedule_restart())
         return {
             "status": "success",
             "message": "PostgreSQL-användare skapad, databas initierad och all data migrerad! Servern startar om...",

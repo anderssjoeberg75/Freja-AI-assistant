@@ -32,6 +32,25 @@ def test_tts_rejects_oversized_text(auth_headers):
     assert response.status_code == 400
 
 
+def test_tts_rejects_a_voice_id_with_url_metacharacters(auth_headers):
+    """voice_id is spliced into the outbound ElevenLabs URL as an f-string - a crafted value
+    with `?`/`#`/`/` must be rejected rather than letting a caller append or override query
+    parameters on the outbound request (same bug class already patched in mem0_proxy.py's
+    _MEMORY_ID_PATTERN and gemini_proxy.py's _MODEL_NAME_PATTERN). The `?` must be
+    percent-encoded (%3F) so it's decoded into the path *segment* itself rather than being
+    read as a real query-string separator by the test client - that's the actual attack
+    shape, since a literal unencoded `?` never reaches voice_id at all."""
+    set_api_key("freja_eleven_apikey", "fake_key_for_test")
+    client = TestClient(app)
+    response = client.post(
+        "/api/elevenlabs/tts/real_id%3Fevil%3D1",
+        json={"text": "hello"},
+        headers=auth_headers,
+    )
+    assert response.status_code == 400
+    assert "Invalid voice_id" in response.text
+
+
 def test_tts_requires_api_key(auth_headers):
     set_api_key("freja_eleven_apikey", "")
     client = TestClient(app)

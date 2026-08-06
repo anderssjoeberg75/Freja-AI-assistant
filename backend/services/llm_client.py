@@ -114,13 +114,17 @@ async def _dispatch(operation: str, call_ollama, call_gemini):
 
 
 async def generate_text(prompt: str, system_instruction: str = "",
-                         temperature: float = 0.2, timeout: float = 60.0) -> str:
+                         temperature: float = 0.2, timeout: float = 60.0,
+                         max_tokens: int = 2048) -> str:
     """Plain single-turn text generation, routed by the configured provider preference.
-    Records the serving provider (see get_active_provider)."""
+    Records the serving provider (see get_active_provider). `max_tokens` is forwarded to
+    both providers so a caller with a long expected reply (e.g. a full audit report) can
+    raise it - previously Ollama silently capped every text reply at 800 tokens with no way
+    for a caller to ask for more, and Gemini had no cap at all (unbounded cost)."""
     return await _dispatch(
         "text generation",
-        lambda: ollama_client.generate_text(prompt, system_instruction, temperature, timeout),
-        lambda: gemini_client.generate_text(prompt, system_instruction, temperature, timeout),
+        lambda: ollama_client.generate_text(prompt, system_instruction, temperature, timeout, max_tokens),
+        lambda: gemini_client.generate_text(prompt, system_instruction, temperature, timeout, max_tokens),
     )
 
 

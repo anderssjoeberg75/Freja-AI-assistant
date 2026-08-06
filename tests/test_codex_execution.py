@@ -112,7 +112,7 @@ def test_run_and_fix_rejects_empty_ai_response(monkeypatch, tmp_path):
     with open(target, "w", encoding="utf-8") as f:
         f.write(original_content)
 
-    async def fake_gemini(prompt, system_instruction=""):
+    async def fake_gemini(prompt, system_instruction="", **kwargs):
         return ""
 
     monkeypatch.setattr(codex_service, "call_gemini_api", fake_gemini)
@@ -170,7 +170,7 @@ def test_run_and_fix_backup_path_is_unique_per_call(monkeypatch):
     with open(target, "w", encoding="utf-8") as f:
         f.write("print('original')\n")
 
-    async def fake_gemini(prompt, system_instruction=""):
+    async def fake_gemini(prompt, system_instruction="", **kwargs):
         return ""
 
     monkeypatch.setattr(codex_service, "call_gemini_api", fake_gemini)
@@ -193,7 +193,7 @@ def test_run_and_fix_backup_path_is_unique_per_call(monkeypatch):
 
 
 def test_codex_audit_codebase_impl(monkeypatch, tmp_path):
-    async def fake_gemini(prompt, system_instruction=""):
+    async def fake_gemini(prompt, system_instruction="", **kwargs):
         return f"Summary of findings\n{codex_service.AUDIT_REPORT_SEPARATOR}\nDetailed report here."
 
     monkeypatch.setattr(codex_service, "call_gemini_api", fake_gemini)

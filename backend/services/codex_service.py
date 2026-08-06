@@ -680,9 +680,10 @@ async def codex_git_ops_impl(args: dict) -> dict:
     return _git_result(action, " ".join(cmd_list), res)
 
 
-async def call_gemini_api(prompt: str, system_instruction: str = "") -> str:
+async def call_gemini_api(prompt: str, system_instruction: str = "",
+                           max_tokens: int = 2048, timeout: float = 60.0) -> str:
     """Queries the LLM (Ollama first, Gemini fallback) - kept as a thin wrapper for existing callers."""
-    return await llm_client.generate_text(prompt, system_instruction)
+    return await llm_client.generate_text(prompt, system_instruction, timeout=timeout, max_tokens=max_tokens)
 
 
 AUDIT_MAX_CHARS = 180000
@@ -763,7 +764,11 @@ Use emojis to make the report more readable (e.g. 🔴 for critical errors, ⚠�
     prompt = f"Here is the source code for the project ({file_count} files):\n{code_content}"
     
     try:
-        report_text = await call_gemini_api(prompt, system_instruction)
+        # A full codebase audit is instructed to return a detailed Markdown report from a
+        # prompt of up to AUDIT_MAX_CHARS characters - the default 60s timeout and small
+        # token cap were sized for short replies, not this. Ollama in particular is
+        # prompt-evaluation-dominated cost, so a large prompt plausibly needs well over 60s.
+        report_text = await call_gemini_api(prompt, system_instruction, max_tokens=8000, timeout=180.0)
     except Exception as e:
         return {"error": f"Failed to generate the code review: {str(e)}"}
         
@@ -882,7 +887,12 @@ can be written directly to the file.
 """
         
         try:
-            fixed_code = await call_gemini_api(prompt, "You are an AI coding assistant that answers with clean code only, without markdown wrappers.")
+            fixed_code = await call_gemini_api(
+                prompt,
+                "You are an AI coding assistant that answers with clean code only, without markdown wrappers.",
+                max_tokens=4000,
+                timeout=120.0,
+            )
 
             # Clean markdown code block wraps if LLM ignored instructions
             if fixed_code.startswith("```"):

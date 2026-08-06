@@ -59,16 +59,23 @@ async def check_health(timeout: float = 6.0) -> dict:
     return status
 
 
+DEFAULT_TEXT_MAX_TOKENS = 2048
+
+
 async def generate_text(prompt: str, system_instruction: str = "",
-                         temperature: float = 0.2, timeout: float = 60.0) -> str:
-    """Sends a single-turn text prompt to Gemini and returns the generated text."""
+                         temperature: float = 0.2, timeout: float = 60.0,
+                         max_tokens: int = DEFAULT_TEXT_MAX_TOKENS) -> str:
+    """Sends a single-turn text prompt to Gemini and returns the generated text.
+
+    `max_tokens` caps `generationConfig.maxOutputTokens` - previously unset, so response
+    length (and cost) was bounded only by the model's own ceiling."""
     api_key = get_gemini_api_key()
     if not api_key:
         raise Exception("Gemini API key is missing from the database.")
 
     payload = {
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": temperature},
+        "generationConfig": {"temperature": temperature, "maxOutputTokens": max_tokens},
     }
     if system_instruction:
         payload["systemInstruction"] = {"parts": [{"text": system_instruction}]}

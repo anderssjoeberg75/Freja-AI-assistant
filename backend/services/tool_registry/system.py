@@ -1,6 +1,5 @@
 """system_update, read_project_file and run_windows_command tools."""
 
-from backend.services.codex_service import run_subprocess_exec
 from ._registry import registry
 
 @registry.register(
@@ -16,31 +15,22 @@ async def exec_system_update(args):
     Gemini (and the user can be told an update is starting) before the process dies.
     Coming back up is the supervisor's job - systemd `Restart=always` on Linux, or the
     Task Scheduler restart settings on Windows. Without a supervisor, Freja stays down."""
-    import os
     import asyncio
-    from backend.config import PROJECT_ROOT
+    from backend.services.update_service import git_pull_latest, schedule_restart
 
     print("[SYSTEM UPDATE] Initiating remote codebase update via git pull...")
-    res = await run_subprocess_exec(["git", "pull"], cwd=str(PROJECT_ROOT))
+    result = await git_pull_latest()
 
-    output = res.get("stdout", "").strip()
-    errors = res.get("stderr", "").strip()
-    full_log = output + ("\n" + errors if errors else "")
-
-    if res.get("exit_code", -1) != 0:
-        return {"error": f"Git pull failed (exit code {res.get('exit_code')}): {full_log}"}
+    if not result["ok"]:
+        return {"error": f"Git pull failed (exit code {result['exit_code']}): {result['log']}"}
 
     print("[SYSTEM UPDATE] Git pull successful. Scheduling uvicorn process restart.")
 
-    async def _delayed_restart():
-        await asyncio.sleep(1.5)
-        os._exit(0)
-
-    asyncio.create_task(_delayed_restart())
+    asyncio.create_task(schedule_restart())
     return {
         "status": "success",
         "message": "Update downloaded from GitHub. F.R.E.J.A. is restarting to apply the changes...",
-        "log": full_log
+        "log": result["log"]
     }
 
 

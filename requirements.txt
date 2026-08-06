@@ -3,13 +3,18 @@ fastapi>=0.100.0,<1
 uvicorn>=0.20.0,<1
 requests>=2.31.0,<3
 httpx>=0.25.0,<1
-playwright
-duckduckgo_search>=6.0.0
-garminconnect
-cryptography>=41.0,<44
+playwright>=1.40,<2
+# duckduckgo_search has had breaking renames across majors historically (Issue #243) - capped
+# below the next unreleased major rather than left fully open.
+duckduckgo_search>=6.0.0,<9
+garminconnect>=0.2.0,<1
+# Upper-bounded because it was never verified against 44.x+ (unclear if that was ever a real
+# compatibility concern or just an unreviewed default) - bump after checking our Fernet/bcrypt
+# usage against a newer release, don't just delete the ceiling.
+cryptography>=41.0,<45
 segno>=1.6,<2
-pytest
-pytest-asyncio
+pytest>=7.0,<10
+pytest-asyncio>=0.21,<2
 SQLAlchemy>=2.0.0
 alembic>=1.11.0
 psycopg2-binary>=2.9.0
