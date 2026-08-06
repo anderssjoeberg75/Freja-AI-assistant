@@ -127,15 +127,24 @@ FrejaUIController.prototype.initializeUI = function() {
     }
     const authLink = document.getElementById('lnk-strava-authorize');
     if (authLink) {
-        authLink.addEventListener('click', (e) => {
+        authLink.addEventListener('click', async (e) => {
             e.preventDefault();
             const clientId = inputStravaClientId ? inputStravaClientId.value.trim() : "";
             if (!clientId) {
                 alert("Please enter a Client ID first.");
                 return;
             }
+            let state;
+            try {
+                const stateRes = await fetch('/api/strava/oauth-state');
+                if (!stateRes.ok) throw new Error('oauth-state request failed');
+                state = (await stateRes.json()).state;
+            } catch (err) {
+                alert("Could not start the Strava authorization - please make sure you're logged in and try again.");
+                return;
+            }
             const redirectUri = window.location.origin + '/api/strava/callback';
-            const oauthUrl = `https://www.strava.com/oauth/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=activity:read,activity:read_all`;
+            const oauthUrl = `https://www.strava.com/oauth/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=activity:read,activity:read_all&state=${encodeURIComponent(state)}`;
             window.open(oauthUrl, '_blank');
         });
     }
@@ -189,15 +198,24 @@ FrejaUIController.prototype.initializeUI = function() {
     }
     const authLinkWithings = document.getElementById('lnk-withings-authorize');
     if (authLinkWithings) {
-        authLinkWithings.addEventListener('click', (e) => {
+        authLinkWithings.addEventListener('click', async (e) => {
             e.preventDefault();
             const clientId = inputWithingsClientId ? inputWithingsClientId.value.trim() : "";
             if (!clientId) {
                 alert("Please enter a Client ID first.");
                 return;
             }
+            let state;
+            try {
+                const stateRes = await fetch('/api/withings/oauth-state');
+                if (!stateRes.ok) throw new Error('oauth-state request failed');
+                state = (await stateRes.json()).state;
+            } catch (err) {
+                alert("Could not start the Withings authorization - please make sure you're logged in and try again.");
+                return;
+            }
             const redirectUri = window.location.origin + '/api/withings/callback';
-            const oauthUrl = `https://account.withings.com/oauth2_user/authorize2?response_type=code&client_id=${clientId}&state=freja&scope=user.metrics,user.activity&redirect_uri=${encodeURIComponent(redirectUri)}`;
+            const oauthUrl = `https://account.withings.com/oauth2_user/authorize2?response_type=code&client_id=${clientId}&state=${encodeURIComponent(state)}&scope=user.metrics,user.activity&redirect_uri=${encodeURIComponent(redirectUri)}`;
             window.open(oauthUrl, '_blank');
         });
     }
@@ -216,15 +234,24 @@ FrejaUIController.prototype.initializeUI = function() {
     }
     const authLinkFitbit = document.getElementById('lnk-fitbit-authorize');
     if (authLinkFitbit) {
-        authLinkFitbit.addEventListener('click', (e) => {
+        authLinkFitbit.addEventListener('click', async (e) => {
             e.preventDefault();
             const clientId = inputFitbitClientId ? inputFitbitClientId.value.trim() : "";
             if (!clientId) {
                 alert("Please enter a Client ID first.");
                 return;
             }
+            let state;
+            try {
+                const stateRes = await fetch('/api/fitbit/oauth-state');
+                if (!stateRes.ok) throw new Error('oauth-state request failed');
+                state = (await stateRes.json()).state;
+            } catch (err) {
+                alert("Could not start the Fitbit authorization - please make sure you're logged in and try again.");
+                return;
+            }
             const redirectUri = window.location.origin + '/api/fitbit/callback';
-            const oauthUrl = `https://www.fitbit.com/oauth2/authorize?response_type=code&client_id=${clientId}&scope=activity%20heartrate%20sleep%20profile&redirect_uri=${encodeURIComponent(redirectUri)}`;
+            const oauthUrl = `https://www.fitbit.com/oauth2/authorize?response_type=code&client_id=${clientId}&scope=activity%20heartrate%20sleep%20profile&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state)}`;
             window.open(oauthUrl, '_blank');
         });
     }

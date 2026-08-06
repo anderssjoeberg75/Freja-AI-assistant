@@ -18,6 +18,8 @@ logger = logging.getLogger("freja.auth")
 # it server-side; they don't expose or mutate secrets by themselves.
 AUTH_EXEMPT_PATHS = {
     "/api/strava/callback",
+    "/api/fitbit/callback",
+    "/api/withings/callback",
     "/api/google_calendar/callback",
     "/api/instagram/auth",
     "/api/instagram/callback",

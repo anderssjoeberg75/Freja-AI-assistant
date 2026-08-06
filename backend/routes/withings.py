@@ -5,29 +5,37 @@ import httpx
 from backend.services.http_client import shared_client
 import random
 import time
-from fastapi import APIRouter, HTTPException, Query, Request, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, BackgroundTasks
 from fastapi.responses import HTMLResponse
 from backend.database import get_db_connection, get_api_key, set_api_key
 from backend.services.sync_status import set_sync_state
 from backend.services.time_utils import today_local
+from backend.services.oauth_state import generate_oauth_state, consume_oauth_state
+from backend.models import User
+from backend.routes.auth import get_current_user
 
 MAX_SYNC_DAYS = 3650  # 10 years historical sync limit (matching Strava's 3650 days)
 
 router = APIRouter()
 
+@router.get("/api/withings/oauth-state")
+async def get_withings_oauth_state(user: User = Depends(get_current_user)):
+    """Mints a one-time nonce binding the upcoming Withings authorization to the caller's account."""
+    return {"state": generate_oauth_state(user.id)}
+
 @router.get("/api/withings/callback", response_class=HTMLResponse)
 async def get_withings_callback(
     request: Request,
     code: str = Query("", description="Authorization code"),
-    state: str = Query("", description="OAuth state carrying user_id")
+    state: str = Query("", description="OAuth state nonce from /api/withings/oauth-state")
 ):
     code = code.strip()
     if not code:
         return HTMLResponse('<h3>Error: No authorization code was found in the request.</h3>', status_code=400)
-    
-    user_id = 1
-    if state and state.strip().isdigit():
-        user_id = int(state.strip())
+
+    user_id = consume_oauth_state(state.strip()) if state else None
+    if user_id is None:
+        return HTMLResponse('<h3>Error: Invalid or expired authorization link. Please try connecting again from Settings.</h3>', status_code=400)
 
     try:
         client_id = get_api_key('freja_withings_client_id', user_id=user_id) or ""

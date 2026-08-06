@@ -413,6 +413,38 @@ system (T-038/T-039/T-040/T-042 done) — filed first.
   security items above; worth doing as part of whichever task next touches the schema (e.g.
   T-041), not urgent enough for its own migration pass.
 
+### [T-055] Security fix: OAuth callback `state` let anyone bind a token to an arbitrary user_id — FIXED
+- Owner: claude
+- Status: done
+- Priority: P1
+- Created-by: automated background security review (2026-08-06), fixed same session
+- Files: `backend/services/oauth_state.py` (new), `backend/routes/strava.py`,
+  `backend/routes/fitbit.py`, `backend/routes/withings.py`, `backend/middleware/auth.py`,
+  `client/js/ui-init.js`, `tests/test_oauth_state_security.py` (new)
+- Spec: T-041 (per-user OAuth callbacks, done above) parsed `user_id` straight out of the
+  unauthenticated `state` query param (`if state.strip().isdigit(): user_id = int(...)`) on
+  all three of `/api/{strava,fitbit,withings}/callback`. Since these callbacks are reachable
+  without our own auth (the browser lands there directly from the provider's redirect),
+  anyone who could reach the URL could pick any `state` digit and overwrite *that* user's
+  stored refresh token via `set_api_key`'s upsert — a live IDOR/account-hijack-adjacent hole,
+  flagged HIGH by an automated security review. Fixed by adding a nonce store
+  (`oauth_state.py`, mirrors the pattern `instagram.py` already used for its own OAuth CSRF
+  protection): a new authenticated `GET /api/{provider}/oauth-state` mints a
+  single-use, TTL'd random token bound to `Depends(get_current_user)`'s `user.id`; the
+  callback now only accepts a `user_id` recovered via `consume_oauth_state(state)`, rejecting
+  anything else with a clear "invalid or expired" error. Client-side, the three "Authorize"
+  click handlers in `ui-init.js` now `await fetch('/api/{provider}/oauth-state')` before
+  building the provider's OAuth URL. **Bonus fix found while verifying:** `/api/fitbit/callback`
+  and `/api/withings/callback` were missing from `AUTH_EXEMPT_PATHS` in
+  `backend/middleware/auth.py` — a real browser redirect back from Fitbit/Withings (no custom
+  headers possible) would have 401'd at the middleware before ever reaching the route, i.e.
+  both integrations' connect flow was completely broken in production independent of the
+  security bug; added both paths to the exemption set now that the callback's own nonce check
+  is the real gate. 7 new tests in `tests/test_oauth_state_security.py` (nonce roundtrip/
+  single-use/unknown-state, per-provider "raw digit no longer works" regression test, auth
+  required on `/oauth-state`, cross-user nonce isolation, end-to-end valid-state → correct
+  user_id). Full suite: 488 passed, 3 skipped.
+
 ## Done
 
 - **[T-041]** Background sync + OAuth callbacks: per-user credentials and token storage — DONE (2026-08-06, antigravity). Scoped `_garmin_token_dir(user_id)` to `.garminconnect/<user_id>/`, updated OAuth callbacks (`strava`, `withings`, `fitbit`, `google_calendar`) to receive `state` carrying `user_id` and save refresh tokens per user_id, and scoped `post_google_calendar_exchange`. All 470 tests pass.
