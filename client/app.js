@@ -640,14 +640,12 @@ class FrejaUIController {
 
         const sendHeartbeat = async () => {
             try {
-                const token = localStorage.getItem("freja_access_token") || "";
+                const token = localStorage.getItem("freja_jwt_token") || localStorage.getItem("freja_access_token") || "";
                 if (!token) return;
-                const headers = { "Content-Type": "application/json" };
-                headers["X-Freja-Token"] = token;
                 
                 await fetch("/api/client/heartbeat", {
                     method: "POST",
-                    headers: headers,
+                    headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ hostname: clientHostname })
                 });
             } catch (e) {

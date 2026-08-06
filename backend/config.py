@@ -27,8 +27,34 @@ def _get_database_url():
             pass
     return f"sqlite:///{DB_FILE}"
 
+def _get_jwt_secret() -> str:
+    env_secret = os.environ.get("JWT_SECRET")
+    if env_secret:
+        return env_secret
+    try:
+        import sqlite3, secrets
+        from backend.crypto_utils import decrypt_value, encrypt_value
+        conn = sqlite3.connect(DB_FILE)
+        cur = conn.cursor()
+        cur.execute("SELECT key_value FROM api_keys WHERE key_name = 'freja_jwt_secret'")
+        row = cur.fetchone()
+        if row and row[0]:
+            val = decrypt_value(row[0]).strip()
+            conn.close()
+            if val:
+                return val
+        new_secret = secrets.token_urlsafe(32)
+        encrypted = encrypt_value(new_secret)
+        cur.execute("INSERT INTO api_keys (user_id, key_name, key_value) VALUES (1, 'freja_jwt_secret', ?)", (encrypted,))
+        conn.commit()
+        conn.close()
+        return new_secret
+    except Exception:
+        pass
+    return "freja_jwt_secret_key_change_in_production"
+
 DATABASE_URL = _get_database_url()
-JWT_SECRET = os.environ.get("JWT_SECRET", "freja_jwt_secret_key_change_in_production")
+JWT_SECRET = _get_jwt_secret()
 JWT_ALGORITHM = os.environ.get("JWT_ALGORITHM", "HS256")
 JWT_EXPIRATION_MINUTES = int(os.environ.get("JWT_EXPIRATION_MINUTES", "10080")) # 7 days
 

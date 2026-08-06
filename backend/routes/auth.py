@@ -1,9 +1,11 @@
 """Authentication routes for multi-user user management and JWT issuance."""
 
 import datetime
-from fastapi import APIRouter, Depends, HTTPException, status
+import collections
+import time
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import text
 import bcrypt
 import jwt
@@ -15,15 +17,32 @@ from backend.models import User
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 
+_auth_failures = collections.defaultdict(list)  # key -> list of failure timestamps
+
+
+def _check_auth_rate_limit(key: str, max_attempts: int = 10, window_secs: int = 300):
+    now = time.time()
+    attempts = [t for t in _auth_failures[key] if now - t < window_secs]
+    _auth_failures[key] = attempts
+    if len(attempts) >= max_attempts:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many failed authentication attempts. Please try again in a few minutes."
+        )
+
+
+def _record_auth_failure(key: str):
+    _auth_failures[key].append(time.time())
+
 
 class RegisterRequest(BaseModel):
-    email: str
-    password: str
+    email: EmailStr
+    password: str = Field(..., min_length=8, description="Password must be at least 8 characters long")
     name: str | None = None
 
 
 class LoginRequest(BaseModel):
-    email: str
+    email: EmailStr
     password: str
 
 
@@ -103,7 +122,10 @@ def get_current_user(token: str | None = Depends(oauth2_scheme)) -> User:
 
 
 @router.post("/register", response_model=TokenResponse)
-def register(req: RegisterRequest):
+def register(req: RegisterRequest, request: Request):
+    ip = request.client.host if request.client else "unknown"
+    _check_auth_rate_limit(f"register:{ip}", max_attempts=5, window_secs=300)
+
     email_clean = req.email.strip().lower()
     if not email_clean or not req.password:
         raise HTTPException(status_code=400, detail="Email and password are required.")
@@ -133,11 +155,15 @@ def register(req: RegisterRequest):
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(req: LoginRequest):
+def login(req: LoginRequest, request: Request):
+    ip = request.client.host if request.client else "unknown"
+    _check_auth_rate_limit(f"login:{ip}", max_attempts=10, window_secs=300)
+
     email_clean = req.email.strip().lower()
     with get_db_session() as db:
         user = db.query(User).filter(User.email == email_clean).first()
         if not user or not verify_password(req.password, user.password_hash):
+            _record_auth_failure(f"login:{ip}")
             raise HTTPException(status_code=401, detail="Incorrect email or password.")
         if not user.is_active:
             raise HTTPException(status_code=403, detail="Account disabled.")

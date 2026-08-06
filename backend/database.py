@@ -196,8 +196,8 @@ def set_api_key(key_name: str, value: str, user_id: int = 1):
         conn.commit()
 
 
-def get_all_api_keys(unmask: bool = False) -> dict:
-    """Returns every stored key, keyed by key_name (used by the settings endpoint).
+def get_all_api_keys(unmask: bool = False, user_id: int = 1) -> dict:
+    """Returns every stored key, keyed by key_name for user_id (used by the settings endpoint).
     Sensitive values (API keys, client secrets, passwords, and tokens) are masked automatically
     unless unmask is set to True.
     """
@@ -211,7 +211,10 @@ def get_all_api_keys(unmask: bool = False) -> dict:
 
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT key_name, key_value FROM api_keys WHERE user_id = 1 OR user_id IS NULL")
+        cursor.execute(
+            "SELECT key_name, key_value FROM api_keys WHERE user_id = ? OR user_id IS NULL ORDER BY (user_id = ?) DESC",
+            (user_id, user_id)
+        )
         rows = cursor.fetchall()
     
     result = {}

@@ -11,11 +11,13 @@ import sys
 import subprocess
 import json
 import secrets
-from fastapi import APIRouter, HTTPException, Request, Query
+from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from fastapi.responses import FileResponse, Response
 
 from backend.config import PROJECT_ROOT, DB_FILE
 from backend.database import get_all_api_keys, get_api_key, set_api_key
+from backend.models import User
+from backend.routes.auth import get_current_user
 
 router = APIRouter()
 
@@ -98,9 +100,9 @@ logging.getLogger("freja").addHandler(log_handler)
 logging.getLogger("uvicorn.access").addHandler(log_handler)
 
 @router.get("/api/keys")
-async def get_keys(unmask: bool = Query(False, description="Unmask sensitive keys")):
+async def get_keys(unmask: bool = Query(False, description="Unmask sensitive keys"), current_user: User = Depends(get_current_user)):
     try:
-        return get_all_api_keys(unmask=unmask)
+        return get_all_api_keys(unmask=unmask, user_id=current_user.id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -118,7 +120,7 @@ def _is_protected_key(key_name: str) -> bool:
 
 
 @router.post("/api/keys")
-async def post_keys(request: Request):
+async def post_keys(request: Request, current_user: User = Depends(get_current_user)):
     try:
         data = await request.json()
         blocked = [k for k in data if _is_protected_key(k)]
@@ -128,8 +130,8 @@ async def post_keys(request: Request):
             # Skip saving if client sends back masked placeholder
             if key_value in ("[MASKED]", "configured") or (key_value and key_value.startswith("••••")):
                 continue
-            set_api_key(key_name, key_value)
-        add_system_log("INFO", "Settings saved to the database.")
+            set_api_key(key_name, key_value, user_id=current_user.id)
+        add_system_log("INFO", f"Settings saved to database for user {current_user.id}.")
         return {'status': 'success'}
     except HTTPException:
         raise
