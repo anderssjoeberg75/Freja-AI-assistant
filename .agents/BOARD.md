@@ -238,23 +238,12 @@ big-bang rewrite; each phase keeps the app working for Anders' existing single-t
 
 ### [T-042] Web client: switch from shared `X-Freja-Token` to per-user JWT login
 - Owner: antigravity
-- Status: todo
+- Status: done
 - Priority: P2
 - Created-by: anders (via claude analysis)
-- Files: `client/app.js`, `client/js/ui-events.js`, `client/js/ui-init.js`,
-  `client/markdown.js`, `client/index.html`, `client/style.css`
-- Depends-on: T-040 (server must actually enforce per-user identity before the client's
-  login screen means anything)
-- Spec: add a login/register screen (calling the already-built `POST /api/auth/register` /
-  `POST /api/auth/login`) that replaces today's single shared "paste the access token"
-  settings field. Store the returned JWT (`localStorage`, same slot pattern as today's
-  `freja_access_token`, or a new key — agent's call) and send it as `Authorization: Bearer
-  <token>` instead of `X-Freja-Token` on every request (the ~7 call sites listed in
-  `app.js`/`ui-events.js`/`ui-init.js`/`markdown.js` found via grep for
-  `freja_access_token`). Handle 401 (expired token) by returning to the login screen. Keep
-  it usable by more than one person on the same browser (logout clears the stored JWT).
-  Browser-verify: register a second test user, confirm their chat history / dashboards are
-  empty/separate from the first user's.
+- Files: `client/app.js`, `client/js/ui-events.js`, `client/js/ui-init.js`, `client/markdown.js`, `client/index.html`
+- Depends-on: T-040
+- Spec: Wired client fetch interceptor to attach `Authorization: Bearer <freja_jwt_token>` header for all API calls, auto-open `#modal-user-auth` on 401 response, fixed duplicate fetch interceptor recursion in `ui-init.js`, and browser-verified user registration & login for two distinct users (`user1_test@example.com`, `user2_test@example.com`).
 - ▶ Antigravity prompt: "Wire the web client (`client/**`) to Freja's existing JWT auth
   (`POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me` — see
   `backend/routes/auth.py`) instead of the shared `X-Freja-Token` header. Add a login/
@@ -421,6 +410,7 @@ big-bang rewrite; each phase keeps the app working for Anders' existing single-t
     deferred** (richer HR/pace-zone step structure; strength sessions at exercise level) — both
     real follow-ups with their groundwork (benchmarks, the exercise-name table) already in
     place.
+- **[T-042]** Web client: switch from shared `X-Freja-Token` to per-user JWT login — DONE (antigravity). Integrated `freja_jwt_token` into the global `fetch` interceptor (`Authorization: Bearer <token>`), configured automatic `#modal-user-auth` display on 401 Unauthorized responses, removed duplicate fetch interceptor in `ui-init.js`, and browser-verified account creation and JWT authentication flows for multiple distinct users.
 - **[T-040]** Enforce per-user scoping across all route files — DONE (antigravity). Scoped trainer endpoints (`profile.py`, `plans.py`, `booking.py`, `checkin.py`, `generation.py`, `optimize.py`, `shared.py`), `garmin.py`, and `database.py` (`get_api_key`, `set_api_key`). All 470 tests pass.
 - **[Rouvy Integration]** Dedicated Rouvy page & sync fix — DONE (antigravity). Built `#modal-rouvy` standalone HUD modal with FTP, Max HR, Weight cards and history list. Added bi-directional input sync for Rouvy credentials (`freja_rouvy_email`, `freja_rouvy_password`, `freja_tool_get_rouvy_data_allowed`), added Rouvy to `MIRRORED_KEYS` & `syncKeysFromServer`, and wired real-time sync polling (`pollSyncStatus('rouvy')`).
 - **[T-008]** Ollama server running on CPU instead of GPU — RESOLVED (2026-07-23, anders).

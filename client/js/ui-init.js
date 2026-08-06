@@ -2,30 +2,7 @@
  * F.R.E.J.A. UI Controller - UI Initialization Module
  */
 
-// Global fetch interceptor for JWT Bearer token authentication
-if (!window._fetchInterceptorInstalled) {
-    window._fetchInterceptorInstalled = true;
-    window.originalFetch = window.fetch;
-    window.fetch = function(resource, init) {
-        init = init || {};
-        init.headers = init.headers || {};
-        const jwtToken = localStorage.getItem("freja_jwt_token");
-        if (jwtToken) {
-            if (init.headers instanceof Headers) {
-                if (!init.headers.has("Authorization")) {
-                    init.headers.set("Authorization", `Bearer ${jwtToken}`);
-                }
-            } else if (Array.isArray(init.headers)) {
-                init.headers.push(["Authorization", `Bearer ${jwtToken}`]);
-            } else {
-                if (!init.headers["Authorization"]) {
-                    init.headers["Authorization"] = `Bearer ${jwtToken}`;
-                }
-            }
-        }
-        return window.originalFetch(resource, init);
-    };
-}
+
 
 FrejaUIController.prototype.initializeUI = function() {
     const accessToken = localStorage.getItem("freja_access_token") || "";
