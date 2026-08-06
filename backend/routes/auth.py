@@ -60,7 +60,7 @@ def get_current_user_from_token(token: str = Depends(oauth2_scheme)) -> User:
     if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Autentisering krävs"
+            detail="Authentication required"
         )
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
@@ -68,7 +68,7 @@ def get_current_user_from_token(token: str = Depends(oauth2_scheme)) -> User:
     except (jwt.PyJWTError, ValueError, TypeError):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Ogiltig eller utgången token"
+            detail="Invalid or expired token"
         )
 
     with get_db_session() as db:
@@ -76,7 +76,7 @@ def get_current_user_from_token(token: str = Depends(oauth2_scheme)) -> User:
         if not user:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Användare hittades inte"
+                detail="User not found"
             )
         return user
 
@@ -106,12 +106,12 @@ def get_current_user(token: str | None = Depends(oauth2_scheme)) -> User:
 def register(req: RegisterRequest):
     email_clean = req.email.strip().lower()
     if not email_clean or not req.password:
-        raise HTTPException(status_code=400, detail="E-post och lösenord krävs.")
+        raise HTTPException(status_code=400, detail="Email and password are required.")
 
     with get_db_session() as db:
         existing = db.query(User).filter(User.email == email_clean).first()
         if existing:
-            raise HTTPException(status_code=400, detail="E-postadressen är redan registrerad.")
+            raise HTTPException(status_code=400, detail="This email address is already registered.")
 
         user = User(
             email=email_clean,
@@ -138,9 +138,9 @@ def login(req: LoginRequest):
     with get_db_session() as db:
         user = db.query(User).filter(User.email == email_clean).first()
         if not user or not verify_password(req.password, user.password_hash):
-            raise HTTPException(status_code=401, detail="Felaktig e-post eller lösenord.")
+            raise HTTPException(status_code=401, detail="Incorrect email or password.")
         if not user.is_active:
-            raise HTTPException(status_code=403, detail="Konto inaktiverat.")
+            raise HTTPException(status_code=403, detail="Account disabled.")
 
         token = create_access_token(user.id, user.email)
         return TokenResponse(

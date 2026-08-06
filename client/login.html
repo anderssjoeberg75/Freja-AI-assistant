@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="sv">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>F.R.E.J.A. // Logga in</title>
+    <title>F.R.E.J.A. // Log In</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700;800&family=Orbitron:wght@400;600;800;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
@@ -85,16 +85,16 @@
     <div class="auth-page-card glass-morphic">
         <div class="auth-page-logo">
             <span class="logo-text">[ F.R.E.J.A. ]</span>
-            <div class="logo-sub">LOGGA IN P&Aring; DITT KONTO</div>
+            <div class="logo-sub">LOG IN TO YOUR ACCOUNT</div>
         </div>
 
         <form class="auth-page-form" id="login-form" novalidate>
             <div class="settings-group">
-                <label for="login-email">E-postadress</label>
-                <input type="email" id="login-email" class="hud-input" placeholder="din.epost@domain.se" autocomplete="email" required>
+                <label for="login-email">Email address</label>
+                <input type="email" id="login-email" class="hud-input" placeholder="your.email@domain.com" autocomplete="email" required>
             </div>
             <div class="settings-group">
-                <label for="login-password">Lösenord</label>
+                <label for="login-password">Password</label>
                 <input type="password" id="login-password" class="hud-input" placeholder="••••••••" autocomplete="current-password" required>
             </div>
 
@@ -102,12 +102,12 @@
             <div class="auth-page-success" id="login-success"></div>
 
             <button type="submit" class="hud-btn btn-primary auth-page-submit" id="login-submit">
-                <i class="fa-solid fa-right-to-bracket"></i> LOGGA IN
+                <i class="fa-solid fa-right-to-bracket"></i> LOG IN
             </button>
         </form>
 
         <div class="auth-page-footer">
-            Inget konto än? <a href="register.html" class="hud-link">Skapa konto</a>
+            Don't have an account? <a href="register.html" class="hud-link">Create one</a>
         </div>
     </div>
 
@@ -132,12 +132,12 @@
             const password = document.getElementById('login-password').value;
 
             if (!email || !password) {
-                showError('Ange både e-post och lösenord.');
+                showError('Please enter both an email address and a password.');
                 return;
             }
 
             submitBtn.disabled = true;
-            submitBtn.textContent = 'LOGGAR IN...';
+            submitBtn.textContent = 'LOGGING IN...';
 
             try {
                 const res = await fetch('/api/auth/login', {
@@ -147,19 +147,19 @@
                 });
                 const data = await res.json();
                 if (!res.ok) {
-                    throw new Error(data.detail || 'Inloggningen misslyckades.');
+                    throw new Error(data.detail || 'Login failed.');
                 }
 
                 localStorage.setItem('freja_jwt_token', data.access_token);
                 localStorage.setItem('freja_user_email', data.email);
 
-                successBox.textContent = `Inloggad som ${data.email}. Du skickas vidare...`;
+                successBox.textContent = `Logged in as ${data.email}. Redirecting...`;
                 successBox.style.display = 'block';
                 setTimeout(() => { window.location.href = 'index.html'; }, 1000);
             } catch (err) {
-                showError(err.message || 'Något gick fel. Försök igen.');
+                showError(err.message || 'Something went wrong. Please try again.');
                 submitBtn.disabled = false;
-                submitBtn.innerHTML = '<i class="fa-solid fa-right-to-bracket"></i> LOGGA IN';
+                submitBtn.innerHTML = '<i class="fa-solid fa-right-to-bracket"></i> LOG IN';
             }
         });
     </script>

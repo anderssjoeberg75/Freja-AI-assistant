@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="sv">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>F.R.E.J.A. // Skapa konto</title>
+    <title>F.R.E.J.A. // Create Account</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700;800&family=Orbitron:wght@400;600;800;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
@@ -86,37 +86,37 @@
     <div class="auth-page-card glass-morphic">
         <div class="auth-page-logo">
             <span class="logo-text">[ F.R.E.J.A. ]</span>
-            <div class="logo-sub">SKAPA NYTT ANVÄNDARKONTO</div>
+            <div class="logo-sub">CREATE A NEW ACCOUNT</div>
         </div>
 
         <form class="auth-page-form" id="register-form" novalidate>
             <div class="settings-group">
-                <label for="reg-name">Namn</label>
-                <input type="text" id="reg-name" class="hud-input" placeholder="Ditt namn" autocomplete="name">
+                <label for="reg-name">Name</label>
+                <input type="text" id="reg-name" class="hud-input" placeholder="Your name" autocomplete="name">
             </div>
             <div class="settings-group">
-                <label for="reg-email">E-postadress</label>
-                <input type="email" id="reg-email" class="hud-input" placeholder="din.epost@domain.se" autocomplete="email" required>
+                <label for="reg-email">Email address</label>
+                <input type="email" id="reg-email" class="hud-input" placeholder="your.email@domain.com" autocomplete="email" required>
             </div>
             <div class="settings-group">
-                <label for="reg-password">Lösenord</label>
-                <input type="password" id="reg-password" class="hud-input" placeholder="Minst 8 tecken" autocomplete="new-password" required minlength="8">
+                <label for="reg-password">Password</label>
+                <input type="password" id="reg-password" class="hud-input" placeholder="At least 8 characters" autocomplete="new-password" required minlength="8">
             </div>
             <div class="settings-group">
-                <label for="reg-password-confirm">Bekräfta lösenord</label>
-                <input type="password" id="reg-password-confirm" class="hud-input" placeholder="Upprepa lösenordet" autocomplete="new-password" required minlength="8">
+                <label for="reg-password-confirm">Confirm password</label>
+                <input type="password" id="reg-password-confirm" class="hud-input" placeholder="Repeat the password" autocomplete="new-password" required minlength="8">
             </div>
 
             <div class="auth-page-error" id="reg-error"></div>
             <div class="auth-page-success" id="reg-success"></div>
 
             <button type="submit" class="hud-btn btn-primary auth-page-submit" id="reg-submit">
-                <i class="fa-solid fa-user-plus"></i> SKAPA KONTO
+                <i class="fa-solid fa-user-plus"></i> CREATE ACCOUNT
             </button>
         </form>
 
         <div class="auth-page-footer">
-            Har du redan ett konto? <a href="login.html" class="hud-link">Logga in</a>
+            Already have an account? <a href="login.html" class="hud-link">Log in</a>
         </div>
     </div>
 
@@ -143,20 +143,20 @@
             const passwordConfirm = document.getElementById('reg-password-confirm').value;
 
             if (!email || !password) {
-                showError('Ange både e-post och lösenord.');
+                showError('Please enter both an email address and a password.');
                 return;
             }
             if (password.length < 8) {
-                showError('Lösenordet måste vara minst 8 tecken.');
+                showError('Password must be at least 8 characters.');
                 return;
             }
             if (password !== passwordConfirm) {
-                showError('Lösenorden matchar inte.');
+                showError('Passwords do not match.');
                 return;
             }
 
             submitBtn.disabled = true;
-            submitBtn.textContent = 'SKAPAR KONTO...';
+            submitBtn.textContent = 'CREATING ACCOUNT...';
 
             try {
                 const res = await fetch('/api/auth/register', {
@@ -166,7 +166,7 @@
                 });
                 const data = await res.json();
                 if (!res.ok) {
-                    throw new Error(data.detail || 'Registreringen misslyckades.');
+                    throw new Error(data.detail || 'Registration failed.');
                 }
 
                 // Same localStorage keys the in-HUD auth modal uses (ui-events.js), so a
@@ -174,13 +174,13 @@
                 localStorage.setItem('freja_jwt_token', data.access_token);
                 localStorage.setItem('freja_user_email', data.email);
 
-                successBox.textContent = `Konto skapat för ${data.email}. Du skickas vidare...`;
+                successBox.textContent = `Account created for ${data.email}. Redirecting...`;
                 successBox.style.display = 'block';
                 setTimeout(() => { window.location.href = 'index.html'; }, 1500);
             } catch (err) {
-                showError(err.message || 'Något gick fel. Försök igen.');
+                showError(err.message || 'Something went wrong. Please try again.');
                 submitBtn.disabled = false;
-                submitBtn.innerHTML = '<i class="fa-solid fa-user-plus"></i> SKAPA KONTO';
+                submitBtn.innerHTML = '<i class="fa-solid fa-user-plus"></i> CREATE ACCOUNT';
             }
         });
     </script>
