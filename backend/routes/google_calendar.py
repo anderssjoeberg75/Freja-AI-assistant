@@ -554,13 +554,16 @@ async def get_google_calendar_callback(
 
                 try {
                     const redirectUri = window.location.origin + '/api/google_calendar/callback';
-                    const token = localStorage.getItem('freja_access_token') || 'freja1234';
+                    const token = localStorage.getItem('freja_jwt_token') || localStorage.getItem('freja_access_token') || '';
+                    const headers = { 'Content-Type': 'application/json' };
+                    if (localStorage.getItem('freja_jwt_token')) {
+                        headers['Authorization'] = `Bearer ${token}`;
+                    } else if (token) {
+                        headers['X-Freja-Token'] = token;
+                    }
                     const response = await fetch('/api/google_calendar/exchange', {
                         method: 'POST',
-                        headers: { 
-                            'Content-Type': 'application/json',
-                            'X-Freja-Token': token
-                        },
+                        headers: headers,
                         body: JSON.stringify({
                             code: code,
                             code_verifier: verifier,

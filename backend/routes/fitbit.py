@@ -296,10 +296,16 @@ async def run_fitbit_sync_task(client_id: str, client_secret: str, refresh_token
 
 @router.get("/api/fitbit/sync")
 @router.post("/api/fitbit/sync")
-async def trigger_fitbit_sync(background_tasks: BackgroundTasks, days: int = 30):
-    client_id = get_api_key('freja_fitbit_client_id') or ""
-    client_secret = get_api_key('freja_fitbit_client_secret') or ""
-    refresh_token = get_api_key('freja_fitbit_refresh_token') or ""
+async def trigger_fitbit_sync(background_tasks: BackgroundTasks, days: int = 30, current_user: User = Depends(get_current_user)):
+    client_id = get_api_key('freja_fitbit_client_id', user_id=current_user.id) or ""
+    client_secret = get_api_key('freja_fitbit_client_secret', user_id=current_user.id) or ""
+    refresh_token = get_api_key('freja_fitbit_refresh_token', user_id=current_user.id) or ""
+
+    if not client_id or not client_secret or not refresh_token:
+        raise HTTPException(
+            status_code=400,
+            detail="Fitbit API credentials missing. Please configure Client ID, Secret, and connect account in Settings first."
+        )
 
     days = max(1, min(days, MAX_SYNC_DAYS))
     set_sync_state("fitbit", "syncing")

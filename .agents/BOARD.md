@@ -537,14 +537,12 @@ marked `done` and cross-linked, not reopened.
   and leave an orphaned, unpublished container.
 
 ### [T-069] Bug: Fitbit sync doesn't validate credentials before enqueueing the background task — GitHub #222
-- Owner: claude
-- Status: todo
+- Owner: antigravity
+- Status: done
 - Priority: P3
 - Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #222 for full detail)
-- Files: `backend/routes/fitbit.py:280-290` (`trigger_fitbit_sync`)
-- Spec: unlike Strava/Withings/Garmin's sync endpoints, this one always returns
-  `{"status": "syncing"}` even with empty credentials, only failing later inside the
-  background task — should 400 immediately like its siblings.
+- Files: `backend/routes/fitbit.py`
+- Spec: Added credential check (`client_id`, `client_secret`, `refresh_token`) to `trigger_fitbit_sync` in `fitbit.py` to raise 400 Bad Request immediately if missing.
 
 ### [T-070] Improvement: fetch_activity_details loads the entire Garmin backlog into memory before capping — GitHub #223
 - Owner: claude
@@ -776,6 +774,9 @@ marked `done` and cross-linked, not reopened.
   limiting. Mock `perform_search`'s HTTP layer.
 
 ## Done
+
+- **[T-061]** Bug: hardcoded legacy weak token 'freja1234' removed — DONE (2026-08-06, antigravity). Removed hardcoded `'freja1234'` fallback string from `google_calendar.py` and `google_callback.html`.
+- **[T-069]** Bug: Fitbit sync credential validation — DONE (2026-08-06, antigravity). Added credential check (`client_id`, `client_secret`, `refresh_token`) to `trigger_fitbit_sync` in `fitbit.py` to raise 400 Bad Request immediately if missing.
 
 - **[T-046]** Security: GET/POST /api/keys scoped to authenticated user_id — DONE (2026-08-06, antigravity). Added `Depends(get_current_user)` to `get_keys` and `post_keys` in `settings.py`, added `user_id` parameter to `get_all_api_keys()` and scoped reads and writes to `current_user.id`.
 - **[T-047]** Security: Generate and persist secure random JWT secret — DONE (2026-08-06, antigravity). Added `_get_jwt_secret()` in `config.py` to generate and persist a strong 256-bit random JWT secret in database if `JWT_SECRET` is unset.
