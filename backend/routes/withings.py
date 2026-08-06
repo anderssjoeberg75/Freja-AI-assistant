@@ -16,13 +16,22 @@ MAX_SYNC_DAYS = 3650  # 10 years historical sync limit (matching Strava's 3650 d
 router = APIRouter()
 
 @router.get("/api/withings/callback", response_class=HTMLResponse)
-async def get_withings_callback(request: Request, code: str = Query("", description="Authorization code")):
+async def get_withings_callback(
+    request: Request,
+    code: str = Query("", description="Authorization code"),
+    state: str = Query("", description="OAuth state carrying user_id")
+):
     code = code.strip()
     if not code:
         return HTMLResponse('<h3>Error: No authorization code was found in the request.</h3>', status_code=400)
+    
+    user_id = 1
+    if state and state.strip().isdigit():
+        user_id = int(state.strip())
+
     try:
-        client_id = get_api_key('freja_withings_client_id') or ""
-        client_secret = get_api_key('freja_withings_client_secret') or ""
+        client_id = get_api_key('freja_withings_client_id', user_id=user_id) or ""
+        client_secret = get_api_key('freja_withings_client_secret', user_id=user_id) or ""
 
         if not client_id or not client_secret:
             return HTMLResponse('<h3>Error: The Withings Client ID or Client Secret is missing from the F.R.E.J.A. database. Save them in Settings first.</h3>', status_code=400)
@@ -61,7 +70,7 @@ async def get_withings_callback(request: Request, code: str = Query("", descript
         if not new_refresh_token:
             raise Exception('Could not read refresh_token from Withings response.')
 
-        set_api_key('freja_withings_refresh_token', new_refresh_token)
+        set_api_key('freja_withings_refresh_token', new_refresh_token, user_id=user_id)
 
         success_html = """
         <!DOCTYPE html>

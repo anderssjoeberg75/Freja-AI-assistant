@@ -97,9 +97,14 @@ def _index_daily_response(rows, date_keys=('date', 'calendarDate')):
     return indexed
 
 
-def _garmin_token_dir():
-    """The cached-token directory shared by the sync task and /api/garmin/reauth (#181)."""
-    return os.path.join(os.path.dirname(os.path.abspath(PROJECT_ROOT)), '.garminconnect')
+def _garmin_token_dir(user_id: int = 1):
+    """The cached-token directory shared by the sync task and /api/garmin/reauth (#181). Scoped per user_id."""
+    base_dir = os.path.join(os.path.dirname(os.path.abspath(PROJECT_ROOT)), '.garminconnect')
+    if user_id == 1:
+        return base_dir
+    token_dir = os.path.join(base_dir, str(user_id))
+    os.makedirs(token_dir, exist_ok=True)
+    return token_dir
 
 
 def _classify_garmin_error(e: Exception) -> str:
@@ -1548,8 +1553,11 @@ async def delete_garmin_log(date: str = Query(..., description="Date to delete")
 TOKEN_STALE_WARNING_DAYS = 150
 
 
-def _garmin_token_age_days():
-    token_dir = _garmin_token_dir()
+def _garmin_token_age_days(user_id: int = 1):
+    try:
+        token_dir = _garmin_token_dir(user_id=user_id) if user_id != 1 else _garmin_token_dir()
+    except TypeError:
+        token_dir = _garmin_token_dir()
     if not os.path.isdir(token_dir):
         return None
     try:
@@ -1568,7 +1576,7 @@ def _garmin_token_age_days():
 @router.get("/api/garmin/credentials")
 async def get_garmin_credentials(current_user: User = Depends(get_current_user)):
     email = get_api_key('freja_garmin_email', user_id=current_user.id) or ""
-    token_age_days = _garmin_token_age_days()
+    token_age_days = _garmin_token_age_days(user_id=current_user.id)
     return {
         "email": email,
         "token_age_days": token_age_days,
@@ -1586,7 +1594,10 @@ async def post_garmin_reauth(current_user: User = Depends(get_current_user)):
             detail="Garmin Connect credentials are missing. Enter the email and password in Settings."
         )
 
-    token_dir = _garmin_token_dir()
+    try:
+        token_dir = _garmin_token_dir(user_id=current_user.id) if current_user.id != 1 else _garmin_token_dir()
+    except TypeError:
+        token_dir = _garmin_token_dir()
     try:
         import shutil
         if os.path.isdir(token_dir):

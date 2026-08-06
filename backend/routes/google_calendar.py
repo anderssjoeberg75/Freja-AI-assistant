@@ -5,10 +5,12 @@ import datetime
 from urllib.parse import quote, urlparse
 import httpx
 from backend.services.http_client import shared_client
-from fastapi import APIRouter, HTTPException, Query, Request, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, BackgroundTasks
 from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 from backend.database import get_db_connection, get_api_key, set_api_key
+from backend.models import User
+from backend.routes.auth import get_current_user
 from backend.origins import origin_of, is_allowed_origin
 from backend.services.sync_status import set_sync_state
 from backend.services.time_utils import today_local
@@ -33,11 +35,11 @@ def _is_allowed_redirect_origin(origin: str, request: Request) -> bool:
 _token_cache = {"refresh_token": None, "access_token": None, "expires_at": 0.0}
 
 
-async def get_google_access_token():
-    """Tries to get a fresh access token from Google API using the stored refresh token."""
-    client_id = get_api_key('freja_google_calendar_client_id') or ""
-    client_secret = get_api_key('freja_google_calendar_client_secret') or ""
-    refresh_token = get_api_key('freja_google_calendar_refresh_token') or ""
+async def get_google_access_token(user_id: int = 1):
+    """Tries to get a fresh access token from Google API using the stored refresh token for user_id."""
+    client_id = get_api_key('freja_google_calendar_client_id', user_id=user_id) or ""
+    client_secret = get_api_key('freja_google_calendar_client_secret', user_id=user_id) or ""
+    refresh_token = get_api_key('freja_google_calendar_refresh_token', user_id=user_id) or ""
 
     if not client_id or not refresh_token:
         return None
@@ -590,7 +592,7 @@ async def get_google_calendar_callback(
     return HTMLResponse(html_content, status_code=200)
 
 @router.post("/api/google_calendar/exchange")
-async def post_google_calendar_exchange(body: GoogleExchangeRequest):
+async def post_google_calendar_exchange(body: GoogleExchangeRequest, current_user: User = Depends(get_current_user)):
     code = body.code.strip()
     code_verifier = body.code_verifier.strip()
     client_id = body.client_id.strip()
@@ -621,12 +623,12 @@ async def post_google_calendar_exchange(body: GoogleExchangeRequest):
         if not new_refresh_token:
             raise Exception("Google returned no refresh token. If you have already connected this account once, revoke the app's access in your Google account before connecting again - that forces Google to show the consent screen and issue a new refresh token.")
             
-        # Save client_id and refresh_token to the database
-        set_api_key('freja_google_calendar_client_id', client_id)
-        set_api_key('freja_google_calendar_refresh_token', new_refresh_token)
+        # Save client_id and refresh_token to the database per user_id
+        set_api_key('freja_google_calendar_client_id', client_id, user_id=current_user.id)
+        set_api_key('freja_google_calendar_refresh_token', new_refresh_token, user_id=current_user.id)
 
         # Since we are using PKCE (Desktop app), there is no client secret. We clear the stored secret.
-        set_api_key('freja_google_calendar_client_secret', '')
+        set_api_key('freja_google_calendar_client_secret', '', user_id=current_user.id)
 
         return {"status": "success", "message": "Google Calendar-konto har kopplats."}
         

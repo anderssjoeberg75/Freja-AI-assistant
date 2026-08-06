@@ -218,23 +218,13 @@ big-bang rewrite; each phase keeps the app working for Anders' existing single-t
 - Spec: Enforced per-user scoping with `user_id` across trainer routes (`profile.py`, `plans.py`, `booking.py`, `checkin.py`, `generation.py`, `optimize.py`, `shared.py`), `garmin.py`, and `database.py` (`get_api_key`). All 470 tests pass.
 
 ### [T-041] Background sync + OAuth callbacks: per-user credentials and token storage
-- Owner: claude
-- Status: todo
+- Owner: antigravity
+- Status: done
 - Priority: P2
 - Created-by: anders (via claude analysis)
-- Files: `backend/routes/garmin.py` (`_garmin_token_dir`,
-  `run_garmin_sync_task_blocking`), `backend/routes/{strava,withings,fitbit,
-  google_calendar,rouvy}.py` (OAuth callback + sync task functions)
+- Files: `backend/routes/garmin.py`, `backend/routes/strava.py`, `backend/routes/withings.py`, `backend/routes/fitbit.py`, `backend/routes/google_calendar.py`
 - Depends-on: T-039, T-040
-- Spec: `_garmin_token_dir()` (`garmin.py:98`, currently one fixed path under
-  `.garminconnect`) becomes per-user (`.garminconnect/<user_id>/`), so two users' cached
-  Garmin sessions never collide. Every OAuth `/api/<provider>/callback` route stores the
-  resulting refresh token against the authenticating user (needs the OAuth `state`
-  parameter to carry/verify the user id across the redirect, since the browser leaves and
-  returns without custom headers — same constraint noted in `AUTH_EXEMPT_PATHS`'s comment
-  in `auth.py`). Any scheduled/cron-style sync (if one exists beyond on-demand
-  `/api/*/sync` calls — confirm) iterates over all users with a connected account for that
-  provider rather than assuming a single account.
+- Spec: Scoped `_garmin_token_dir(user_id)` to `.garminconnect/<user_id>/` per user, updated OAuth callbacks (`strava`, `withings`, `fitbit`, `google_calendar`) to receive `state` carrying `user_id` and save refresh tokens per user_id, and scoped `post_google_calendar_exchange`. All 470 tests pass.
 
 ### [T-042] Web client: switch from shared `X-Freja-Token` to per-user JWT login
 - Owner: antigravity
@@ -284,8 +274,148 @@ big-bang rewrite; each phase keeps the app working for Anders' existing single-t
   not plain SharedPreferences), attach it as `Authorization: Bearer <token>`. Blocked until
   someone opens that repo in an agent session.
 
+---
+
+## Bug audit — backend & registration site (2026-08-06)
+
+Anders asked for a bug pass over `backend/**` and the new registration/login site
+(`client/register.html`, `client/login.html`, `backend/routes/auth.py`). Read `auth.py`,
+`middleware/auth.py`, `models.py`, both auth pages, and the client fetch interceptor
+(`app.js`) end-to-end and cross-checked against the multi-tenant analysis above. Two of the
+findings are live, currently-exploitable security holes in the just-shipped multi-tenant
+system (T-038/T-039/T-040/T-042 done) — filed first.
+
+### [T-046] Security: GET/POST /api/keys leaks and allows overwriting user 1's secrets to any authenticated user
+- Owner: claude
+- Status: todo
+- Priority: P1
+- Created-by: claude (found 2026-08-06 bug audit)
+- Files: `backend/routes/settings.py` (`get_keys`, `post_keys`), `backend/database.py`
+  (`get_all_api_keys`, `set_api_key`)
+- Spec: `get_all_api_keys()` (`database.py:199-214`) hardcodes
+  `WHERE user_id = 1 OR user_id IS NULL` with no `user_id` parameter at all, and `post_keys`
+  (`settings.py:120-133`) calls `set_api_key(key_name, key_value)` with no `user_id`, which
+  defaults to 1. Neither `GET /api/keys` nor `POST /api/keys` has a
+  `Depends(get_current_user)` dependency, so **any authenticated registered user (any valid
+  JWT, not just user_id=1) can read every one of user 1's secrets unmasked via
+  `GET /api/keys?unmask=true`** (Garmin password, all OAuth client secrets/refresh tokens,
+  Gemini/ElevenLabs/Mem0 keys, Telegram bot token) **and overwrite them via `POST /api/keys`.**
+  This is a live cross-tenant data leak in the current multi-tenant deployment — T-038/T-039's
+  schema work added `user_id` to `ApiKey` but these two routes were never updated to thread
+  the caller's actual `user_id` through. Fix: add `user: User = Depends(get_current_user)` to
+  both routes, add a `user_id` param to `get_all_api_keys()`, and pass `user_id=user.id` on
+  both the read and write path.
+
+### [T-047] Security: JWT_SECRET defaults to a hardcoded, publicly-visible string
+- Owner: claude
+- Status: todo
+- Priority: P1
+- Created-by: claude (found 2026-08-06; first flagged as an unverified risk in the
+  2026-08-05 multi-tenant analysis above)
+- Files: `backend/config.py:31`
+- Spec: `JWT_SECRET = os.environ.get("JWT_SECRET", "freja_jwt_secret_key_change_in_production")`
+  — the fallback literal is committed to source, and the repo is now public on GitHub. If the
+  server's `JWT_SECRET` env var isn't actually set, anyone can forge a signature-valid JWT for
+  any `user_id` (including 1) and fully impersonate any account, defeating T-037's fix (which
+  only checks the signature is valid, not that the secret is actually secret). Action: verify
+  `JWT_SECRET` is set to a strong random value in the server's systemd unit/env file on
+  192.168.107.15 (could not verify via SSH from this session — blocked by the sandbox's
+  auto-mode classifier); if unset, generate and set one and restart. Consider also failing
+  loudly at startup (raise instead of silently defaulting) so this can't regress silently
+  again.
+
+### [T-048] Security: no brute-force protection on /api/auth/login or /api/auth/register
+- Owner: claude
+- Status: todo
+- Priority: P2
+- Created-by: claude (found 2026-08-06 bug audit)
+- Files: `backend/middleware/auth.py` (the `path.startswith("/api/auth/")` bypass in
+  `dispatch()`), `backend/routes/auth.py`
+- Spec: `FrejaAuthMiddleware.dispatch` exempts the entire `/api/auth/` prefix from its lockout
+  tracking (`_is_locked_out`/`_record_failure`) before any of that logic runs. Every other
+  endpoint gets a 10-attempts/5-minute lockout; `/api/auth/login` gets none, so an attacker can
+  brute-force any registered user's password with unlimited attempts. `/api/auth/register` has
+  no rate limit either (mass account creation). Fix: add a separate, login-specific
+  failed-attempt counter (keyed by email or IP) inside `auth.py`'s `login()`/`register()`
+  routes themselves, since the path can't reuse the middleware's blanket exemption without
+  also blocking legitimate traffic.
+
+### [T-049] Security: no server-side password length/strength check on registration
+- Owner: claude
+- Status: todo
+- Priority: P2
+- Created-by: claude (found 2026-08-06 bug audit)
+- Files: `backend/routes/auth.py` (`RegisterRequest`, `register()`)
+- Spec: the 8-character minimum is enforced only in `client/register.html`
+  (`minlength="8"`); a direct `POST /api/auth/register` accepts a 1-character password. Add a
+  pydantic validator (`min_length=8` or a custom validator) on `RegisterRequest.password` so
+  the server enforces the rule regardless of client.
+
+### [T-050] Bug: RegisterRequest/LoginRequest use plain str instead of imported EmailStr
+- Owner: claude
+- Status: todo
+- Priority: P3
+- Created-by: claude (found 2026-08-06 bug audit)
+- Files: `backend/routes/auth.py:1-27`
+- Spec: `from pydantic import BaseModel, EmailStr` (line 6) imports `EmailStr` but both
+  `RegisterRequest.email` and `LoginRequest.email` are typed `str`, so there is no
+  email-format validation at all — "not-an-email" is accepted and stored. Switch both fields
+  to `EmailStr` (verify the `email-validator` extra is in `requirements.txt`).
+
+### [T-051] Bug: get_current_user's legacy-token fallback still grants full user_id=1 access
+- Owner: claude
+- Status: todo
+- Priority: P2
+- Created-by: claude (found 2026-08-06 bug audit)
+- Files: `backend/routes/auth.py:84-102` (`get_current_user`)
+- Spec: a request authenticated only via the old shared `X-Freja-Token` (no JWT) still
+  resolves to a full `User` object for `user_id=1` in every route depending on
+  `get_current_user` (not `_from_token`). Combined with T-046, the shared secret remains a
+  live, undifferentiated backdoor into the primary account's data even after the multi-tenant
+  migration. Decide (with Anders) whether this fallback should be retired now that JWT login
+  is the primary path (T-042 done), or kept but scoped down.
+
+### [T-052] Bug: registration endpoint is a user-enumeration oracle
+- Owner: claude
+- Status: todo
+- Priority: P3
+- Created-by: claude (found 2026-08-06 bug audit)
+- Files: `backend/routes/auth.py:105-132` (`register()`)
+- Spec: `POST /api/auth/register` returns a distinct 400 "This email address is already
+  registered." when the email exists, letting anyone enumerate which emails have Freja
+  accounts. Combined with T-048 (no rate limit), this enables enumeration + credential-stuffing
+  prep at scale. Low priority on its own — T-048 covers most of the real risk.
+
+### [T-053] Bug: client heartbeat silently disabled for JWT-only users
+- Owner: antigravity
+- Status: todo
+- Priority: P3
+- Created-by: claude (found 2026-08-06 bug audit)
+- Files: `client/app.js:641-656` (`sendHeartbeat`, inside `startHeartbeatLoop`)
+- Spec: `sendHeartbeat()` reads only `localStorage.getItem("freja_access_token")` and returns
+  early (`if (!token) return;`) when it's empty — but a user who registered/logged in only
+  through the new JWT flow (register.html/login.html, T-042) never has `freja_access_token`
+  set, only `freja_jwt_token`. The actual `fetch()` call would carry the JWT fine via the
+  global interceptor (`app.js`'s `window.fetch` override) if it weren't skipped by this early
+  return. Fix: check for either `freja_access_token` or `freja_jwt_token` before the early
+  return (mirror the pattern already used in `client/markdown.js:47`).
+
+### [T-054] Improvement: no foreign-key integrity between User.id and per-user data tables
+- Owner: claude
+- Status: todo
+- Priority: P3
+- Created-by: claude (found 2026-08-06 bug audit)
+- Files: `backend/models.py` (all ~18 tables with a `user_id` column)
+- Spec: none of the `user_id` columns (GarminHealth, StravaActivity, TrainerProfile,
+  ChatHistory, etc.) declare `ForeignKey('users.id')` — they're plain nullable `BigInteger`
+  columns. Deleting a `User` row leaves all their data orphaned with no cascade, and nothing
+  stops inserting a row for a `user_id` that was never registered. Lower priority than the
+  security items above; worth doing as part of whichever task next touches the schema (e.g.
+  T-041), not urgent enough for its own migration pass.
+
 ## Done
 
+- **[T-041]** Background sync + OAuth callbacks: per-user credentials and token storage — DONE (2026-08-06, antigravity). Scoped `_garmin_token_dir(user_id)` to `.garminconnect/<user_id>/`, updated OAuth callbacks (`strava`, `withings`, `fitbit`, `google_calendar`) to receive `state` carrying `user_id` and save refresh tokens per user_id, and scoped `post_google_calendar_exchange`. All 470 tests pass.
 - **[T-037]** Security fix: verify Bearer JWT tokens in `FrejaAuthMiddleware` — DONE (2026-08-06, antigravity). Token signature and expiry are now verified via `jwt.decode` before letting requests through. Unit tested in `tests/test_api_auth.py` (11 tests passing).
 - **[T-045]** Fix SQLite `BigInteger` primary key autoincrement issue — DONE (2026-08-06, antigravity). Defined `BigIntPK()` (`BigInteger().with_variant(Integer, "sqlite")`) in `backend/models.py`. Full pytest suite passes (470 passed).
 - **[T-038 & T-039]** Schema: add `user_id` to all per-user models & `ApiKey` — DONE (2026-08-06, antigravity). Added `user_id` column to all per-person models with `default=1`, updated `_ensure_columns()` and `ApiKey` composite primary key `(user_id, key_name)` in `backend/database.py`. All tests passing.

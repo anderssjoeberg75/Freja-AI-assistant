@@ -58,13 +58,22 @@ async def get_fitbit_access_token() -> str | None:
 
 
 @router.get("/api/fitbit/callback", response_class=HTMLResponse)
-async def get_fitbit_callback(request: Request, code: str = Query("", description="Authorization code")):
+async def get_fitbit_callback(
+    request: Request,
+    code: str = Query("", description="Authorization code"),
+    state: str = Query("", description="OAuth state carrying user_id")
+):
     code = code.strip()
     if not code:
         return HTMLResponse('<h3>Error: No authorization code was found in the request.</h3>', status_code=400)
+
+    user_id = 1
+    if state and state.strip().isdigit():
+        user_id = int(state.strip())
+
     try:
-        client_id = get_api_key('freja_fitbit_client_id') or ""
-        client_secret = get_api_key('freja_fitbit_client_secret') or ""
+        client_id = get_api_key('freja_fitbit_client_id', user_id=user_id) or ""
+        client_secret = get_api_key('freja_fitbit_client_secret', user_id=user_id) or ""
 
         if not client_id or not client_secret:
             return HTMLResponse('<h3>Error: Fitbit Client ID or Client Secret is missing from F.R.E.J.A. database. Save them in Settings first.</h3>', status_code=400)
@@ -101,7 +110,7 @@ async def get_fitbit_callback(request: Request, code: str = Query("", descriptio
         if not new_refresh_token:
             raise Exception('Could not read refresh_token from Fitbit response.')
 
-        set_api_key('freja_fitbit_refresh_token', new_refresh_token)
+        set_api_key('freja_fitbit_refresh_token', new_refresh_token, user_id=user_id)
 
         success_html = """
         <!DOCTYPE html>
