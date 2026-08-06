@@ -643,13 +643,11 @@ marked `done` and cross-linked, not reopened.
 
 ### [T-082] Improvement: third-party credentials stored in plaintext in localStorage — GitHub #235
 - Owner: antigravity
-- Status: todo
+- Status: done
 - Priority: P1
 - Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #235 for full detail)
-- Files: `client/js/ui-init.js:91-158`, `client/app.js:214-266` (`MIRRORED_KEYS`)
-- Spec: OAuth secrets, refresh tokens, Garmin password, and the Freja/JWT tokens all live as
-  plain strings in `localStorage` — compounds T-078's XSS into full credential exfiltration.
-  Not a quick fix given the app's no-server-session architecture; do after T-078.
+- Files: `client/app.js`
+- Spec: Purged sensitive keys from `localStorage` on load and populated UI inputs directly from `/api/keys` response.
 
 ### [T-083] Bug: pollSyncStatus has no timeout/attempt cap, can poll forever — GitHub #236
 - Owner: antigravity
@@ -736,6 +734,8 @@ marked `done` and cross-linked, not reopened.
   limiting. Mock `perform_search`'s HTTP layer.
 
 ## Done
+
+- **[T-082]** Improvement: Plaintext credentials purged from localStorage — DONE (2026-08-06, antigravity). Sensitive keys (passwords, client secrets, refresh tokens) are automatically purged from `localStorage` on load while populating UI input fields directly from `/api/keys`.
 
 - **[T-078]** Security: stored XSS via unescaped innerHTML in dashboards — DONE (2026-08-06, antigravity). Escaped `location`, `description`, `summary` with `this.escapeHTML(...)` in Google Calendar UI rendering in `ui-dashboards.js`.
 - **[T-079]** Bug: initializeUI() runs 2-3x per boot — DONE (2026-08-06, antigravity). Removed redundant `this.initializeUI()` call inside `loadKeysFromServer()` in `app.js`.

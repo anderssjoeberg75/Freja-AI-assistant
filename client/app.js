@@ -218,6 +218,22 @@ class FrejaUIController {
                 // A sensitive key comes back masked, and a mask must not overwrite the real
                 // cached value — for freja_access_token that would break every later
                 // authenticated fetch, since the bullet is not an ISO-8859-1 header value.
+                const SENSITIVE_KEYS = [
+                    "freja_garmin_password",
+                    "freja_rouvy_password",
+                    "freja_strava_client_secret",
+                    "freja_strava_refresh_token",
+                    "freja_withings_client_secret",
+                    "freja_withings_refresh_token",
+                    "freja_google_calendar_client_secret",
+                    "freja_google_calendar_refresh_token",
+                    "freja_fitbit_client_secret",
+                    "freja_fitbit_refresh_token",
+                    "freja_eleven_apikey",
+                    "freja_gemini_apikey",
+                    "freja_mem0_apikey"
+                ];
+
                 const MIRRORED_KEYS = [
                     "freja_access_token",
                     "freja_gemini_apikey",
@@ -244,12 +260,18 @@ class FrejaUIController {
                     "freja_tool_get_withings_health_allowed",
                     "freja_tool_manage_google_calendar_allowed"
                 ];
+
                 for (const name of MIRRORED_KEYS) {
                     const value = keys[name];
                     if (value === undefined || isMaskedValue(value)) continue;
-                    localStorage.setItem(name, value);
+
+                    if (SENSITIVE_KEYS.includes(name)) {
+                        localStorage.removeItem(name);
+                    } else {
+                        localStorage.setItem(name, value);
+                    }
                     
-                    // Also populate the corresponding UI input field if it exists
+                    // Populate the corresponding UI input field if it exists
                     const inputId = name.replace(/^freja_/, 'input-').replace(/_/g, '-');
                     const inputEl = document.getElementById(inputId);
                     if (inputEl) {
@@ -259,7 +281,12 @@ class FrejaUIController {
                     }
                 }
 
-                // Also sync any other freja_tool_ keys directly into localStorage
+                // Clean up sensitive keys from localStorage
+                for (const sensitiveKey of SENSITIVE_KEYS) {
+                    localStorage.removeItem(sensitiveKey);
+                }
+
+                // Also sync non-sensitive freja_tool_ keys into localStorage
                 for (const [k, v] of Object.entries(keys)) {
                     if (k.startsWith('freja_tool_') && v !== undefined && !isMaskedValue(v)) {
                         localStorage.setItem(k, v);
