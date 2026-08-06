@@ -2276,8 +2276,7 @@ FrejaUIController.prototype.loadGarminDashboardUI = async function () {
             item.innerHTML = `
                 <div style="flex: 1; color: var(--color-text-bright);">
                     <span style="color: var(--color-primary);">${log.date}</span>: ${metric(log.steps)} steps | ${metric(log.sleep_hours)}h sleep | ${metric(log.resting_hr)} bpm | ${metric(log.active_calories)} kcal${workoutInfo}${bbInfo}${hrvInfo}${trInfo}
-                </div>
-                <button class="garmin-delete-btn" data-date="${log.date}" title="Delete log" style="background: transparent; border: none; color: #ff3b30; cursor: pointer; padding: 2px 6px;">
+                <button class="garmin-delete-btn" data-date="${log.date}" title="Delete log" aria-label="Delete log" style="background: transparent; border: none; color: #ff3b30; cursor: pointer; padding: 2px 6px;">
                     <i class="fa-solid fa-trash-can"></i>
                 </button>
             `;
@@ -2288,7 +2287,7 @@ FrejaUIController.prototype.loadGarminDashboardUI = async function () {
                 const dateVal = delBtn.getAttribute('data-date');
                 item.style.opacity = '0.5';
                 try {
-                    const delRes = await fetch(`/api/garmin/delete?date=${dateVal}`);
+                    const delRes = await fetch(`/api/garmin/delete?date=${dateVal}`, { method: 'DELETE' });
                     const delData = await delRes.json();
                     if (delRes.ok && delData.status === 'success') {
                         this.writeLog(`GARMIN LOG FOR ${dateVal} PURGED`, "sys");
@@ -2360,7 +2359,7 @@ FrejaUIController.prototype.loadStravaDashboardUI = async function () {
                 <div style="flex: 1; color: var(--color-text-bright);">
                     <span style="color: var(--color-primary);">${this.escapeHTML(log.date)}</span>: <strong style="color: var(--color-accent);">${this.escapeHTML(log.type)}</strong> - ${this.escapeHTML(log.name)} (${km} | ${mins}${speedInfo}${elevInfo}${hrInfo}${calInfo})
                 </div>
-                <button class="strava-delete-btn" data-id="${log.id}" title="Delete activity" style="background: transparent; border: none; color: #ff3b30; cursor: pointer; padding: 2px 6px;">
+                <button class="strava-delete-btn" data-id="${log.id}" title="Delete activity" aria-label="Delete activity" style="background: transparent; border: none; color: #ff3b30; cursor: pointer; padding: 2px 6px;">
                     <i class="fa-solid fa-trash-can"></i>
                 </button>
             `;
@@ -2371,7 +2370,7 @@ FrejaUIController.prototype.loadStravaDashboardUI = async function () {
                 const idVal = delBtn.getAttribute('data-id');
                 item.style.opacity = '0.5';
                 try {
-                    const delRes = await fetch(`/api/strava/delete?id=${idVal}`);
+                    const delRes = await fetch(`/api/strava/delete?id=${idVal}`, { method: 'DELETE' });
                     const delData = await delRes.json();
                     if (delRes.ok && delData.status === 'success') {
                         this.writeLog(`STRAVA LOG FOR ID ${idVal} PURGED`, "sys");
@@ -2441,7 +2440,7 @@ FrejaUIController.prototype.loadWithingsDashboardUI = async function () {
                 <div style="flex: 1; color: var(--color-text-bright);">
                     <span style="color: var(--color-primary);">${log.date}</span>: <strong style="color: var(--color-accent);">Measurement</strong> - ${weight}${fat}${bone}${pulse}
                 </div>
-                <button class="withings-delete-btn" data-date="${log.date}" title="Delete measurement" style="background: transparent; border: none; color: #ff3b30; cursor: pointer; padding: 2px 6px;">
+                <button class="withings-delete-btn" data-date="${log.date}" title="Delete measurement" aria-label="Delete measurement" style="background: transparent; border: none; color: #ff3b30; cursor: pointer; padding: 2px 6px;">
                     <i class="fa-solid fa-trash-can"></i>
                 </button>
             `;
@@ -2452,7 +2451,7 @@ FrejaUIController.prototype.loadWithingsDashboardUI = async function () {
                 const dateVal = delBtn.getAttribute('data-date');
                 item.style.opacity = '0.5';
                 try {
-                    const delRes = await fetch(`/api/withings/delete?date=${dateVal}`);
+                    const delRes = await fetch(`/api/withings/delete?date=${dateVal}`, { method: 'DELETE' });
                     const delData = await delRes.json();
                     if (delRes.ok && delData.status === 'success') {
                         this.writeLog(`WITHINGS LOG FOR DATE ${dateVal} PURGED`, "sys");
@@ -2532,20 +2531,20 @@ FrejaUIController.prototype.loadGoogleCalendarDashboardUI = async function () {
             const startFormatted = formatDateTime(evt.start_time);
             const endFormatted = formatDateTime(evt.end_time);
 
-            const locInfo = evt.location ? ` <span style="color: var(--color-accent);"><i class="fa-solid fa-location-dot"></i> ${evt.location}</span>` : "";
-            const descInfo = evt.description ? `<div style="color: var(--color-text-muted); margin-top: 2px; font-size: 10px; font-style: italic; white-space: pre-wrap;">${evt.description}</div>` : "";
+            const locInfo = evt.location ? ` <span style="color: var(--color-accent);"><i class="fa-solid fa-location-dot"></i> ${this.escapeHTML(evt.location)}</span>` : "";
+            const descInfo = evt.description ? `<div style="color: var(--color-text-muted); margin-top: 2px; font-size: 10px; font-style: italic; white-space: pre-wrap;">${this.escapeHTML(evt.description)}</div>` : "";
 
             item.innerHTML = `
                 <div style="flex: 1; color: var(--color-text-bright); margin-right: 10px;">
-                    <strong style="color: var(--color-primary); font-size: 12px;">${evt.summary}</strong>${locInfo}
+                    <strong style="color: var(--color-primary); font-size: 12px;">${this.escapeHTML(evt.summary)}</strong>${locInfo}
                     <div style="color: var(--color-text-muted); margin-top: 2px;">Tid: ${startFormatted} - ${endFormatted}</div>
                     ${descInfo}
                 </div>
                 <div style="display: flex; gap: 5px; align-self: center;">
-                    <button class="calendar-edit-btn" title="Edit event" style="background: transparent; border: none; color: var(--color-primary); cursor: pointer; padding: 2px 6px;">
+                    <button class="calendar-edit-btn" title="Edit event" aria-label="Edit event" style="background: transparent; border: none; color: var(--color-primary); cursor: pointer; padding: 2px 6px;">
                         <i class="fa-solid fa-pencil"></i>
                     </button>
-                    <button class="calendar-delete-btn" title="Delete event" style="background: transparent; border: none; color: #ff3b30; cursor: pointer; padding: 2px 6px;">
+                    <button class="calendar-delete-btn" title="Delete event" aria-label="Delete event" style="background: transparent; border: none; color: #ff3b30; cursor: pointer; padding: 2px 6px;">
                         <i class="fa-solid fa-trash-can"></i>
                     </button>
                 </div>

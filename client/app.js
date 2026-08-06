@@ -270,7 +270,6 @@ class FrejaUIController {
                 if (this.gemini) this.gemini.loadApiKey();
                 if (this.memory) this.memory.loadSettings();
                 if (this.speech) this.speech.elevenApiKey = localStorage.getItem("freja_eleven_apikey") || "";
-                if (typeof this.initializeUI === 'function') this.initializeUI();
                 
                 this.writeLog("API KEYS SYNCHRONIZED WITH DATABASE", "sys");
             } else {
@@ -482,7 +481,7 @@ class FrejaUIController {
                 <div class="msg-sender">${senderTag}</div>
                 <div class="msg-content" style="position: relative; padding-right: 28px;">
                     ${formattedText}
-                    <button class="btn-copy-msg" title="Kopiera svar" style="position: absolute; top: 8px; right: 8px; background: transparent; border: none; color: var(--color-text-muted); cursor: pointer; font-size: 11px; transition: color 0.2s;" onmouseover="this.style.color='var(--color-primary)'" onmouseout="this.style.color='var(--color-text-muted)'">
+                    <button class="btn-copy-msg" title="Kopiera svar" aria-label="Kopiera svar" style="position: absolute; top: 8px; right: 8px; background: transparent; border: none; color: var(--color-text-muted); cursor: pointer; font-size: 11px; transition: color 0.2s;" onmouseover="this.style.color='var(--color-primary)'" onmouseout="this.style.color='var(--color-text-muted)'">
                         <i class="fa-regular fa-copy"></i>
                     </button>
                 </div>
