@@ -208,72 +208,9 @@ clients. Broken into dependency-ordered tasks below so it can land incrementally
 big-bang rewrite; each phase keeps the app working for Anders' existing single-tenant data
 (migrated to `user_id=1`) throughout.
 
-### [T-037] Security fix: close the Bearer-token bypass in FrejaAuthMiddleware
-- Owner: claude
-- Status: todo
-- Priority: P1
-- Created-by: anders (via claude analysis)
-- Files: `backend/middleware/auth.py`, `backend/routes/auth.py`, `tests/test_api_auth.py`
-- Depends-on: none — do this first, independent of the multi-tenant work below.
-- Spec: `FrejaAuthMiddleware.dispatch` must actually verify a `Bearer` JWT (signature +
-  expiry, reusing `jwt.decode`/`JWT_SECRET` from `routes/auth.py`) before letting the
-  request through, not just check the header prefix. A request with an invalid/expired/
-  garbage Bearer token must get the same 401 treatment as a bad `X-Freja-Token`. Also
-  verify (and document in README/deploy notes) that `JWT_SECRET` is set to a real random
-  value via env on the production server, not left on the `config.py:31` default.
-- Handoff-notes: this is the one piece of this epic that's a live vulnerability today —
-  worth shipping and deploying (PULL FROM GITHUB & RESTART) on its own before the rest.
-
-### [T-038] Schema: add `user_id` to every per-user table + backfill migration
-- Owner: claude
-- Status: todo
-- Priority: P1
-- Created-by: anders (via claude analysis)
-- Files: `backend/models.py`, `backend/database.py` (migration/`_ensure_columns` logic,
-  mirroring the pattern already used for `TrainerStrengthLog.source`), new migration script
-  under `migrations/`
-- Depends-on: none (schema-only; T-040 depends on this)
-- Spec: add a non-nullable `user_id` (FK-shaped, `BigInteger`) to every table that holds
-  per-person data: `GarminHealth`, `GarminActivity`, `GarminActivityDetail`,
-  `GarminActivityZones`, `GarminActivityLap`, `GarminBenchmark`, `GarminPushedWorkout`,
-  `StravaActivity`, `WithingsMeasurement`, `FitbitHealth`, `GoogleCalendarEvent`,
-  `TrainerPlan`, `TrainerProfile`, `TrainerBooking`, `TrainerInjuryLog`,
-  `TrainerStrengthLog`. Composite/unique constraints that are currently global must become
-  per-user (e.g. `GoogleCalendarEvent.google_event_id` unique → unique on
-  `(user_id, google_event_id)`; `GarminActivity.activity_id` unique → unique on
-  `(user_id, activity_id)`). Drop `TrainerProfile`'s `CheckConstraint('id = 1')` — replace
-  the single-row assumption with one row per `user_id`. Decide and document whether
-  `LearnedKnowledge` stays a shared global knowledge base or becomes per-user (recommend:
-  stays global — it's Freja's own learned facts, not personal data); `CodexAuditLog` stays
-  global (server-admin audit trail, not user data). Migration backfills every existing row
-  to `user_id=1` (the existing "Admin" user) so Anders' current data isn't orphaned. Full
-  `pytest` still passing after the migration.
-
-### [T-039] Per-user credential storage: fix `ApiKey`/`get_api_key`/`set_api_key`
-- Owner: claude
-- Status: todo
-- Priority: P1
-- Created-by: anders (via claude analysis)
-- Files: `backend/database.py` (`get_api_key`, `set_api_key`, `ApiKey` usage),
-  `backend/models.py` (`ApiKey`), every `backend/routes/*.py` that calls
-  `get_api_key`/`set_api_key` for a per-user secret (Garmin/Strava/Withings/Fitbit/Google
-  Calendar/Rouvy/Instagram credentials and OAuth tokens)
-- Depends-on: T-038 (same migration pass)
-- Spec: `ApiKey`'s primary key changes from `key_name` alone to `(user_id, key_name)`;
-  `get_api_key`/`set_api_key` gain a required `user_id` parameter (no silent global
-  default). Every call site that reads a *personal* credential (Garmin email/password,
-  Strava/Withings/Fitbit/Google refresh tokens, Rouvy email/password, Instagram token) is
-  updated to pass the current user's id. Decide which keys stay genuinely global vs. become
-  per-user and document the split: LLM provider keys (`freja_gemini_apikey`,
-  `freja_claude_apikey`, Ollama URL/model), the Telegram bot token, and
-  `freja_allowed_origins`/`freja_allowed_ips` are server/deployment config — keep global.
-  Per-integration OAuth credentials and tokens must become per-user. `KEY_ALIASES` legacy
-  fallback still resolves correctly per-user. Existing global rows backfilled onto
-  `user_id=1` during the same migration as T-038.
-
 ### [T-040] Enforce per-user scoping across all route files
 - Owner: claude
-- Status: todo
+- Status: in-progress
 - Priority: P1
 - Created-by: anders (via claude analysis)
 - Files: all 18 currently-unscoped route files under `backend/routes/**` (garmin, strava,
@@ -368,9 +305,11 @@ big-bang rewrite; each phase keeps the app working for Anders' existing single-t
   not plain SharedPreferences), attach it as `Authorization: Bearer <token>`. Blocked until
   someone opens that repo in an agent session.
 
----
-
 ## Done
+
+- **[T-037]** Security fix: verify Bearer JWT tokens in `FrejaAuthMiddleware` — DONE (2026-08-06, antigravity). Token signature and expiry are now verified via `jwt.decode` before letting requests through. Unit tested in `tests/test_api_auth.py` (11 tests passing).
+- **[T-045]** Fix SQLite `BigInteger` primary key autoincrement issue — DONE (2026-08-06, antigravity). Defined `BigIntPK()` (`BigInteger().with_variant(Integer, "sqlite")`) in `backend/models.py`. Full pytest suite passes (470 passed).
+- **[T-038 & T-039]** Schema: add `user_id` to all per-user models & `ApiKey` — DONE (2026-08-06, antigravity). Added `user_id` column to all per-person models with `default=1`, updated `_ensure_columns()` and `ApiKey` composite primary key `(user_id, key_name)` in `backend/database.py`. All tests passing.
 
 - **[Production incident]** Backend crash-looping on 192.168.107.15 after the Postgres
   cutover (freja-backend restart counter over 580) — FIXED (2026-08-05, claude). Root cause

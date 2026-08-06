@@ -20,6 +20,19 @@ def test_api_auth_invalid_token():
     response = client.get("/api/keys", headers={"X-Freja-Token": "wrong_token"})
     assert response.status_code == 401
 
+def test_api_auth_invalid_bearer_token():
+    client = TestClient(app)
+    # Requests with a garbage/untrusted Bearer token must be rejected (T-037 fix)
+    response = client.get("/api/keys", headers={"Authorization": "Bearer garbage_token_123"})
+    assert response.status_code == 401
+
+def test_api_auth_valid_bearer_token():
+    from backend.routes.auth import create_access_token
+    client = TestClient(app)
+    valid_jwt = create_access_token(user_id=1, email="test@freja.local")
+    response = client.get("/api/keys", headers={"Authorization": f"Bearer {valid_jwt}"})
+    assert response.status_code == 200
+
 def test_api_auth_valid_token(db_token):
     client = TestClient(app)
     # Requests with the real token stored in the database must succeed

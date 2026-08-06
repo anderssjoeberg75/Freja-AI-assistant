@@ -319,7 +319,7 @@ def test_init_db_rotates_legacy_weak_token():
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute(
-            "INSERT OR REPLACE INTO api_keys (key_name, key_value) VALUES ('freja_access_token', ?)",
+            "INSERT OR REPLACE INTO api_keys (user_id, key_name, key_value) VALUES (1, 'freja_access_token', ?)",
             (encrypt_value('freja_secret'),)
         )
         conn.commit()

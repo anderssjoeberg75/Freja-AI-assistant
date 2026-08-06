@@ -168,7 +168,7 @@ def get_api_key(key_name: str):
     return decrypt_value(row[0]).strip()
 
 
-def set_api_key(key_name: str, value: str):
+def set_api_key(key_name: str, value: str, user_id: int = 1):
     """Encrypts and upserts a value into api_keys table. Also saves alias key for backward compatibility."""
     encrypted = encrypt_value(value)
     keys_to_set = [key_name]
@@ -181,11 +181,11 @@ def set_api_key(key_name: str, value: str):
         for k in keys_to_set:
             cursor.execute(
                 """
-                INSERT INTO api_keys (key_name, key_value)
-                VALUES (?, ?)
-                ON CONFLICT(key_name) DO UPDATE SET key_value = excluded.key_value
+                INSERT INTO api_keys (user_id, key_name, key_value)
+                VALUES (?, ?, ?)
+                ON CONFLICT(user_id, key_name) DO UPDATE SET key_value = excluded.key_value
                 """,
-                (k, encrypted),
+                (user_id, k, encrypted),
             )
         conn.commit()
 
@@ -205,7 +205,7 @@ def get_all_api_keys(unmask: bool = False) -> dict:
 
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT key_name, key_value FROM api_keys")
+        cursor.execute("SELECT key_name, key_value FROM api_keys WHERE user_id = 1 OR user_id IS NULL")
         rows = cursor.fetchall()
     
     result = {}
@@ -225,33 +225,43 @@ def get_all_api_keys(unmask: bool = False) -> dict:
     return result
 
 
-def _ensure_columns(cursor, table: str, columns: list):
-    """Adds any missing columns to an existing table (SQLite ALTER ADD COLUMN).
-
-    `Base.metadata.create_all` creates missing tables but never alters existing ones, so
-    columns added to a model after a database already exists would otherwise be missing.
-    This backfills them idempotently. `columns` is a list of (name, sql_type) tuples."""
-    cursor.execute(f"PRAGMA table_info({table})")
-    existing = {row[1] for row in cursor.fetchall()}
-    for name, sql_type in columns:
-        if name not in existing:
-            cursor.execute(f"ALTER TABLE {table} ADD COLUMN {name} {sql_type}")
-            print(f"[FREJA] Added missing column {table}.{name} ({sql_type}).")
+def _ensure_columns():
+    """Adds any missing columns (e.g. user_id) to existing database tables idempotently."""
+    from sqlalchemy import inspect
+    try:
+        inspector = inspect(engine)
+        tables_to_check = [
+            'garmin_health', 'garmin_activities', 'garmin_activity_detail', 'garmin_activity_zones',
+            'garmin_activity_laps', 'garmin_benchmarks', 'garmin_pushed_workouts', 'strava_activities',
+            'withings_measurements', 'fitbit_health', 'google_calendar_events', 'trainer_plans',
+            'trainer_profile', 'trainer_bookings', 'trainer_injury_logs', 'trainer_strength_logs',
+            'chat_history', 'api_keys'
+        ]
+        with engine.begin() as conn:
+            for table_name in tables_to_check:
+                if inspector.has_table(table_name):
+                    existing_cols = {c['name'] for c in inspector.get_columns(table_name)}
+                    if 'user_id' not in existing_cols:
+                        conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN user_id BIGINT DEFAULT 1"))
+                        print(f"[FREJA] Added missing column {table_name}.user_id.")
+    except Exception as err:
+        print(f"[FREJA DB WARNING] Column check skipped/failed: {err}")
 
 
 def init_db():
     """Initializes the database schema and creates tables if they don't exist."""
     from backend.models import Base
     Base.metadata.create_all(bind=engine)
+    _ensure_columns()
 
     with get_db_session() as db:
         # Seed a strong random access token on first start, and rotate away from known weak/legacy defaults.
         LEGACY_WEAK_TOKENS = ('freja_secret', 'freja1234')
-        row = db.execute(text("SELECT key_value FROM api_keys WHERE key_name = 'freja_access_token'")).fetchone()
+        row = db.execute(text("SELECT key_value FROM api_keys WHERE key_name = 'freja_access_token' AND (user_id = 1 OR user_id IS NULL)")).fetchone()
         if row is None or not row[0]:
             new_token = secrets.token_urlsafe(32)
             db.execute(
-                text("INSERT INTO api_keys (key_name, key_value, user_id) VALUES ('freja_access_token', :val, 1) ON CONFLICT(key_name) DO UPDATE SET key_value = EXCLUDED.key_value"),
+                text("INSERT INTO api_keys (user_id, key_name, key_value) VALUES (1, 'freja_access_token', :val) ON CONFLICT(user_id, key_name) DO UPDATE SET key_value = EXCLUDED.key_value"),
                 {"val": encrypt_value(new_token)}
             )
             db.commit()

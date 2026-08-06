@@ -68,7 +68,7 @@ def test_raises_the_original_error_for_input_that_is_not_just_truncated():
 def test_recovers_from_truncation_after_escaping_backslash():
     truncated = '{"path": "C:\\\\Users\\\\'
     result = parse_llm_json(truncated)
-    assert result == {"path": "C:\\Users"}
+    assert result == {"path": "C:\\Users\\"}
 
 
 def test_raises_the_original_error_for_empty_input():

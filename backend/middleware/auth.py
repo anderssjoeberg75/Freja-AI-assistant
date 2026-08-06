@@ -158,8 +158,20 @@ class FrejaAuthMiddleware(BaseHTTPMiddleware):
         # 4. Check for Bearer JWT token or X-Freja-Token header / 'token' query param
         auth_header = request.headers.get("Authorization")
         if auth_header and auth_header.startswith("Bearer "):
-            _record_success(ip)
-            return await call_next(request)
+            token_str = auth_header[7:].strip()
+            try:
+                import jwt
+                from backend.config import JWT_SECRET, JWT_ALGORITHM
+                jwt.decode(token_str, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+                _record_success(ip)
+                return await call_next(request)
+            except Exception:
+                _record_failure(ip, path)
+                return _cors_response(
+                    request=request,
+                    status_code=401,
+                    content={"detail": "Unauthorized: Invalid or expired Bearer token."}
+                )
 
         token = request.headers.get("X-Freja-Token") or request.query_params.get("token")
 

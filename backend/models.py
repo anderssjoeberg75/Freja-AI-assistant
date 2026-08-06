@@ -3,9 +3,13 @@ from sqlalchemy.orm import declarative_base
 
 Base = declarative_base()
 
+def BigIntPK():
+    """Returns BigInteger column type that degrades to Integer under SQLite for ROWID autoincrement compatibility."""
+    return BigInteger().with_variant(Integer, "sqlite")
+
 class User(Base):
     __tablename__ = 'users'
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    id = Column(BigIntPK(), primary_key=True, autoincrement=True)
     email = Column(String, unique=True, nullable=False, index=True)
     password_hash = Column(String, nullable=False)
     name = Column(String, nullable=True)
@@ -14,13 +18,13 @@ class User(Base):
 
 class ApiKey(Base):
     __tablename__ = 'api_keys'
-    user_id = Column(BigInteger, nullable=True, index=True, default=1)
+    user_id = Column(BigInteger, primary_key=True, default=1)
     key_name = Column(String, primary_key=True)
     key_value = Column(String)
 
 class ChatHistory(Base):
     __tablename__ = 'chat_history'
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    id = Column(BigIntPK(), primary_key=True, autoincrement=True)
     user_id = Column(BigInteger, nullable=True, index=True, default=1)
     sender = Column(String)
     content = Column(String)
@@ -29,7 +33,7 @@ class ChatHistory(Base):
 
 class CodexAuditLog(Base):
     __tablename__ = 'codex_audit_log'
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    id = Column(BigIntPK(), primary_key=True, autoincrement=True)
     timestamp = Column(String)
     tool = Column(String)
     command = Column(String)
@@ -38,7 +42,7 @@ class CodexAuditLog(Base):
 
 class LearnedKnowledge(Base):
     __tablename__ = 'learned_knowledge'
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    id = Column(BigIntPK(), primary_key=True, autoincrement=True)
     topic = Column(String, unique=True)
     summary = Column(String)
     detailed_notes = Column(String)
@@ -47,6 +51,7 @@ class LearnedKnowledge(Base):
 
 class GarminHealth(Base):
     __tablename__ = 'garmin_health'
+    user_id = Column(BigInteger, nullable=True, index=True, default=1)
     date = Column(String, primary_key=True)
     steps = Column(Integer)
     sleep_hours = Column(Float)
@@ -92,7 +97,8 @@ class GarminActivity(Base):
     rows rather than being migrated away, since existing HUD reads and seed data depend on it.
     """
     __tablename__ = 'garmin_activities'
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    id = Column(BigIntPK(), primary_key=True, autoincrement=True)
+    user_id = Column(BigInteger, nullable=True, index=True, default=1)
     activity_id = Column(String, unique=True, index=True)
     date = Column(String, index=True)
     start_time_local = Column(String)
@@ -128,6 +134,7 @@ class GarminActivityDetail(Base):
     """
     __tablename__ = 'garmin_activity_detail'
     activity_id = Column(String, primary_key=True)
+    user_id = Column(BigInteger, nullable=True, index=True, default=1)
     recovery_time_hours = Column(Float)
     training_effect_label = Column(String)
     training_effect_message = Column(String)
@@ -151,6 +158,7 @@ class GarminActivityZones(Base):
     from the raw seconds."""
     __tablename__ = 'garmin_activity_zones'
     activity_id = Column(String, primary_key=True)
+    user_id = Column(BigInteger, nullable=True, index=True, default=1)
     secs_zone_1 = Column(Integer)
     secs_zone_2 = Column(Integer)
     secs_zone_3 = Column(Integer)
@@ -163,7 +171,8 @@ class GarminActivityLap(Base):
     note: ~20 sessions/month averaging maybe 8 laps is ~160 rows/month - trivial for SQLite.
     """
     __tablename__ = 'garmin_activity_laps'
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    id = Column(BigIntPK(), primary_key=True, autoincrement=True)
+    user_id = Column(BigInteger, nullable=True, index=True, default=1)
     activity_id = Column(String, index=True)
     lap_index = Column(Integer)
     date = Column(String, index=True)
@@ -190,6 +199,7 @@ class GarminBenchmark(Base):
     simply absent rather than a column of NULLs."""
     __tablename__ = 'garmin_benchmarks'
     key = Column(String, primary_key=True)
+    user_id = Column(BigInteger, nullable=True, index=True, default=1)
     value = Column(String)   # stringified scalar, or a JSON blob for composite data
     unit = Column(String)
     as_of_date = Column(String)
@@ -202,7 +212,8 @@ class GarminPushedWorkout(Base):
     (plan_id, workout_date) so re-booking or re-pushing a plan updates the existing Garmin
     workout in place instead of silently duplicating it on the watch."""
     __tablename__ = 'garmin_pushed_workouts'
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    id = Column(BigIntPK(), primary_key=True, autoincrement=True)
+    user_id = Column(BigInteger, nullable=True, index=True, default=1)
     plan_id = Column(BigInteger, index=True)
     workout_date = Column(String, index=True)   # YYYY-MM-DD, the session's date
     garmin_workout_id = Column(String)
@@ -215,7 +226,8 @@ class GarminPushedWorkout(Base):
 
 class StravaActivity(Base):
     __tablename__ = 'strava_activities'
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    id = Column(BigIntPK(), primary_key=True, autoincrement=True)
+    user_id = Column(BigInteger, nullable=True, index=True, default=1)
     name = Column(String)
     type = Column(String)
     date = Column(String, index=True)
@@ -231,6 +243,7 @@ class StravaActivity(Base):
 
 class WithingsMeasurement(Base):
     __tablename__ = 'withings_measurements'
+    user_id = Column(BigInteger, nullable=True, index=True, default=1)
     date = Column(String, primary_key=True)
     weight = Column(Float)
     fat_ratio = Column(Float)
@@ -247,6 +260,7 @@ class WithingsMeasurement(Base):
 
 class FitbitHealth(Base):
     __tablename__ = 'fitbit_health'
+    user_id = Column(BigInteger, nullable=True, index=True, default=1)
     date = Column(String, primary_key=True)
     steps = Column(Integer)
     sleep_hours = Column(Float)
@@ -261,7 +275,8 @@ class FitbitHealth(Base):
 
 class GoogleCalendarEvent(Base):
     __tablename__ = 'google_calendar_events'
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    id = Column(BigIntPK(), primary_key=True, autoincrement=True)
+    user_id = Column(BigInteger, nullable=True, index=True, default=1)
     google_event_id = Column(String, unique=True)
     summary = Column(String)
     description = Column(String)
@@ -271,7 +286,8 @@ class GoogleCalendarEvent(Base):
 
 class TrainerPlan(Base):
     __tablename__ = 'trainer_plans'
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    id = Column(BigIntPK(), primary_key=True, autoincrement=True)
+    user_id = Column(BigInteger, nullable=True, index=True, default=1)
     date = Column(String, index=True)
     goal = Column(String)
     advice_text = Column(String)
@@ -279,7 +295,8 @@ class TrainerPlan(Base):
 
 class TrainerProfile(Base):
     __tablename__ = 'trainer_profile'
-    id = Column(BigInteger, primary_key=True)
+    id = Column(BigIntPK(), primary_key=True, autoincrement=True)
+    user_id = Column(BigInteger, nullable=True, index=True, default=1)
     event = Column(String)
     event_date = Column(String)
     fitness_level = Column(String)
@@ -297,13 +314,10 @@ class TrainerProfile(Base):
     # cadence is driven only by actual baseline refreshes.
     baselines_updated_at = Column(String)
 
-    __table_args__ = (
-        CheckConstraint('id = 1', name='chk_single_row'),
-    )
-
 class TrainerBooking(Base):
     __tablename__ = 'trainer_bookings'
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    id = Column(BigIntPK(), primary_key=True, autoincrement=True)
+    user_id = Column(BigInteger, nullable=True, index=True, default=1)
     plan_id = Column(BigInteger, index=True)
     event_id = Column(BigInteger)
     workout_date = Column(String, index=True)
@@ -317,7 +331,8 @@ class TrainerInjuryLog(Base):
     generation and the recovery optimizer so affected sessions get eased or swapped.
     """
     __tablename__ = 'trainer_injury_logs'
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    id = Column(BigIntPK(), primary_key=True, autoincrement=True)
+    user_id = Column(BigInteger, nullable=True, index=True, default=1)
     date = Column(String, index=True)          # YYYY-MM-DD the problem was noted
     area = Column(String)          # body area, e.g. "Höger knä"
     severity = Column(Integer)     # 1-10, how limiting it is right now
@@ -326,7 +341,6 @@ class TrainerInjuryLog(Base):
     resolved_date = Column(String)              # YYYY-MM-DD, set when status='resolved'
     created_at = Column(String)
 
-
 class TrainerStrengthLog(Base):
     """One logged strength set/exercise result, used to drive progressive overload.
 
@@ -334,7 +348,8 @@ class TrainerStrengthLog(Base):
     row is one exercise performed on a given date; `plan_id` links it back to the plan
     the session came from when known (nullable for ad-hoc logs)."""
     __tablename__ = 'trainer_strength_logs'
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    id = Column(BigIntPK(), primary_key=True, autoincrement=True)
+    user_id = Column(BigInteger, nullable=True, index=True, default=1)
     date = Column(String, index=True)          # YYYY-MM-DD the set was performed
     exercise_name = Column(String)
     sets = Column(Integer)
