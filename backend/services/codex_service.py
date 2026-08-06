@@ -393,7 +393,7 @@ def verify_safe_shell_command(cmd_str: str):
         if marker in lowered_cmd:
             raise ValueError(f"Security error: Reference to a protected file ('{marker}') is blocked.")
 
-    clean_cmd = cmd_str.replace("'", "").replace('"', "").replace('\\', "")
+    clean_cmd = cmd_str.replace("'", "").replace('"', "").replace('\\', "/")
     tokens = re.split(r'[\s/;|&:]+', clean_cmd)
 
     for token in tokens:

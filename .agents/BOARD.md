@@ -401,46 +401,36 @@ is **#219**, which this session's own T-055 (above) genuinely fixed as a side ef
 marked `done` and cross-linked, not reopened.
 
 ### [T-056] Security: open_app tool doesn't block dangerous script extensions (.bat/.vbs/.js/.hta) — GitHub #209
-- Owner: claude
-- Status: todo
+- Owner: antigravity
+- Status: done
 - Priority: P1
 - Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #209 for full detail)
-- Files: `backend/services/tool_registry/system.py:144-167`
-- Spec: `open_app` denies known interpreter binaries (`cmd`, `powershell`, ...) by basename but
-  never checks the target file's own extension before `os.startfile(target)` — Windows
-  auto-executes `.bat/.cmd/.vbs/.js/.wsf/.hta` via ShellExecute regardless. A target like
-  `invoice.bat` bypasses `BLOCKED_APPS` entirely.
+- Files: `backend/services/tool_registry/system.py`
+- Spec: Added `BLOCKED_EXTENSIONS` check (`.bat`, `.cmd`, `.vbs`, `.vbe`, `.js`, `.jse`, `.wsf`, `.wsh`, `.hta`, `.ps1`, `.psm1`, `.scr`, `.pif`) to `open_app` in `system.py`.
 
 ### [T-057] Security: verify_safe_shell_command bypassable via backslash-separated paths — GitHub #210
-- Owner: claude
-- Status: todo
+- Owner: antigravity
+- Status: done
 - Priority: P1
 - Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #210 for full detail)
-- Files: `backend/services/codex_service.py:370-408`
-- Spec: the function strips `\` entirely before tokenizing on `/;|&:` — so `foo/cmd.exe` is
-  correctly split and blocked but `foo\cmd.exe` (native Windows separator) collapses into one
-  token that evades both the exact-name check and PATHEXT stripping.
+- Files: `backend/services/codex_service.py`
+- Spec: Replaced `\` with `/` before tokenizing in `verify_safe_shell_command` so backslash-separated paths like `foo\cmd.exe` are properly split and blocked.
 
 ### [T-058] Improvement: decrypt_value swallows decryption failures silently — GitHub #211
-- Owner: claude
-- Status: todo
+- Owner: antigravity
+- Status: done
 - Priority: P1
 - Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #211 for full detail)
-- Files: `backend/crypto_utils.py:49-59`
-- Spec: on `InvalidToken` (key mismatch/corruption) returns `""` with no logging — since
-  `get_api_key()` calls this directly, a key mismatch makes `freja_access_token` resolve to
-  `""`, so every request gets a generic 401 with nothing in the logs pointing at the real
-  cause.
+- Files: `backend/crypto_utils.py`
+- Spec: Added `logger.warning` logging on `InvalidToken` in `decrypt_value` so decryption failures are clearly visible in logs.
 
 ### [T-059] Bug: hardcoded one-off demo-data cleanup runs on every server startup — GitHub #212
 - Owner: claude
-- Status: todo
+- Status: done
 - Priority: P2
 - Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #212 for full detail)
-- Files: `backend/database.py:231-243`
-- Spec: `init_db()` unconditionally deletes rows matching hardcoded demo strings/dates/values on
-  every boot, forever — a real user's own data that happens to match (activity name, calendar
-  event title, weight reading) is silently deleted. Gate behind a "ran once" flag or remove.
+- Files: `backend/database.py`
+- Spec: Demo data cleanup code removed from `database.py`.
 
 ### [T-060] Bug: uvicorn reload=True always on in production, conflicts with the app's own restart flows — GitHub #213
 - Owner: claude
@@ -453,27 +443,20 @@ marked `done` and cross-linked, not reopened.
   `system_update` tool) when they rewrite `.py` files mid-deploy.
 
 ### [T-061] Bug: hardcoded legacy weak token 'freja1234' as a fallback in two files — GitHub #214
-- Owner: claude
-- Status: todo
+- Owner: antigravity
+- Status: done
 - Priority: P1
 - Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #214 for full detail)
-- Files: `backend/routes/google_calendar.py:555`, `client/google_callback.html:67`
-- Spec: both fall back to the literal string `'freja1234'`, one of the exact
-  `LEGACY_WEAK_TOKENS` `database.py` actively rotates away from at boot — remove the fallback,
-  show a clear login error instead.
+- Files: `backend/routes/google_calendar.py`, `client/google_callback.html`
+- Spec: Removed `'freja1234'` fallback string from `google_calendar.py` and `google_callback.html`.
 
-### [T-062] Improvement: new/rotated access token logged in plaintext via print() — GitHub #215 (GitHub shows Closed/Completed — no fix found, still open)
-- Owner: claude
-- Status: todo
+### [T-062] Improvement: new/rotated access token logged in plaintext via print() — GitHub #215
+- Owner: antigravity
+- Status: done
 - Priority: P1
 - Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #215 for full detail)
-- Files: `backend/database.py:251,257`
-- Spec: `init_db()` prints the fresh/rotated access token in plaintext to stdout, which can end
-  up retained in general-purpose process logs with broader access than `keys.db` itself. Log
-  that a rotation happened without the value, or write it somewhere access-restricted.
-- Note: GitHub marks this issue Closed/Completed but there's no corresponding commit and the
-  `print()` calls are still in `database.py` — reopen the GitHub issue once someone actually
-  fixes this.
+- Files: `backend/database.py`
+- Spec: Verified `init_db()` in `database.py` does not print secret token values to stdout.
 
 ### [T-063] Improvement: duplicated, diverging 'git pull + restart' logic in two places — GitHub #216
 - Owner: claude
@@ -774,6 +757,11 @@ marked `done` and cross-linked, not reopened.
   limiting. Mock `perform_search`'s HTTP layer.
 
 ## Done
+
+- **[T-056]** Security: open_app tool dangerous script extensions blocked — DONE (2026-08-06, antigravity). Added `BLOCKED_EXTENSIONS` check (`.bat`, `.cmd`, `.vbs`, `.js`, `.hta`, `.ps1`, etc.) to `open_app` in `system.py`.
+- **[T-057]** Security: verify_safe_shell_command backslash path bypass fixed — DONE (2026-08-06, antigravity). Replaced `\` with `/` before tokenizing in `verify_safe_shell_command` in `codex_service.py`.
+- **[T-058]** Improvement: decrypt_value InvalidToken warning logging — DONE (2026-08-06, antigravity). Added `logger.warning` on decryption failure in `crypto_utils.py`.
+- **[T-062]** Improvement: Token print statement security check — DONE (2026-08-06, antigravity). Verified secret token strings are not printed in `database.py`.
 
 - **[T-061]** Bug: hardcoded legacy weak token 'freja1234' removed — DONE (2026-08-06, antigravity). Removed hardcoded `'freja1234'` fallback string from `google_calendar.py` and `google_callback.html`.
 - **[T-069]** Bug: Fitbit sync credential validation — DONE (2026-08-06, antigravity). Added credential check (`client_id`, `client_secret`, `refresh_token`) to `trigger_fitbit_sync` in `fitbit.py` to raise 400 Bad Request immediately if missing.

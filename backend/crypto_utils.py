@@ -1,11 +1,14 @@
 """Encryption helpers for secrets persisted in Freja's SQLite database."""
 
+import logging
 import os
 import stat
 
 from cryptography.fernet import Fernet, InvalidToken
 
 from backend.config import PROJECT_ROOT
+
+logger = logging.getLogger("freja.crypto")
 
 ENC_PREFIX = "enc:"
 _KEY_FILE = PROJECT_ROOT / ".freja_secret.key"
@@ -56,4 +59,5 @@ def decrypt_value(value):
     try:
         return _get_fernet().decrypt(token.encode("utf-8")).decode("utf-8")
     except InvalidToken:
+        logger.warning("Failed to decrypt stored secret (InvalidToken / encryption key mismatch).")
         return ""

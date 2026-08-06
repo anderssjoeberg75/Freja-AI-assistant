@@ -160,6 +160,12 @@ async def exec_run_windows_command(args):
         }
         if app_base in BLOCKED_APPS:
             return {"error": f"Security error: '{app_base}' is not allowed via open_app."}
+        BLOCKED_EXTENSIONS = {
+            ".bat", ".cmd", ".vbs", ".vbe", ".js", ".jse", ".wsf", ".wsh", ".hta", ".ps1", ".psm1", ".scr", ".pif"
+        }
+        ext = os.path.splitext(target.lower())[1]
+        if ext in BLOCKED_EXTENSIONS:
+            return {"error": f"Security error: Executable script files with extension '{ext}' are not allowed via open_app."}
         try:
             os.startfile(target)
             return {"status": "success", "message": f"Launched the application '{target}'."}
