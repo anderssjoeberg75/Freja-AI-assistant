@@ -445,6 +445,403 @@ system (T-038/T-039/T-040/T-042 done) — filed first.
   required on `/oauth-state`, cross-user nonce isolation, end-to-end valid-state → correct
   user_id). Full suite: 488 passed, 3 skipped.
 
+---
+
+## Bug audit — full codebase pass, imported from GitHub Issues #209–#244 (2026-08-06)
+
+Earlier the same day, before the backend/registration-site audit above, a broader pass
+covered the whole codebase *except* the PT tool (`backend/routes/trainer/**`,
+`trainer_tools.py`, `plan_export.py` — excluded because it was mid-development elsewhere).
+36 findings were filed as GitHub issues #209–#244 first (before this board's task-numbering
+convention was applied to them). Anders asked for them to be mirrored here too so either
+agent can pick them straight off this board instead of GitHub. Each entry below keeps the
+GitHub issue as the source of full detail (repro, exact reasoning, suggested fix) and gives
+just enough here to route and prioritize; open the linked issue before starting one.
+
+**Discrepancy found while importing:** six of these (#215, #219, #227, #230, #231, #232,
+#236 — see individually below) are marked "Closed / Completed" on GitHub, but `git log` has
+no corresponding fix commit and spot-checks of the actual code (`initializeUI()` still called
+twice in `client/app.js`, no `escapeHTML` added around the flagged dashboard fields) show the
+bugs are still present. Treated as still-open `todo` tasks here regardless of GitHub's status
+— worth reopening those GitHub issues, or someone closed them by mistake. The one exception
+is **#219**, which this session's own T-055 (above) genuinely fixed as a side effect —
+marked `done` and cross-linked, not reopened.
+
+### [T-056] Security: open_app tool doesn't block dangerous script extensions (.bat/.vbs/.js/.hta) — GitHub #209
+- Owner: claude
+- Status: todo
+- Priority: P1
+- Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #209 for full detail)
+- Files: `backend/services/tool_registry/system.py:144-167`
+- Spec: `open_app` denies known interpreter binaries (`cmd`, `powershell`, ...) by basename but
+  never checks the target file's own extension before `os.startfile(target)` — Windows
+  auto-executes `.bat/.cmd/.vbs/.js/.wsf/.hta` via ShellExecute regardless. A target like
+  `invoice.bat` bypasses `BLOCKED_APPS` entirely.
+
+### [T-057] Security: verify_safe_shell_command bypassable via backslash-separated paths — GitHub #210
+- Owner: claude
+- Status: todo
+- Priority: P1
+- Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #210 for full detail)
+- Files: `backend/services/codex_service.py:370-408`
+- Spec: the function strips `\` entirely before tokenizing on `/;|&:` — so `foo/cmd.exe` is
+  correctly split and blocked but `foo\cmd.exe` (native Windows separator) collapses into one
+  token that evades both the exact-name check and PATHEXT stripping.
+
+### [T-058] Improvement: decrypt_value swallows decryption failures silently — GitHub #211
+- Owner: claude
+- Status: todo
+- Priority: P1
+- Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #211 for full detail)
+- Files: `backend/crypto_utils.py:49-59`
+- Spec: on `InvalidToken` (key mismatch/corruption) returns `""` with no logging — since
+  `get_api_key()` calls this directly, a key mismatch makes `freja_access_token` resolve to
+  `""`, so every request gets a generic 401 with nothing in the logs pointing at the real
+  cause.
+
+### [T-059] Bug: hardcoded one-off demo-data cleanup runs on every server startup — GitHub #212
+- Owner: claude
+- Status: todo
+- Priority: P2
+- Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #212 for full detail)
+- Files: `backend/database.py:231-243`
+- Spec: `init_db()` unconditionally deletes rows matching hardcoded demo strings/dates/values on
+  every boot, forever — a real user's own data that happens to match (activity name, calendar
+  event title, weight reading) is silently deleted. Gate behind a "ran once" flag or remove.
+
+### [T-060] Bug: uvicorn reload=True always on in production, conflicts with the app's own restart flows — GitHub #213
+- Owner: claude
+- Status: todo
+- Priority: P2
+- Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #213 for full detail)
+- Files: `server.py:178-182`
+- Spec: `reload_enabled` defaults `True` on non-Windows (i.e. the real Linux deployment target),
+  racing against the app's own `git pull` + restart mechanisms (`/api/system/update`,
+  `system_update` tool) when they rewrite `.py` files mid-deploy.
+
+### [T-061] Bug: hardcoded legacy weak token 'freja1234' as a fallback in two files — GitHub #214
+- Owner: claude
+- Status: todo
+- Priority: P1
+- Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #214 for full detail)
+- Files: `backend/routes/google_calendar.py:555`, `client/google_callback.html:67`
+- Spec: both fall back to the literal string `'freja1234'`, one of the exact
+  `LEGACY_WEAK_TOKENS` `database.py` actively rotates away from at boot — remove the fallback,
+  show a clear login error instead.
+
+### [T-062] Improvement: new/rotated access token logged in plaintext via print() — GitHub #215 (GitHub shows Closed/Completed — no fix found, still open)
+- Owner: claude
+- Status: todo
+- Priority: P1
+- Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #215 for full detail)
+- Files: `backend/database.py:251,257`
+- Spec: `init_db()` prints the fresh/rotated access token in plaintext to stdout, which can end
+  up retained in general-purpose process logs with broader access than `keys.db` itself. Log
+  that a rotation happened without the value, or write it somewhere access-restricted.
+- Note: GitHub marks this issue Closed/Completed but there's no corresponding commit and the
+  `print()` calls are still in `database.py` — reopen the GitHub issue once someone actually
+  fixes this.
+
+### [T-063] Improvement: duplicated, diverging 'git pull + restart' logic in two places — GitHub #216
+- Owner: claude
+- Status: todo
+- Priority: P3
+- Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #216 for full detail)
+- Files: `backend/routes/settings.py` (`update_from_github`/`_delayed_restart`), `backend/services/tool_registry/system.py` (`exec_system_update`)
+- Spec: same "update from GitHub and restart" feature implemented twice with different restart
+  strategies — consolidate into one shared helper.
+
+### [T-064] Bug: Fitbit sync can report 'success' even when every API call failed — GitHub #217
+- Owner: claude
+- Status: todo
+- Priority: P2
+- Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #217 for full detail)
+- Files: `backend/routes/fitbit.py:165-277`
+- Spec: unlike Garmin/Withings, Fitbit's per-day fetches only check `status_code == 200` with
+  no aggregate "did anything actually succeed" guard before reporting `success` — a rate-limit
+  or scope failure silently writes all-zero rows for the rest of the sync window.
+
+### [T-065] Bug: sync tasks hold an open SQLite write transaction across many sequential outbound HTTP calls — GitHub #218
+- Owner: claude
+- Status: todo
+- Priority: P2
+- Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #218 for full detail)
+- Files: `backend/routes/garmin.py` (`run_garmin_sync_task_blocking`, `refresh_garmin_benchmarks`), `backend/routes/fitbit.py` (`run_fitbit_sync_task`), `backend/routes/withings.py` (`run_withings_sync_task`)
+- Spec: the first write inside `with get_db_connection()` opens a transaction that stays open
+  through dozens-to-thousands of sequential provider API calls, blocking every other writer in
+  WAL mode; worst on Fitbit (`MAX_SYNC_DAYS=3650`, no chunking unlike Garmin's backfill chunks).
+
+### [T-066] Security: Strava/Withings/Fitbit OAuth callbacks lacked CSRF state protection — GitHub #219 — FIXED by T-055
+- Owner: claude
+- Status: done
+- Priority: P1
+- Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #219 for full detail)
+- Spec: originally filed against the *pre-T-041* callbacks (no `state` at all). T-041 later
+  added a `state` param but bound it insecurely (raw digit = user_id, no verification) — a
+  different shape of the same root problem. **T-055 (above, this session) is the actual fix**:
+  server-issued single-use nonce bound to the authenticated caller via
+  `backend/services/oauth_state.py` + `/api/{provider}/oauth-state`. No further work needed
+  here; close GitHub issue #219 referencing T-055.
+
+### [T-067] Improvement: Instagram's long-lived access token is never refreshed — GitHub #220
+- Owner: claude
+- Status: todo
+- Priority: P2
+- Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #220 for full detail)
+- Files: `backend/routes/instagram.py` (token exchange), `backend/services/instagram_service.py`
+- Spec: the 60-day long-lived token is stored but never proactively refreshed or checked for
+  staleness (unlike Garmin's `TOKEN_STALE_WARNING_DAYS`) — every Instagram tool call starts
+  failing roughly every 60 days with no warning.
+
+### [T-068] Bug: Instagram REELS container polling window (60s) likely too short — GitHub #221
+- Owner: claude
+- Status: todo
+- Priority: P2
+- Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #221 for full detail)
+- Files: `backend/services/instagram_service.py:25-27,92-108` (`_await_container_ready`)
+- Spec: `_CONTAINER_POLL_ATTEMPTS * _CONTAINER_POLL_INTERVAL` caps at 60s despite the code's own
+  comment expecting video/reels to need much longer — legitimate reel uploads likely time out
+  and leave an orphaned, unpublished container.
+
+### [T-069] Bug: Fitbit sync doesn't validate credentials before enqueueing the background task — GitHub #222
+- Owner: claude
+- Status: todo
+- Priority: P3
+- Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #222 for full detail)
+- Files: `backend/routes/fitbit.py:280-290` (`trigger_fitbit_sync`)
+- Spec: unlike Strava/Withings/Garmin's sync endpoints, this one always returns
+  `{"status": "syncing"}` even with empty credentials, only failing later inside the
+  background task — should 400 immediately like its siblings.
+
+### [T-070] Improvement: fetch_activity_details loads the entire Garmin backlog into memory before capping — GitHub #223
+- Owner: claude
+- Status: todo
+- Priority: P3
+- Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #223 for full detail)
+- Files: `backend/routes/garmin.py:333-354`
+- Spec: no SQL `LIMIT` on the query — `fetchall()`s every activity with unfetched detail, then
+  slices to `[:limit]` in Python. Add `LIMIT ?` to the query itself.
+
+### [T-071] Improvement: Telegram send doesn't handle Telegram's 429 rate-limit response — GitHub #224
+- Owner: claude
+- Status: todo
+- Priority: P3
+- Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #224 for full detail)
+- Files: `backend/services/telegram_service.py:48-72` (`send_telegram_message`)
+- Spec: only retries once on 400 (malformed HTML); a 429 with `retry_after` is dropped like any
+  other failure instead of being retried with backoff.
+
+### [T-072] Bug: Ollama chat path silently drops all tool declarations — GitHub #225
+- Owner: claude
+- Status: todo
+- Priority: P2
+- Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #225 for full detail)
+- Files: `backend/routes/gemini_proxy.py` (`_call_ollama`)
+- Spec: never reads `payload["tools"]`, calls `ollama_client.generate_text` (no tools) instead
+  of `chat_with_tools`. Since Ollama is the default first-tried provider, every chat turn it
+  actually serves silently loses all tool access (weather, calendar, PT plan, Garmin, etc.)
+  with no error surfaced.
+
+### [T-073] Bug: Ollama chat path ignores generationConfig (temperature/maxOutputTokens) from the client — GitHub #226
+- Owner: claude
+- Status: todo
+- Priority: P2
+- Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #226 for full detail)
+- Files: `backend/routes/gemini_proxy.py` (`_call_ollama`)
+- Spec: temperature hardcoded to 0.7 regardless of the client's request; maxOutputTokens is
+  never read, silently falling back to Ollama's 800-token default.
+
+### [T-074] Bug: JSON-truncation repair fails on a string cut right after an escaping backslash — GitHub #227 (GitHub shows Closed/Completed — no fix found, still open)
+- Owner: claude
+- Status: todo
+- Priority: P2
+- Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #227 for full detail)
+- Files: `backend/services/json_repair.py:28-75` (`_close_truncated_json`)
+- Spec: if output is cut immediately after an escaping `\` (e.g. a Windows path), the repair
+  appends `"` turning it into an escaped quote instead of closing the string, so the re-parse
+  fails and the original error is re-raised instead of being recovered.
+- Note: GitHub marks this issue Closed/Completed but there's no corresponding commit — verify
+  before trusting the closed status.
+
+### [T-075] Bug: generate_text has no usable length cap (unbounded on Gemini, fixed 800 tokens on Ollama) — GitHub #228
+- Owner: claude
+- Status: todo
+- Priority: P2
+- Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #228 for full detail)
+- Files: `backend/services/llm_client.py:116-124`, `backend/services/gemini_client.py:62-87`, `backend/services/ollama_client.py:134-160`, `backend/services/codex_service.py:683-685,766`
+- Spec: no `max_tokens` param on the `generate_text` facade at all — breaks
+  `codex_audit_codebase_impl`, whose prompt explicitly asks for a full detailed report that
+  gets silently truncated to ~800 tokens on Ollama.
+
+### [T-076] Bug: codex_audit_codebase_impl uses a 60s default timeout against prompts up to 180K chars — GitHub #229
+- Owner: claude
+- Status: todo
+- Priority: P2
+- Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #229 for full detail)
+- Files: `backend/services/codex_service.py:683-685,688,766`
+- Spec: `call_gemini_api` never overrides the default 60s timeout for the audit's large
+  (`AUDIT_MAX_CHARS = 180000`) prompt — most likely to time out on exactly the large codebases
+  it's meant to review.
+
+### [T-077] Bug: elevenlabs_proxy splices an unvalidated voice_id path param into the outbound URL — GitHub #230 (GitHub shows Closed/Completed — no fix found, still open)
+- Owner: claude
+- Status: todo
+- Priority: P1
+- Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #230 for full detail)
+- Files: `backend/routes/elevenlabs_proxy.py:40-76`
+- Spec: `voice_id` is spliced unvalidated into `f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"`
+  — the same bug class `mem0_proxy.py`/`gemini_proxy.py` already patched via a strict regex
+  pattern; `elevenlabs_proxy.py` never got the equivalent fix.
+- Note: GitHub marks this issue Closed/Completed but there's no corresponding commit — verify
+  before trusting the closed status.
+
+### [T-078] Security: stored XSS via unescaped innerHTML in Strava/Garmin/Google Calendar dashboards — GitHub #231 (GitHub shows Closed/Completed — verified still present, reopen)
+- Owner: antigravity
+- Status: todo
+- Priority: P1
+- Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #231 for full detail)
+- Files: `client/js/ui-dashboards.js` (`loadStravaDashboardUI` ~L2309, `loadGarminDashboardUI` ~L2212-2226, `loadGoogleCalendarDashboardUI` ~L2483-2490)
+- Spec: these three renderers interpolate third-party synced fields (Strava activity name,
+  Google Calendar summary/location/description) into `innerHTML` unescaped, while the same
+  file's `loadMemoryVaultUI`/`updateGarminStatusUI` correctly use `this.escapeHTML(...)`
+  elsewhere — an inconsistent gap, not a deliberate choice. A crafted calendar invite title or
+  renamed Strava activity executes script in the app's own origin, which holds plaintext OAuth
+  secrets and the Freja token in `localStorage` (see T-082).
+- Note: GitHub marks this issue Closed/Completed; spot-checked the code on 2026-08-06 and the
+  unescaped `innerHTML` calls are still there — reopen the GitHub issue.
+
+### [T-079] Bug: initializeUI() runs 2-3x per boot, duplicating event listeners — GitHub #232 (GitHub shows Closed/Completed — verified still present, reopen)
+- Owner: antigravity
+- Status: todo
+- Priority: P2
+- Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #232 for full detail)
+- Files: `client/app.js` (`initAsync` L~170-193 calls `initializeUI()` directly and again via `loadKeysFromServer()`)
+- Spec: `initializeUI()` (`ui-init.js`) attaches `addEventListener` calls without ever removing
+  prior ones — a normal boot fires Strava/Withings/Fitbit "Authorize" click handlers 2-3x,
+  opening duplicate popup tabs from one click.
+- Note: GitHub marks this issue Closed/Completed; confirmed on 2026-08-06 via
+  `grep -n "initializeUI()" client/app.js` that it's still called from two places — reopen the
+  GitHub issue.
+
+### [T-080] Security: delete endpoints called with GET instead of DELETE — GitHub #233
+- Owner: antigravity
+- Status: todo
+- Priority: P1
+- Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #233 for full detail)
+- Files: `client/js/ui-dashboards.js` (Garmin/Strava/Withings delete calls, ~L2239/2322/2403)
+- Spec: three delete actions `fetch(url)` with no `method`, defaulting to GET — a
+  state-changing delete triggerable by prefetch/a crafted `<img>` tag. Google Calendar's own
+  delete already correctly uses `{method: 'DELETE'}` — mirror that.
+
+### [T-081] Bug: dead 'click to start' audio-unlock shield (conflicting CSS + JS bypass) — GitHub #234
+- Owner: antigravity
+- Status: todo
+- Priority: P3
+- Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #234 for full detail)
+- Files: `client/style.css` (`.interaction-shield` defined twice, L~1226 vs L~1667), `client/js/ui-events.js:92-93`
+- Spec: the first CSS block's `!important` always wins so the shield can never show, and
+  `bindEvents()` unconditionally calls `removeShield()` right after wiring it anyway — two
+  independent bugs masking each other, `AudioContext` created outside a real user gesture.
+
+### [T-082] Improvement: third-party credentials stored in plaintext in localStorage — GitHub #235
+- Owner: antigravity
+- Status: todo
+- Priority: P1
+- Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #235 for full detail)
+- Files: `client/js/ui-init.js:91-158`, `client/app.js:214-266` (`MIRRORED_KEYS`)
+- Spec: OAuth secrets, refresh tokens, Garmin password, and the Freja/JWT tokens all live as
+  plain strings in `localStorage` — compounds T-078's XSS into full credential exfiltration.
+  Not a quick fix given the app's no-server-session architecture; do after T-078.
+
+### [T-083] Bug: pollSyncStatus has no timeout/attempt cap, can poll forever — GitHub #236 (GitHub shows Closed/Completed — no fix found, still open)
+- Owner: antigravity
+- Status: todo
+- Priority: P3
+- Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #236 for full detail)
+- Files: `client/js/ui-dashboards.js:2553-2643`
+- Spec: the 2s polling interval only clears on a terminal sync state; if the backend restarts
+  or loses in-memory state, it (and the stuck spinner) runs forever — `pollClientRestart`
+  already has the 35-attempt cap this should mirror.
+- Note: GitHub marks this issue Closed/Completed but there's no corresponding commit — verify
+  before trusting the closed status.
+
+### [T-084] Improvement: ~15 near-identical password-visibility-toggle blocks (duplication) — GitHub #237
+- Owner: antigravity
+- Status: todo
+- Priority: P3
+- Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #237 for full detail)
+- Files: `client/js/ui-events.js` (~15 copy-pasted toggle handlers across every masked input)
+- Spec: extract one shared `wireToggleVisibility(btnId, inputId)` helper, replace all copies.
+
+### [T-085] Improvement: icon-only buttons lack aria-label (accessibility) — GitHub #238
+- Owner: antigravity
+- Status: todo
+- Priority: P3
+- Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #238 for full detail)
+- Files: `client/app.js:484`, `client/js/ui-dashboards.js` (delete buttons), `client/js/ui-events.js` (password-toggle buttons)
+- Spec: icon-only controls rely only on `title`, not reliably exposed to screen readers — add
+  `aria-label` across the pattern.
+
+### [T-086] Improvement: generate_json() in gemini_client.py has zero real test coverage — GitHub #239
+- Owner: claude
+- Status: todo
+- Priority: P3
+- Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #239 for full detail)
+- Files: `backend/services/gemini_client.py:90-125`, `tests/test_llm_client.py`
+- Spec: every test exercising the Gemini fallback path mocks `gemini_client.generate_json`
+  itself away — the real URL/payload/response-parsing logic is never actually invoked by any
+  test. Add a test mocking at the httpx level instead.
+
+### [T-087] Bug: alembic upgrade head would fail on a genuinely fresh database — GitHub #240
+- Owner: claude
+- Status: todo
+- Priority: P3
+- Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #240 for full detail)
+- Files: `migrations/versions/c943200a6403_initial_schema.py`
+- Spec: the one migration is 134 `alter_column` calls and zero `create_table` calls — it only
+  works because `init_db()`'s `Base.metadata.create_all()` already ran first. A fresh
+  `alembic upgrade head` alone would error on every referenced table.
+
+### [T-088] Bug: auth lockout state is a shared global not reset between tests — GitHub #241
+- Owner: claude
+- Status: todo
+- Priority: P3
+- Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #241 for full detail)
+- Files: `backend/middleware/auth.py:34-35` (`_failed_attempts`, `_locked_until`), `tests/test_api_auth.py`
+- Spec: `TestClient` always reports host `"testclient"`, so 401-producing tests across several
+  files accumulate failures in the same module-level dict; only one test cleans up after
+  itself. Close to `FAILED_ATTEMPT_THRESHOLD = 10` already — add a fixture that resets both
+  dicts between tests.
+
+### [T-089] Improvement: no CI pipeline — tests never run automatically — GitHub #242
+- Owner: claude
+- Status: todo
+- Priority: P3
+- Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #242 for full detail)
+- Files: repo root (no `.github/workflows/`)
+- Spec: wire a minimal GitHub Actions job (`pip install -r requirements.txt && pytest`) on
+  pull requests against `main`.
+
+### [T-090] Improvement: requirements.txt has unpinned packages and an unexplained cryptography<44 ceiling — GitHub #243
+- Owner: claude
+- Status: todo
+- Priority: P3
+- Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #243 for full detail)
+- Files: `requirements.txt:1-13`
+- Spec: `playwright`/`garminconnect`/`pytest`/`pytest-asyncio`/`duckduckgo_search` have no floor
+  version at all; `cryptography>=41.0,<44` caps below the currently-installed 43.0.3 with no
+  comment explaining why, silently blocking future CVE patches.
+
+### [T-091] Bug: test_perform_search_success makes a real, unmocked network call to DuckDuckGo — GitHub #244
+- Owner: claude
+- Status: todo
+- Priority: P3
+- Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #244 for full detail)
+- Files: `tests/test_search.py:1-23`
+- Spec: the only genuinely network-dependent test in the non-trainer suite — its `pytest.skip`
+  fallback softens outright failures but the result still depends on DuckDuckGo's rate
+  limiting. Mock `perform_search`'s HTTP layer.
+
 ## Done
 
 - **[T-041]** Background sync + OAuth callbacks: per-user credentials and token storage — DONE (2026-08-06, antigravity). Scoped `_garmin_token_dir(user_id)` to `.garminconnect/<user_id>/`, updated OAuth callbacks (`strava`, `withings`, `fitbit`, `google_calendar`) to receive `state` carrying `user_id` and save refresh tokens per user_id, and scoped `post_google_calendar_exchange`. All 470 tests pass.
