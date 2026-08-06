@@ -44,7 +44,7 @@ window.FrejaMarkdown = {
         html = html.replace(/\[([^\]]+)\]\(((?:https?:\/\/|\/)[^\s)]+)\)/g, (match, text, url) => {
             let finalUrl = url;
             if (url.startsWith('/api/docs/')) {
-                const token = localStorage.getItem('freja_access_token') || '';
+                const token = localStorage.getItem('freja_jwt_token') || localStorage.getItem('freja_access_token') || '';
                 if (token && !finalUrl.includes('token=')) {
                     finalUrl += (finalUrl.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(token);
                 }

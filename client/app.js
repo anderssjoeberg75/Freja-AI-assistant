@@ -71,30 +71,31 @@ window.fetch = async function(url, options = {}) {
     })();
     
     if (isBackendApi) {
-        // No fallback to a legacy default: the backend seeds a random token per-install
-        // and rejects unknown/missing tokens, so an empty value here just surfaces a 401
-        // until the real token (shown in the server console on first run) is entered in Settings.
+        let jwtToken = localStorage.getItem('freja_jwt_token') || '';
         let token = localStorage.getItem('freja_access_token') || '';
         if (isMaskedValue(token)) {
-            // Self-heal installs that cached the mask before this was guarded: the bullet is
-            // U+2022, which is not ISO-8859-1, so sending it throws before the request leaves
-            // the browser. Dropping it yields an actionable 401 login prompt instead.
             localStorage.removeItem('freja_access_token');
             token = '';
         }
         options.headers = options.headers || {};
         
-        if (options.headers instanceof Headers) {
-            options.headers.set('X-Freja-Token', token);
-        } else if (Array.isArray(options.headers)) {
-            const index = options.headers.findIndex(([k]) => k.toLowerCase() === 'x-freja-token');
-            if (index !== -1) {
-                options.headers[index][1] = token;
+        const setHeader = (key, val) => {
+            if (options.headers instanceof Headers) {
+                options.headers.set(key, val);
+            } else if (Array.isArray(options.headers)) {
+                const idx = options.headers.findIndex(([k]) => k.toLowerCase() === key.toLowerCase());
+                if (idx !== -1) options.headers[idx][1] = val;
+                else options.headers.push([key, val]);
             } else {
-                options.headers.push(['X-Freja-Token', token]);
+                options.headers[key] = val;
             }
-        } else {
-            options.headers['X-Freja-Token'] = token;
+        };
+
+        if (jwtToken) {
+            setHeader('Authorization', `Bearer ${jwtToken}`);
+        }
+        if (token) {
+            setHeader('X-Freja-Token', token);
         }
     }
     
@@ -102,8 +103,8 @@ window.fetch = async function(url, options = {}) {
         const response = await window.originalFetch(url, options);
         if (response.status === 401 && isBackendApi) {
             console.warn("[AUTH] Backend 401 Unauthorized for URL:", urlStr);
-            const loginModal = document.getElementById('modal-auth-login');
-            if (loginModal) loginModal.classList.add('active');
+            const userAuthModal = document.getElementById('modal-user-auth') || document.getElementById('modal-auth-login');
+            if (userAuthModal) userAuthModal.classList.add('active');
         }
         return response;
     } catch (err) {
