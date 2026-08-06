@@ -2,9 +2,11 @@
 
 import datetime
 import json
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
 from backend.database import get_db_connection
+from backend.models import User
+from backend.routes.auth import get_current_user
 from backend.services import plan_export
 from backend.services.time_utils import today_local
 from .shared import (
@@ -17,16 +19,20 @@ router = APIRouter()
 
 
 @router.get("/api/trainer/plans")
-async def get_trainer_plans(limit: int = Query(20, description="Number of plans to retrieve")):
+async def get_trainer_plans(
+    limit: int = Query(20, description="Number of plans to retrieve"),
+    current_user: User = Depends(get_current_user)
+):
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
                 SELECT id, date, goal, advice_text, limitations 
                 FROM trainer_plans 
+                WHERE user_id = ? OR user_id IS NULL
                 ORDER BY date DESC, id DESC
                 LIMIT ?
-            ''', (limit,))
+            ''', (current_user.id, limit))
             rows = cursor.fetchall()
         
         results = []
@@ -43,21 +49,22 @@ async def get_trainer_plans(limit: int = Query(20, description="Number of plans 
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/api/trainer/plans")
-async def delete_trainer_plan(plan_id: int = Query(..., description="ID of the plan to delete")):
+async def delete_trainer_plan(
+    plan_id: int = Query(..., description="ID of the plan to delete"),
+    current_user: User = Depends(get_current_user)
+):
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT id, event_id FROM trainer_bookings WHERE plan_id = ?", (plan_id,))
+            cursor.execute("SELECT id, event_id FROM trainer_bookings WHERE plan_id = ? AND (user_id = ? OR user_id IS NULL)", (plan_id, current_user.id))
             bookings = cursor.fetchall()
 
-        # Clear this plan's booked sessions and their calendar events before deleting the
-        # plan row - otherwise the bookings become invisible orphans that still occupy the
-        # user's calendar with no way to see or manage them (issue #60).
+        # Clear this plan's booked sessions and their calendar events before deleting the plan
         await _clear_bookings(bookings)
 
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('DELETE FROM trainer_plans WHERE id = ?', (plan_id,))
+            cursor.execute('DELETE FROM trainer_plans WHERE id = ? AND (user_id = ? OR user_id IS NULL)', (plan_id, current_user.id))
             conn.commit()
         return {'status': 'success', 'message': f"The training plan with ID {plan_id} has been deleted."}
     except Exception as e:
@@ -74,9 +81,11 @@ def _workout_end_time(date_str: str, duration_minutes: int) -> str:
 
 
 @router.get("/api/trainer/workouts")
-async def get_trainer_workouts(days: int = Query(14, description="Lookback/lookahead window in days")):
-    """Returns scheduled PT workouts directly from local SQLite database (trainer_bookings or latest trainer_plan).
-    Works independently of Google Calendar."""
+async def get_trainer_workouts(
+    days: int = Query(14, description="Lookback/lookahead window in days"),
+    current_user: User = Depends(get_current_user)
+):
+    """Returns scheduled PT workouts directly from local database."""
     try:
         today = today_local()
         current_dow = today.weekday() # 0 = Monday
@@ -88,15 +97,14 @@ async def get_trainer_workouts(days: int = Query(14, description="Lookback/looka
         results = []
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            # `days` bounds the window in both directions. It used to be accepted and then
-            # ignored, so the list grew without limit and every plan ever booked came back.
             cursor.execute('''
                 SELECT b.id, b.plan_id, b.event_id, b.workout_date, b.week, p.advice_text
                 FROM trainer_bookings b
                 JOIN trainer_plans p ON b.plan_id = p.id
                 WHERE b.workout_date >= ? AND b.workout_date <= ?
+                  AND (b.user_id = ? OR b.user_id IS NULL)
                 ORDER BY b.workout_date ASC
-            ''', (window_start.isoformat(), window_end.isoformat()))
+            ''', (window_start.isoformat(), window_end.isoformat(), current_user.id))
             rows = cursor.fetchall()
 
         day_offsets = plan_export.SWEDISH_DAY_OFFSETS
@@ -138,8 +146,6 @@ async def get_trainer_workouts(days: int = Query(14, description="Lookback/looka
                         "summary": summary,
                         "description": description,
                         "start_time": f"{w_date_str}T08:00:00",
-                        # Derived from the session's own duration. A fixed 09:00 made every
-                        # card read "(60 min)" regardless of what the plan actually said.
                         "end_time": _workout_end_time(w_date_str, duration),
                         "location": WORKOUT_LOCATION_MARKER,
                         "duration_minutes": duration,
@@ -156,8 +162,9 @@ async def get_trainer_workouts(days: int = Query(14, description="Lookback/looka
                 cursor = conn.cursor()
                 cursor.execute('''
                     SELECT id, advice_text, date FROM trainer_plans
+                    WHERE user_id = ? OR user_id IS NULL
                     ORDER BY id DESC LIMIT 1
-                ''')
+                ''', (current_user.id,))
                 row = cursor.fetchone()
 
             if row:
@@ -202,24 +209,15 @@ async def get_trainer_workouts(days: int = Query(14, description="Lookback/looka
         raise HTTPException(status_code=500, detail=str(e))
 
 # --- Chat context ------------------------------------------------------------
-# Freja is the user's coach in ordinary conversation too, not only when a tool fires. The
-# block below is injected into her system prompt on every turn so "hur ser dagens pass ut"
-# is answered from the actual plan even if the model never decides to call a tool - which is
-# what used to make her improvise a walk that was nowhere in the schedule.
-
 
 SWEDISH_WEEKDAYS = ["Måndag", "Tisdag", "Onsdag", "Torsdag", "Fredag", "Lördag", "Söndag"]
 CHAT_CONTEXT_MAX_WORKOUTS = 14   # Sessions listed before the block is truncated
 CHAT_CONTEXT_DESC_LEN = 400      # Per-session description budget
 
 
-def build_chat_context_block() -> str:
-    """Renders the active plan, this week's schedule and today's session as prompt text.
-
-    Swedish, because it is quoted more or less verbatim back to the user; everything else in
-    this file is English. Returns "" when there is nothing to say, so the caller can skip the
-    injection entirely rather than pasting an empty header."""
-    profile = get_trainer_profile()
+def build_chat_context_block(user_id: int = 1) -> str:
+    """Renders the active plan, this week's schedule and today's session as prompt text."""
+    profile = get_trainer_profile(user_id=user_id)
     today = today_local()
     today_str = today.isoformat()
 
@@ -234,7 +232,8 @@ def build_chat_context_block() -> str:
         cursor = conn.cursor()
         try:
             cursor.execute(
-                "SELECT id, date, goal, advice_text, limitations FROM trainer_plans ORDER BY id DESC LIMIT 1"
+                "SELECT id, date, goal, advice_text, limitations FROM trainer_plans WHERE user_id = ? OR user_id IS NULL ORDER BY id DESC LIMIT 1",
+                (user_id,)
             )
             plan = cursor.fetchone()
         except Exception as e:
@@ -244,8 +243,9 @@ def build_chat_context_block() -> str:
             cursor.execute(
                 '''SELECT training_readiness, training_readiness_level, training_readiness_feedback
                    FROM garmin_health
-                   WHERE training_readiness IS NOT NULL
-                   ORDER BY date DESC LIMIT 1'''
+                   WHERE training_readiness IS NOT NULL AND (user_id = ? OR user_id IS NULL)
+                   ORDER BY date DESC LIMIT 1''',
+                (user_id,)
             )
             readiness_row = cursor.fetchone()
         except Exception as e:
@@ -255,9 +255,9 @@ def build_chat_context_block() -> str:
             cursor.execute(
                 '''SELECT b.workout_date, b.week, p.advice_text
                    FROM trainer_bookings b JOIN trainer_plans p ON b.plan_id = p.id
-                   WHERE b.workout_date >= ? AND b.workout_date <= ?
+                   WHERE b.workout_date >= ? AND b.workout_date <= ? AND (b.user_id = ? OR b.user_id IS NULL)
                    ORDER BY b.workout_date ASC''',
-                (monday.isoformat(), sunday.isoformat())
+                (monday.isoformat(), sunday.isoformat(), user_id)
             )
             booking_rows = cursor.fetchall()
         except Exception as e:
@@ -313,8 +313,6 @@ def build_chat_context_block() -> str:
                 workouts.append((w_date, w))
                 break
 
-    # No bookings (e.g. calendar never connected): fall back to the plan's own weekdays,
-    # mapped onto the current week, so the schedule is still known in conversation.
     if not workouts and plan_data.get("workouts"):
         for w in plan_data["workouts"]:
             offset = day_offsets.get(str(w.get("day", "")).lower())
@@ -346,11 +344,11 @@ def build_chat_context_block() -> str:
     else:
         lines.append("Inga inbokade träningspass hittades för den här veckan.")
 
-    injuries = format_active_injuries()
+    injuries = format_active_injuries(user_id=user_id)
     if injuries and not injuries.startswith("No active"):
         lines.append("Aktiva skador/besvär (senast loggade):\n" + injuries)
 
-    load = build_training_load_summary(TRAINING_LOAD_DAYS)
+    load = build_training_load_summary(TRAINING_LOAD_DAYS, user_id=user_id)
     if load.get("session_count"):
         lines.append(
             f"Faktiskt genomförd träning senaste {load['window_days']} dagarna: {load['session_count']} pass, "
@@ -361,10 +359,10 @@ def build_chat_context_block() -> str:
 
 
 @router.get("/api/trainer/context")
-async def get_trainer_chat_context():
+async def get_trainer_chat_context(current_user: User = Depends(get_current_user)):
     """The PT context block injected into Freja's system prompt on every chat turn."""
     try:
-        block = build_chat_context_block()
+        block = build_chat_context_block(user_id=current_user.id)
         return {"status": "success", "has_context": bool(block), "context": block}
     except Exception as e:
         # Never fail the chat over this: an empty context degrades to tool-call behaviour.
@@ -414,11 +412,9 @@ async def export_trainer_plan(
     plan_id: int = Query(..., description="ID of the plan to export"),
     format: str = Query("ics", description="Export format: 'ics' or 'pdf'"),
     start_date: str = Query(None, description="Date the plan's week starts (YYYY-MM-DD, default: next Monday)"),
+    current_user: User = Depends(get_current_user)
 ):
-    """Exports a saved plan as a calendar file or a printable PDF (Issue #39).
-
-    The plan itself only names weekdays, so `start_date` is what turns it into dated
-    sessions - it defaults to the next Monday, matching the booking widget's default."""
+    """Exports a saved plan as a calendar file or a printable PDF (Issue #39)."""
     fmt = (format or "ics").strip().lower()
     if fmt not in ("ics", "pdf"):
         raise HTTPException(status_code=400, detail="Unsupported format (use 'ics' or 'pdf').")
@@ -433,7 +429,7 @@ async def export_trainer_plan(
 
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT id, date, goal, advice_text, limitations FROM trainer_plans WHERE id = ?", (plan_id,))
+        cursor.execute("SELECT id, date, goal, advice_text, limitations FROM trainer_plans WHERE id = ? AND (user_id = ? OR user_id IS NULL)", (plan_id, current_user.id))
         row = cursor.fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="The training plan was not found.")
@@ -453,7 +449,6 @@ async def export_trainer_plan(
             media_type = "text/calendar; charset=utf-8"
             filename = f"{base_name}.ics"
         else:
-            # A plan without structured JSON still exports as a PDF of its raw advice text.
             body = plan_export.build_pdf(plan, plan_data, start)
             media_type = "application/pdf"
             filename = f"{base_name}.pdf"
@@ -469,11 +464,7 @@ async def export_trainer_plan(
     )
 
 
-# Sanity caps for PUT /api/trainer/plans - the one place a plan's stored JSON can be
-# replaced wholesale with arbitrary caller-supplied content (the Gemini generation path is
-# implicitly bounded by maxOutputTokens; this endpoint isn't). plan_occurrences/build_ics/
-# build_pdf iterate every workout with no upper bound, synchronously, inside the request
-# handler - so an unbounded payload here is a same-request DoS vector, not just bad data.
+# Sanity caps for PUT /api/trainer/plans
 MAX_ADVICE_TEXT_CHARS = 200_000
 MAX_WORKOUTS_PER_PLAN = 120
 MAX_WORKOUT_FIELD_CHARS = 4_000
@@ -502,7 +493,7 @@ def _validate_plan_advice_text(advice_text) -> str:
 
 
 @router.put("/api/trainer/plans")
-async def update_trainer_plan(request: Request):
+async def update_trainer_plan(request: Request, current_user: User = Depends(get_current_user)):
     try:
         body = await request.json()
         plan_id = body.get("plan_id")
@@ -516,8 +507,8 @@ async def update_trainer_plan(request: Request):
             cursor.execute('''
                 UPDATE trainer_plans
                 SET advice_text = ?
-                WHERE id = ?
-            ''', (advice_text, plan_id))
+                WHERE id = ? AND (user_id = ? OR user_id IS NULL)
+            ''', (advice_text, plan_id, current_user.id))
             conn.commit()
             if cursor.rowcount == 0:
                 raise HTTPException(status_code=404, detail="Training plan not found.")

@@ -58,13 +58,13 @@ def _reading(value):
     return value if num > 0 else None
 
 
-def get_trainer_profile() -> dict:
-    """Returns the single training profile row as a dict, or {} if none is set."""
+def get_trainer_profile(user_id: int = 1) -> dict:
+    """Returns the training profile row for the given user_id as a dict, or {} if none is set."""
     with get_db_connection() as conn:
         conn.row_factory = _dict_row
         cursor = conn.cursor()
         try:
-            cursor.execute("SELECT * FROM trainer_profile WHERE id = 1")
+            cursor.execute("SELECT * FROM trainer_profile WHERE user_id = ? OR user_id IS NULL ORDER BY (user_id = ?) DESC LIMIT 1", (user_id, user_id))
             row = cursor.fetchone()
         except Exception:
             row = None
@@ -91,10 +91,7 @@ async def fetch_7day_weather_forecast(location: str = DEFAULT_LOCATION) -> str:
 
 
 async def _fetch_7day_weather_forecast_raw(location: str = DEFAULT_LOCATION) -> str:
-    """Builds the plain-text 7-day forecast block that gets pasted into the coach prompts.
-
-    Returns a human-readable error string (prefixed with WEATHER_ERROR_PREFIX) rather than
-    raising, because a missing forecast should degrade the advice, not fail the request."""
+    """Builds the plain-text 7-day forecast block that gets pasted into the coach prompts."""
     try:
         geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={urllib.parse.quote(location)}&count=1&language=sv&format=json"
         async with shared_client() as client:
@@ -152,13 +149,8 @@ async def _fetch_7day_weather_forecast_raw(location: str = DEFAULT_LOCATION) -> 
     except Exception as e:
         return f"{WEATHER_ERROR_PREFIX}Failed to fetch the weather forecast for {location}: {str(e)}"
 
-def calculate_trends():
-    """Compares the last 7 days vs the preceding 14 days for resting HR and HRV.
-
-    Resting HR is read from a single consistent source (Garmin preferred, Withings
-    fallback) so the recent and baseline averages are never mixed across devices,
-    which would otherwise make the percentage change meaningless. HRV is Garmin-only.
-    """
+def calculate_trends(user_id: int = 1):
+    """Compares the last 7 days vs the preceding 14 days for resting HR and HRV for a user."""
     today = today_local()
     d_recent_cutoff = (today - datetime.timedelta(days=7)).isoformat()
     d_base_cutoff = (today - datetime.timedelta(days=21)).isoformat()
@@ -169,17 +161,17 @@ def calculate_trends():
     with get_db_connection() as conn:
         cursor = conn.cursor()
         try:
-            cursor.execute('SELECT date, resting_hr, hrv, stress_avg, body_battery FROM garmin_health WHERE date >= ? ORDER BY date DESC', (d_base_cutoff,))
+            cursor.execute('SELECT date, resting_hr, hrv, stress_avg, body_battery FROM garmin_health WHERE date >= ? AND (user_id = ? OR user_id IS NULL) ORDER BY date DESC', (d_base_cutoff, user_id))
             garmin_rows = cursor.fetchall()
         except Exception as e:
             print(f"Error fetching Garmin health data for trends: {e}")
         try:
-            cursor.execute('SELECT date, heart_pulse, weight FROM withings_measurements WHERE date >= ? ORDER BY date DESC', (d_base_cutoff,))
+            cursor.execute('SELECT date, heart_pulse, weight FROM withings_measurements WHERE date >= ? AND (user_id = ? OR user_id IS NULL) ORDER BY date DESC', (d_base_cutoff, user_id))
             withings_rows = cursor.fetchall()
         except Exception as e:
             print(f"Error fetching Withings measurements for trends: {e}")
         try:
-            cursor.execute('SELECT date, resting_hr FROM fitbit_health WHERE date >= ? ORDER BY date DESC', (d_base_cutoff,))
+            cursor.execute('SELECT date, resting_hr FROM fitbit_health WHERE date >= ? AND (user_id = ? OR user_id IS NULL) ORDER BY date DESC', (d_base_cutoff, user_id))
             fitbit_rows = cursor.fetchall()
         except Exception as e:
             print(f"Error fetching Fitbit measurements for trends: {e}")
@@ -292,20 +284,9 @@ def format_trends_summary(trends: dict) -> str:
     return "\n".join(lines) if lines else "No sufficient trend data (RHR/HRV) available."
 
 
-def recompute_health_baselines(force: bool = False) -> dict:
-    """Recomputes the profile's RHR / sleep / HRV baselines from a rolling window.
-
-    Averages the last ``BASELINE_WINDOW_DAYS`` of Garmin health data (resting HR,
-    sleep hours, HRV), falling back to Withings for resting HR and sleep when Garmin
-    has no value. Writes the results back to ``trainer_profile`` and stamps
-    ``baselines_updated_at`` so the next call respects the weekly cadence.
-
-    Unless ``force`` is set, this is a no-op when the baselines were refreshed within
-    the last ``BASELINE_REFRESH_DAYS`` days. A metric is only written when at least
-    ``BASELINE_MIN_SAMPLES`` data points back it, so a sparse window never overwrites a
-    good baseline with noise. Returns a summary dict describing what happened.
-    """
-    profile = get_trainer_profile()
+def recompute_health_baselines(force: bool = False, user_id: int = 1) -> dict:
+    """Recomputes the profile's RHR / sleep / HRV baselines from a rolling window for user_id."""
+    profile = get_trainer_profile(user_id=user_id)
 
     # Respect the weekly cadence unless forced.
     if not force and profile.get("baselines_updated_at"):
@@ -316,7 +297,7 @@ def recompute_health_baselines(force: bool = False) -> dict:
             if (datetime.datetime.now() - last).days < BASELINE_REFRESH_DAYS:
                 return {"status": "skipped", "reason": "refreshed_recently", "updated": {}}
         except (ValueError, TypeError):
-            pass  # Unparseable timestamp — treat as stale and recompute.
+            pass
 
     cutoff = (today_local() - datetime.timedelta(days=BASELINE_WINDOW_DAYS)).strftime('%Y-%m-%d')
 
@@ -327,11 +308,9 @@ def recompute_health_baselines(force: bool = False) -> dict:
         cursor = conn.cursor()
         try:
             cursor.execute(
-                'SELECT resting_hr, sleep_hours, hrv FROM garmin_health WHERE date >= ?',
-                (cutoff,)
+                'SELECT resting_hr, sleep_hours, hrv FROM garmin_health WHERE date >= ? AND (user_id = ? OR user_id IS NULL)',
+                (cutoff, user_id)
             )
-            # `_reading` skips the 0s written on days the device recorded nothing, so a
-            # spell of not wearing the watch cannot drag a baseline down towards zero.
             for r in cursor.fetchall():
                 if _reading(r[0]) is not None:
                     garmin_rhr.append(r[0])
@@ -343,20 +322,20 @@ def recompute_health_baselines(force: bool = False) -> dict:
             print(f"[TRAINER BASELINES] Error reading Garmin health: {e}")
         try:
             cursor.execute(
-                'SELECT heart_pulse, sleep_duration FROM withings_measurements WHERE date >= ?',
-                (cutoff,)
+                'SELECT heart_pulse, sleep_duration FROM withings_measurements WHERE date >= ? AND (user_id = ? OR user_id IS NULL)',
+                (cutoff, user_id)
             )
             for r in cursor.fetchall():
                 if _reading(r[0]) is not None:
                     withings_rhr.append(r[0])
-                if r[1]:  # sleep_duration is stored in seconds
+                if r[1]:
                     withings_sleep.append(r[1] / 3600.0)
         except Exception as e:
             print(f"[TRAINER BASELINES] Error reading Withings measurements: {e}")
         try:
             cursor.execute(
-                'SELECT resting_hr, sleep_hours FROM fitbit_health WHERE date >= ?',
-                (cutoff,)
+                'SELECT resting_hr, sleep_hours FROM fitbit_health WHERE date >= ? AND (user_id = ? OR user_id IS NULL)',
+                (cutoff, user_id)
             )
             for r in cursor.fetchall():
                 if _reading(r[0]) is not None:
@@ -369,17 +348,8 @@ def recompute_health_baselines(force: bool = False) -> dict:
     def _avg(vals):
         return sum(vals) / len(vals) if len(vals) >= BASELINE_MIN_SAMPLES else None
 
-    # Prefer Garmin; fall back to Withings or Fitbit for RHR and sleep (Withings/Fitbit have no HRV).
-    rhr = _avg(garmin_rhr)
-    if rhr is None:
-        rhr = _avg(withings_rhr)
-    if rhr is None:
-        rhr = _avg(fitbit_rhr)
-    sleep = _avg(garmin_sleep)
-    if sleep is None:
-        sleep = _avg(withings_sleep)
-    if sleep is None:
-        sleep = _avg(fitbit_sleep)
+    rhr = _avg(garmin_rhr) or _avg(withings_rhr) or _avg(fitbit_rhr)
+    sleep = _avg(garmin_sleep) or _avg(withings_sleep) or _avg(fitbit_sleep)
     hrv = _avg(garmin_hrv)
 
     updated = {}
@@ -397,23 +367,24 @@ def recompute_health_baselines(force: bool = False) -> dict:
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT id FROM trainer_profile WHERE id = 1")
-            exists = cursor.fetchone() is not None
+            cursor.execute("SELECT id FROM trainer_profile WHERE user_id = ?", (user_id,))
+            row = cursor.fetchone()
             cols_vals = dict(updated)
             cols_vals["baselines_updated_at"] = now_str
             cols_vals["updated_at"] = now_str
-            if exists:
+            if row:
+                profile_id = row[0]
                 set_clause = ", ".join(f"{k} = ?" for k in cols_vals)
                 cursor.execute(
-                    f"UPDATE trainer_profile SET {set_clause} WHERE id = 1",
-                    list(cols_vals.values())
+                    f"UPDATE trainer_profile SET {set_clause} WHERE id = ?",
+                    list(cols_vals.values()) + [profile_id]
                 )
             else:
-                cols = ["id"] + list(cols_vals.keys())
+                cols = ["user_id"] + list(cols_vals.keys())
                 placeholders = ", ".join("?" for _ in cols)
                 cursor.execute(
                     f"INSERT INTO trainer_profile ({', '.join(cols)}) VALUES ({placeholders})",
-                    [1] + list(cols_vals.values())
+                    [user_id] + list(cols_vals.values())
                 )
             conn.commit()
     except Exception as e:
@@ -427,27 +398,22 @@ def recompute_health_baselines(force: bool = False) -> dict:
 MAX_STRENGTH_LOGS = 200  # Hard cap on rows a single list request may return
 
 
-def get_recent_strength_logs(limit: int = 40) -> list:
-    """Returns the most recent logged strength sets, newest first, as dicts.
-
-    Deduped on (date, exercise_name): if the same session was both logged by hand and
-    auto-imported from Garmin (Issue #183), the Garmin row wins as the more accurate record
-    and the manual duplicate is dropped, so the coach doesn't see the session twice."""
+def get_recent_strength_logs(limit: int = 40, user_id: int = 1) -> list:
+    """Returns the most recent logged strength sets, newest first, as dicts for user_id."""
     limit = max(1, min(int(limit or 40), MAX_STRENGTH_LOGS))
     with get_db_connection() as conn:
         conn.row_factory = _dict_row
         cursor = conn.cursor()
         try:
-            # Over-fetch before deduping, since a duplicate pair collapses to one row;
-            # MAX_STRENGTH_LOGS caps how far this can grow on a single call.
             fetch_limit = min(limit * 2, MAX_STRENGTH_LOGS)
             cursor.execute(
                 '''SELECT id, date, exercise_name, sets, reps, weight, rpe, notes, plan_id,
                           created_at, source, activity_id
                    FROM trainer_strength_logs
+                   WHERE user_id = ? OR user_id IS NULL
                    ORDER BY date DESC, id DESC
                    LIMIT ?''',
-                (fetch_limit,)
+                (user_id, fetch_limit)
             )
             rows = [dict(r) for r in cursor.fetchall()]
         except Exception as e:
@@ -467,12 +433,9 @@ def get_recent_strength_logs(limit: int = 40) -> list:
     return [by_key[k] for k in ordered_keys][:limit]
 
 
-def format_recent_strength_logs(limit: int = 40) -> str:
-    """Renders recent strength logs as the text block pasted into the coach prompt.
-
-    The coach uses the most recent load per exercise to apply progressive overload,
-    so the lines are grouped by exercise with the latest session first."""
-    logs = get_recent_strength_logs(limit)
+def format_recent_strength_logs(limit: int = 40, user_id: int = 1) -> str:
+    """Renders recent strength logs as the text block pasted into the coach prompt."""
+    logs = get_recent_strength_logs(limit, user_id=user_id)
     if not logs:
         return "No strength-training loads have been logged yet."
 
@@ -483,7 +446,6 @@ def format_recent_strength_logs(limit: int = 40) -> str:
 
     lines = []
     for name, entries in by_exercise.items():
-        # entries already newest-first; keep the three most recent per exercise.
         parts = []
         for e in entries[:3]:
             weight = e.get("weight")
@@ -499,14 +461,14 @@ MAX_INJURY_LOGS = 200      # Hard cap on rows a single list request may return
 MAX_INJURY_PROMPT_ROWS = 8  # Active entries pasted into a coach prompt
 
 
-def get_injury_logs(status: str = None, limit: int = 50) -> list:
-    """Returns injury/pain entries, newest first. `status` filters to 'active'/'resolved'."""
+def get_injury_logs(status: str = None, limit: int = 50, user_id: int = 1) -> list:
+    """Returns injury/pain entries, newest first, for user_id."""
     limit = max(1, min(int(limit or 50), MAX_INJURY_LOGS))
     sql = ('SELECT id, date, area, severity, note, status, resolved_date, created_at '
-           'FROM trainer_injury_logs')
-    params = []
+           'FROM trainer_injury_logs WHERE (user_id = ? OR user_id IS NULL)')
+    params = [user_id]
     if status in ("active", "resolved"):
-        sql += ' WHERE status = ?'
+        sql += ' AND status = ?'
         params.append(status)
     sql += ' ORDER BY date DESC, id DESC LIMIT ?'
     params.append(limit)
@@ -522,12 +484,9 @@ def get_injury_logs(status: str = None, limit: int = 50) -> list:
             return []
 
 
-def format_active_injuries() -> str:
-    """Renders the open injury/pain entries as the text block pasted into coach prompts.
-
-    Unlike the profile's single free-text `limitations` field, this is a dated log, so the
-    coach can see how long something has been bothering the user and how bad it is now."""
-    logs = get_injury_logs(status="active", limit=MAX_INJURY_PROMPT_ROWS)
+def format_active_injuries(user_id: int = 1) -> str:
+    """Renders open injury entries as prompt text for user_id."""
+    logs = get_injury_logs(status="active", limit=MAX_INJURY_PROMPT_ROWS, user_id=user_id)
     if not logs:
         return "No active injuries or pain have been logged."
 
@@ -547,21 +506,11 @@ def format_active_injuries() -> str:
     return "\n".join(lines)
 
 
-# Sync states that mean "don't trust this source's data for this window" (#187) - a rate
-# limit or an expired login must not be presented as "the user skipped every session".
 ADHERENCE_UNRELIABLE_SYNC_STATES = {"error", "auth_required", "rate_limited"}
 
 
-def compute_adherence(days: int = 14) -> dict:
-    """Compares booked workout dates against completed Garmin + Strava activity dates.
-
-    Distinguishes "no evidence" from "did not train" (Issue #187): if Strava is the only
-    source checked and its sync is broken/stale, a booked session that was actually
-    completed (and recorded on the watch) used to read as missed, dragging adherence to a
-    misleading 0%. Garmin dates are unioned in exactly like `build_training_load_summary()`
-    already does for training load. If BOTH sources are unreliable for this window (a sync
-    error/rate-limit/auth failure, or the query itself raising), `adherence_pct` is `None`
-    with a `reason` instead of a number that looks like a real measurement."""
+def compute_adherence(days: int = 14, user_id: int = 1) -> dict:
+    """Compares booked workout dates against completed activity dates for user_id."""
     today = today_local()
     start_str = (today - datetime.timedelta(days=days)).strftime('%Y-%m-%d')
     today_str = today.strftime('%Y-%m-%d')
@@ -574,16 +523,16 @@ def compute_adherence(days: int = 14) -> dict:
         cursor = conn.cursor()
         try:
             cursor.execute(
-                'SELECT DISTINCT workout_date FROM trainer_bookings WHERE workout_date >= ? AND workout_date <= ?',
-                (start_str, today_str)
+                'SELECT DISTINCT workout_date FROM trainer_bookings WHERE workout_date >= ? AND workout_date <= ? AND (user_id = ? OR user_id IS NULL)',
+                (start_str, today_str, user_id)
             )
             planned_dates = {r[0] for r in cursor.fetchall() if r[0]}
         except Exception as e:
             print(f"Error fetching bookings for adherence: {e}")
         try:
             cursor.execute(
-                'SELECT DISTINCT SUBSTR(date, 1, 10) FROM strava_activities WHERE SUBSTR(date, 1, 10) >= ? AND SUBSTR(date, 1, 10) <= ?',
-                (start_str, today_str)
+                'SELECT DISTINCT SUBSTR(date, 1, 10) FROM strava_activities WHERE SUBSTR(date, 1, 10) >= ? AND SUBSTR(date, 1, 10) <= ? AND (user_id = ? OR user_id IS NULL)',
+                (start_str, today_str, user_id)
             )
             strava_dates = {r[0] for r in cursor.fetchall() if r[0]}
         except Exception as e:
@@ -591,8 +540,8 @@ def compute_adherence(days: int = 14) -> dict:
             strava_query_failed = True
         try:
             cursor.execute(
-                'SELECT DISTINCT date FROM garmin_activities WHERE date >= ? AND date <= ?',
-                (start_str, today_str)
+                'SELECT DISTINCT date FROM garmin_activities WHERE date >= ? AND date <= ? AND (user_id = ? OR user_id IS NULL)',
+                (start_str, today_str, user_id)
             )
             garmin_dates = {r[0] for r in cursor.fetchall() if r[0]}
         except Exception as e:
@@ -638,15 +587,7 @@ def compute_adherence(days: int = 14) -> dict:
 
 
 # --- Prompt-budget guardrails (Issue #189) ------------------------------------
-# The failure mode this issue is about is incremental: no single field addition makes a
-# prompt too big, so drift has to be caught by a test against a populated fixture rather
-# than trusted to review. build_chat_context_block() is resident on every chat turn and
-# gets the tight budget; format_training_load_summary()/_format_progression_rules() feed
-# the plan-generation prompt, which runs once per plan rather than once per turn and
-# genuinely needs the fuller training-load history, so it gets its own, larger one.
-CHARS_PER_TOKEN_ESTIMATE = 4     # Rough heuristic for English/Swedish mixed text - not an
-                                  # exact tokenizer, but stable and dependency-free, and
-                                  # precise enough to catch a budget blown by a wide margin.
+CHARS_PER_TOKEN_ESTIMATE = 4
 CHAT_CONTEXT_TOKEN_BUDGET = 800
 PLAN_PROMPT_LOAD_SECTION_TOKEN_BUDGET = 2000
 
@@ -657,18 +598,11 @@ def estimate_tokens(text: str) -> int:
 
 
 # --- Unified Garmin/Strava session view (Issue #188) -------------------------
-# In the normal setup a session is recorded on the Garmin watch and pushed to Strava by
-# auto-sync - Garmin is the original, Strava the copy. build_training_load_summary()'s own
-# docstring used to claim the opposite ("Strava... the authoritative record"), which had every
-# call site here independently deciding which source to believe. This is the one place that
-# decision gets made.
-DUPLICATE_TIME_TOLERANCE_SECONDS = 600   # ±10 minutes
-DUPLICATE_DURATION_TOLERANCE_PCT = 0.10  # ±10%
+DUPLICATE_TIME_TOLERANCE_SECONDS = 600
+DUPLICATE_DURATION_TOLERANCE_PCT = 0.10
 
 
 def _parse_session_datetime(date_str, time_str):
-    """Best-effort datetime parse for the duplicate-matching window - both Garmin's
-    'YYYY-MM-DD HH:MM:SS' and Strava's 'YYYY-MM-DDTHH:MM:SS...' local-time strings."""
     if not time_str:
         return None
     candidate = str(time_str)[:19].replace('T', ' ')
@@ -678,18 +612,8 @@ def _parse_session_datetime(date_str, time_str):
         return None
 
 
-def unified_sessions(start_str: str, end_str: str) -> list:
-    """Merges Garmin and Strava activities into one session list, Garmin-first (#188).
-
-    Garmin's activities are all included. A Strava activity is added only when it has no
-    Garmin counterpart - matched on start time within `DUPLICATE_TIME_TOLERANCE_SECONDS` AND
-    duration within `DUPLICATE_DURATION_TOLERANCE_PCT`, not on date alone (date-only matching
-    drops a genuine second session on a day that already has one). Everything else - a
-    session that never touched the Garmin watch (Zwift, the phone app, another device, a
-    manual entry) - is Strava's real contribution and survives.
-
-    Returns sessions sorted by start time (falling back to date), each with a `source` field
-    (`'garmin'` / `'strava'`) so callers can tell where a figure came from."""
+def unified_sessions(start_str: str, end_str: str, user_id: int = 1) -> list:
+    """Merges Garmin and Strava activities into one session list for user_id."""
     garmin_rows, strava_rows = [], []
     with get_db_connection() as conn:
         cursor = conn.cursor()
@@ -697,9 +621,9 @@ def unified_sessions(start_str: str, end_str: str) -> list:
             cursor.execute(
                 '''SELECT activity_id, date, start_time_local, type, duration_minutes,
                           distance_m, avg_hr, max_hr
-                   FROM garmin_activities WHERE date >= ? AND date <= ?
+                   FROM garmin_activities WHERE date >= ? AND date <= ? AND (user_id = ? OR user_id IS NULL)
                    ORDER BY start_time_local ASC''',
-                (start_str, end_str)
+                (start_str, end_str, user_id)
             )
             garmin_rows = cursor.fetchall()
         except Exception as e:
@@ -790,14 +714,8 @@ MAX_SESSION_STEP_PCT = 20     # A session may exceed the recent longest one by a
 MAX_WEEKLY_STEP_PCT = 10      # Weekly volume may rise by at most this vs the recent average
 
 
-def build_training_load_summary(days: int = TRAINING_LOAD_DAYS) -> dict:
-    """Summarises actually-completed training over the last `days` days.
-
-    Reads Garmin activities (the original record - sessions are recorded on the watch and
-    pushed to Strava by auto-sync, see #188) via `unified_sessions()`, which adds Strava
-    activities only when they have no Garmin counterpart. Returns per-week volume, the
-    longest single session, and per-activity typical/longest durations - the reference
-    points a progression has to be built on."""
+def build_training_load_summary(days: int = TRAINING_LOAD_DAYS, user_id: int = 1) -> dict:
+    """Summarises actually-completed training over the last `days` days for user_id."""
     days = max(7, min(int(days or TRAINING_LOAD_DAYS), 180))
     today = today_local()
     cutoff = today - datetime.timedelta(days=days)
@@ -812,19 +730,18 @@ def build_training_load_summary(days: int = TRAINING_LOAD_DAYS) -> dict:
             "avg_hr": s["avg_hr"],
             "source": s["source"].capitalize(),
         }
-        for s in unified_sessions(cutoff_str, today.strftime('%Y-%m-%d'))
+        for s in unified_sessions(cutoff_str, today.strftime('%Y-%m-%d'), user_id=user_id)
         if (s["duration_minutes"] or 0) > 0
     ]
     sessions.sort(key=lambda s: s["date"])
 
-    # Weekly buckets, counted back from today so "this week" is the most recent one.
     weeks: dict = {}
     for s in sessions:
         try:
             d = datetime.datetime.strptime(s["date"], "%Y-%m-%d").date()
         except (ValueError, TypeError):
             continue
-        bucket = (today - d).days // 7      # 0 = last 7 days, 1 = the 7 before that, ...
+        bucket = (today - d).days // 7
         wk = weeks.setdefault(bucket, {"weeks_ago": bucket, "sessions": 0, "minutes": 0.0, "distance_km": 0.0})
         wk["sessions"] += 1
         wk["minutes"] += s["minutes"]
@@ -858,9 +775,6 @@ def build_training_load_summary(days: int = TRAINING_LOAD_DAYS) -> dict:
     avg_weekly_minutes = round(sum(weekly_minutes) / len(weekly_minutes), 1) if weekly_minutes else 0.0
     longest_session = max((s["minutes"] for s in sessions), default=0.0)
 
-    # Garmin's own training load (#179): CTL/ATL/ACWR from the most recent day that has a
-    # reading, rather than the minute-based proxy above. TSB ("form") is derived here rather
-    # than read from a stored column, so it can never drift from chronic/acute.
     latest_load = None
     with get_db_connection() as conn:
         cursor = conn.cursor()
@@ -869,8 +783,10 @@ def build_training_load_summary(days: int = TRAINING_LOAD_DAYS) -> dict:
                 '''SELECT date, training_load_acute, training_load_chronic, acwr, acwr_status,
                           load_aerobic_low, load_aerobic_high, load_anaerobic
                    FROM garmin_health
-                   WHERE training_load_acute IS NOT NULL OR training_load_chronic IS NOT NULL
-                   ORDER BY date DESC LIMIT 1'''
+                   WHERE (training_load_acute IS NOT NULL OR training_load_chronic IS NOT NULL)
+                     AND (user_id = ? OR user_id IS NULL)
+                   ORDER BY date DESC LIMIT 1''',
+                (user_id,)
             )
             row = cursor.fetchone()
             if row:
@@ -889,9 +805,6 @@ def build_training_load_summary(days: int = TRAINING_LOAD_DAYS) -> dict:
         except Exception as e:
             print(f"[TRAINER LOAD] Error reading Garmin training load: {e}")
 
-    # Weekly easy/hard HR-zone split (#184): a number that is normal tells the model
-    # nothing; the point is spotting when the split drifts from the 80/20-style target, so
-    # this is read as a deviation signal rather than resident every turn (see #189).
     weekly_zone_split = []
     with get_db_connection() as conn:
         cursor = conn.cursor()
@@ -900,9 +813,9 @@ def build_training_load_summary(days: int = TRAINING_LOAD_DAYS) -> dict:
                 '''SELECT a.date, z.secs_zone_1, z.secs_zone_2, z.secs_zone_3, z.secs_zone_4, z.secs_zone_5
                    FROM garmin_activity_zones z
                    JOIN garmin_activities a ON a.activity_id = z.activity_id
-                   WHERE a.date >= ?
+                   WHERE a.date >= ? AND (a.user_id = ? OR a.user_id IS NULL)
                    ORDER BY a.date ASC''',
-                (cutoff_str,)
+                (cutoff_str, user_id)
             )
             from backend.routes.garmin import zone_percentages
             zone_weeks: dict = {}
@@ -929,8 +842,6 @@ def build_training_load_summary(days: int = TRAINING_LOAD_DAYS) -> dict:
         "by_activity": sorted(by_type.values(), key=lambda t: -t["total_minutes"]),
         "avg_weekly_minutes": avg_weekly_minutes,
         "longest_session_minutes": round(longest_session, 1),
-        # The ceilings a new plan must respect, precomputed so the prompt states real numbers
-        # instead of asking the model to do the arithmetic.
         "max_session_minutes": round(longest_session * (1 + MAX_SESSION_STEP_PCT / 100.0)) if longest_session else None,
         "max_weekly_minutes": round(avg_weekly_minutes * (1 + MAX_WEEKLY_STEP_PCT / 100.0)) if avg_weekly_minutes else None,
         "recent_sessions": sessions[-20:],
@@ -1092,13 +1003,8 @@ def format_training_load_summary(load: dict) -> str:
 MAX_TREND_DAYS = 180  # Longest window the trend chart may request
 
 
-def get_health_series(days: int = 28) -> list:
-    """Returns a day-by-day RHR/HRV/Stress/Weight series for the trend charts, oldest first.
-
-    `calculate_trends()` only yields aggregates, which cannot be plotted. This reads the
-    same sources: Garmin per day, with Withings' pulse filling in resting HR on days
-    Garmin has none. Days with no reading at all are omitted rather than zero-filled, so
-    a gap in the data renders as a gap instead of a phantom dip to zero."""
+def get_health_series(days: int = 28, user_id: int = 1) -> list:
+    """Returns a day-by-day RHR/HRV/Stress/Weight series for the trend charts, oldest first."""
     days = max(1, min(int(days or 28), MAX_TREND_DAYS))
     cutoff = (today_local() - datetime.timedelta(days=days)).strftime('%Y-%m-%d')
 
@@ -1107,8 +1013,8 @@ def get_health_series(days: int = 28) -> list:
         cursor = conn.cursor()
         try:
             cursor.execute(
-                'SELECT date, resting_hr, hrv, stress_avg FROM garmin_health WHERE date >= ? ORDER BY date ASC',
-                (cutoff,)
+                'SELECT date, resting_hr, hrv, stress_avg FROM garmin_health WHERE date >= ? AND (user_id = ? OR user_id IS NULL) ORDER BY date ASC',
+                (cutoff, user_id)
             )
             for date_str, rhr, hrv, stress in cursor.fetchall():
                 if not date_str:
@@ -1125,8 +1031,8 @@ def get_health_series(days: int = 28) -> list:
             print(f"[TRAINER TRENDS] Error reading Garmin health series: {e}")
         try:
             cursor.execute(
-                'SELECT date, heart_pulse, weight FROM withings_measurements WHERE date >= ? ORDER BY date ASC',
-                (cutoff,)
+                'SELECT date, heart_pulse, weight FROM withings_measurements WHERE date >= ? AND (user_id = ? OR user_id IS NULL) ORDER BY date ASC',
+                (cutoff, user_id)
             )
             for date_str, pulse, weight in cursor.fetchall():
                 if not date_str:

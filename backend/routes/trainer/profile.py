@@ -1,8 +1,10 @@
 """Trainer profile, adherence, baselines, strength log, injuries and trend routes."""
 
 import datetime
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from backend.database import get_db_connection
+from backend.models import User
+from backend.routes.auth import get_current_user
 from backend.services.time_utils import today_local
 from .shared import (
     get_trainer_profile, calculate_trends, format_trends_summary, recompute_health_baselines,
@@ -16,26 +18,25 @@ router = APIRouter()
 
 
 @router.get("/api/trainer/trends")
-async def get_trainer_trends(days: int = Query(28, description="Length of the trend window in days")):
-    """Everything the PT panel's trend & adherence charts need, in one request (Issue #36).
-
-    Bundles the plotted series, the recent-vs-baseline aggregates already used in the
-    coach prompts, the profile's stored baselines (drawn as reference lines) and the
-    adherence figures, so the panel renders from a single round trip."""
+async def get_trainer_trends(
+    days: int = Query(28, description="Length of the trend window in days"),
+    current_user: User = Depends(get_current_user)
+):
+    """Everything the PT panel's trend & adherence charts need, in one request (Issue #36)."""
     try:
         days = max(1, min(int(days or 28), MAX_TREND_DAYS))
-        profile = get_trainer_profile()
+        profile = get_trainer_profile(user_id=current_user.id)
         return {
             "window_days": days,
-            "series": get_health_series(days),
-            "trends": calculate_trends(),
+            "series": get_health_series(days, user_id=current_user.id),
+            "trends": calculate_trends(user_id=current_user.id),
             "baselines": {
                 "resting_hr": profile.get("baseline_resting_hr"),
                 "hrv": profile.get("baseline_hrv"),
                 "sleep_hours": profile.get("baseline_sleep_hours"),
                 "updated_at": profile.get("baselines_updated_at"),
             },
-            "adherence": compute_adherence(days),
+            "adherence": compute_adherence(days, user_id=current_user.id),
             "alert_thresholds": {"rhr_pct": RHR_ALERT_PCT, "hrv_pct": HRV_ALERT_PCT},
         }
     except Exception as e:
@@ -43,17 +44,17 @@ async def get_trainer_trends(days: int = Query(28, description="Length of the tr
 
 
 @router.get("/api/trainer/profile")
-async def get_trainer_profile_endpoint():
+async def get_trainer_profile_endpoint(current_user: User = Depends(get_current_user)):
     """Returns the stored training profile (empty object if not yet set)."""
     try:
-        return get_trainer_profile()
+        return get_trainer_profile(user_id=current_user.id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.put("/api/trainer/profile")
-async def put_trainer_profile(request: Request):
-    """Creates or updates the single training profile row."""
+async def put_trainer_profile(request: Request, current_user: User = Depends(get_current_user)):
+    """Creates or updates the training profile row for the current user."""
     try:
         body = await request.json()
     except Exception:
@@ -77,52 +78,51 @@ async def put_trainer_profile(request: Request):
             values[f] = val
 
     try:
-        return {"status": "success", "message": "Training profile saved.", "profile": _save_profile_values(values)}
+        return {"status": "success", "message": "Training profile saved.", "profile": _save_profile_values(values, user_id=current_user.id)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-def _save_profile_values(values: dict) -> dict:
-    """Upserts the single training-profile row and returns it. Shared by the profile
-    endpoint and onboarding so both write the row the same way."""
+def _save_profile_values(values: dict, user_id: int = 1) -> dict:
+    """Upserts the training-profile row for a specific user_id and returns it."""
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT id FROM trainer_profile WHERE id = 1")
-        exists = cursor.fetchone() is not None
+        cursor.execute("SELECT id FROM trainer_profile WHERE user_id = ?", (user_id,))
+        row = cursor.fetchone()
         now_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
-        if exists:
+        if row:
+            profile_id = row[0]
             if values:
                 set_clause = ", ".join(f"{k} = ?" for k in values)
-                params = list(values.values()) + [now_str]
-                cursor.execute(f"UPDATE trainer_profile SET {set_clause}, updated_at = ? WHERE id = 1", params)
+                params = list(values.values()) + [now_str, profile_id]
+                cursor.execute(f"UPDATE trainer_profile SET {set_clause}, updated_at = ? WHERE id = ?", params)
             else:
-                cursor.execute("UPDATE trainer_profile SET updated_at = ? WHERE id = 1", (now_str,))
+                cursor.execute("UPDATE trainer_profile SET updated_at = ? WHERE id = ?", (now_str, profile_id))
         else:
-            cols = ["id"] + list(values.keys()) + ["updated_at"]
+            cols = ["user_id"] + list(values.keys()) + ["updated_at"]
             placeholders = ", ".join("?" for _ in cols)
-            params = [1] + list(values.values()) + [now_str]
+            params = [user_id] + list(values.values()) + [now_str]
             cursor.execute(f"INSERT INTO trainer_profile ({', '.join(cols)}) VALUES ({placeholders})", params)
         conn.commit()
-    return get_trainer_profile()
+    return get_trainer_profile(user_id=user_id)
 
 
 @router.get("/api/trainer/adherence")
-async def get_trainer_adherence(days: int = Query(14, description="Lookback window in days")):
+async def get_trainer_adherence(
+    days: int = Query(14, description="Lookback window in days"),
+    current_user: User = Depends(get_current_user)
+):
     """Returns planned vs completed workout adherence over the given window."""
     try:
-        return compute_adherence(days)
+        return compute_adherence(days, user_id=current_user.id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/api/trainer/baselines/refresh")
-async def refresh_trainer_baselines(request: Request):
-    """Recomputes the RHR/sleep/HRV baselines now (Issue #35).
-
-    Normally the baselines refresh themselves at most weekly off the Garmin sync;
-    this endpoint lets the user force an immediate recompute. Pass {"force": false}
-    to honour the weekly cadence instead."""
+async def refresh_trainer_baselines(request: Request, current_user: User = Depends(get_current_user)):
+    """Recomputes the RHR/sleep/HRV baselines now (Issue #35)."""
     try:
         try:
             body = await request.json()
@@ -130,26 +130,26 @@ async def refresh_trainer_baselines(request: Request):
             body = {}
         force = body.get("force", True)
         force = force in (True, 1, "1", "true", "True", "on")
-        return recompute_health_baselines(force=force)
+        return recompute_health_baselines(force=force, user_id=current_user.id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/api/trainer/strength/log")
-async def get_strength_logs(limit: int = Query(40, description="Number of logged sets to return")):
+async def get_strength_logs(
+    limit: int = Query(40, description="Number of logged sets to return"),
+    current_user: User = Depends(get_current_user)
+):
     """Returns recent logged strength sets (Issue #34), newest first."""
     try:
-        return {"logs": get_recent_strength_logs(limit)}
+        return {"logs": get_recent_strength_logs(limit, user_id=current_user.id)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/api/trainer/strength/log")
-async def add_strength_log(request: Request):
-    """Records one completed strength set (name, sets, reps, weight, RPE).
-
-    These logs feed progressive overload: the coach reads the latest load per
-    exercise when generating the next plan."""
+async def add_strength_log(request: Request, current_user: User = Depends(get_current_user)):
+    """Records one completed strength set (name, sets, reps, weight, RPE)."""
     try:
         body = await request.json()
     except Exception:
@@ -195,9 +195,9 @@ async def add_strength_log(request: Request):
             cursor = conn.cursor()
             cursor.execute(
                 '''INSERT INTO trainer_strength_logs
-                   (date, exercise_name, sets, reps, weight, rpe, notes, plan_id, created_at, source)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual')''',
-                (date_str, name, sets, reps, weight, rpe, notes, plan_id, now_str)
+                   (user_id, date, exercise_name, sets, reps, weight, rpe, notes, plan_id, created_at, source)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual')''',
+                (current_user.id, date_str, name, sets, reps, weight, rpe, notes, plan_id, now_str)
             )
             conn.commit()
             log_id = cursor.lastrowid
@@ -207,12 +207,15 @@ async def add_strength_log(request: Request):
 
 
 @router.delete("/api/trainer/strength/log")
-async def delete_strength_log(log_id: int = Query(..., description="ID of the strength log to delete")):
+async def delete_strength_log(
+    log_id: int = Query(..., description="ID of the strength log to delete"),
+    current_user: User = Depends(get_current_user)
+):
     """Deletes a single logged strength set."""
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('DELETE FROM trainer_strength_logs WHERE id = ?', (log_id,))
+            cursor.execute('DELETE FROM trainer_strength_logs WHERE id = ? AND (user_id = ? OR user_id IS NULL)', (log_id, current_user.id))
             conn.commit()
         return {"status": "success", "message": f"Strength log {log_id} deleted."}
     except Exception as e:
@@ -222,20 +225,18 @@ async def delete_strength_log(log_id: int = Query(..., description="ID of the st
 async def get_injuries(
     status: str = Query(None, description="Filter by 'active' or 'resolved' (omit for all)"),
     limit: int = Query(50, description="Number of entries to return"),
+    current_user: User = Depends(get_current_user)
 ):
     """Returns logged injury/pain entries (Issue #38), newest first."""
     try:
-        return {"injuries": get_injury_logs(status=status, limit=limit)}
+        return {"injuries": get_injury_logs(status=status, limit=limit, user_id=current_user.id)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/api/trainer/injuries")
-async def add_injury(request: Request):
-    """Logs an injury or pain entry (area, severity, note).
-
-    Active entries are fed into plan generation and the recovery optimizer, so the coach
-    eases or swaps sessions that would load the affected area."""
+async def add_injury(request: Request, current_user: User = Depends(get_current_user)):
+    """Logs an injury or pain entry (area, severity, note)."""
     try:
         body = await request.json()
     except Exception:
@@ -260,9 +261,9 @@ async def add_injury(request: Request):
             cursor = conn.cursor()
             cursor.execute(
                 '''INSERT INTO trainer_injury_logs
-                   (date, area, severity, note, status, resolved_date, created_at)
-                   VALUES (?, ?, ?, ?, 'active', NULL, ?)''',
-                (date_str, area, severity, note, now_str)
+                   (user_id, date, area, severity, note, status, resolved_date, created_at)
+                   VALUES (?, ?, ?, ?, ?, 'active', NULL, ?)''',
+                (current_user.id, date_str, area, severity, note, now_str)
             )
             conn.commit()
             injury_id = cursor.lastrowid
@@ -272,11 +273,8 @@ async def add_injury(request: Request):
 
 
 @router.put("/api/trainer/injuries")
-async def update_injury(request: Request):
-    """Updates an injury entry - typically to mark it resolved once it stops hurting.
-
-    Resolving stamps `resolved_date` and drops the entry out of the coach prompts, while
-    keeping it in the log so a recurring niggle stays visible as history."""
+async def update_injury(request: Request, current_user: User = Depends(get_current_user)):
+    """Updates an injury entry - typically to mark it resolved once it stops hurting."""
     try:
         body = await request.json()
     except Exception:
@@ -290,7 +288,6 @@ async def update_injury(request: Request):
     values = {}
     if body.get("status") in ("active", "resolved"):
         values["status"] = body["status"]
-        # Resolving stamps the date; reopening clears it again.
         values["resolved_date"] = today_local().strftime('%Y-%m-%d') if body["status"] == "resolved" else None
     if "severity" in body:
         try:
@@ -310,8 +307,8 @@ async def update_injury(request: Request):
             cursor = conn.cursor()
             set_clause = ", ".join(f"{k} = ?" for k in values)
             cursor.execute(
-                f"UPDATE trainer_injury_logs SET {set_clause} WHERE id = ?",
-                list(values.values()) + [injury_id]
+                f"UPDATE trainer_injury_logs SET {set_clause} WHERE id = ? AND (user_id = ? OR user_id IS NULL)",
+                list(values.values()) + [injury_id, current_user.id]
             )
             conn.commit()
             if cursor.rowcount == 0:
@@ -324,12 +321,15 @@ async def update_injury(request: Request):
 
 
 @router.delete("/api/trainer/injuries")
-async def delete_injury(injury_id: int = Query(..., description="ID of the injury entry to delete")):
+async def delete_injury(
+    injury_id: int = Query(..., description="ID of the injury entry to delete"),
+    current_user: User = Depends(get_current_user)
+):
     """Deletes a single injury/pain entry."""
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('DELETE FROM trainer_injury_logs WHERE id = ?', (injury_id,))
+            cursor.execute('DELETE FROM trainer_injury_logs WHERE id = ? AND (user_id = ? OR user_id IS NULL)', (injury_id, current_user.id))
             conn.commit()
         return {"status": "success", "message": f"Injury {injury_id} deleted."}
     except Exception as e:

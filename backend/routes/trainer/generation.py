@@ -3,7 +3,7 @@
 import datetime
 import httpx
 import json
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from backend.database import get_db_connection
 from backend.services import llm_client
 from backend.services.time_utils import today_local
@@ -19,11 +19,14 @@ from .profile import _save_profile_values
 from .plans import _current_week_monday
 from .booking import core_book_plan_internal
 
+from backend.models import User
+from backend.routes.auth import get_current_user
+
 router = APIRouter()
 
 
 @router.post("/api/trainer/generate")
-async def generate_trainer_plan(request: Request):
+async def generate_trainer_plan(request: Request, current_user: User = Depends(get_current_user)):
     try:
         body = await request.json()
         goal = str(body.get("goal") or "").strip()[:MAX_INPUT_LEN]
@@ -31,14 +34,12 @@ async def generate_trainer_plan(request: Request):
         if not goal:
             raise HTTPException(status_code=400, detail="The goal is missing.")
 
-        # Fall back to the stored training profile for limitations/location.
-        profile = get_trainer_profile()
+        profile = get_trainer_profile(user_id=current_user.id)
         if not limitations and profile.get("limitations"):
             limitations = str(profile["limitations"]).strip()[:MAX_INPUT_LEN]
         location = (body.get("location") or profile.get("location") or DEFAULT_LOCATION)
         location = str(location).strip() or DEFAULT_LOCATION
 
-        # 1-3. Fetch Garmin / Strava / Withings logs (single connection).
         garmin_summary = []
         strava_summary = []
         withings_summary = []
@@ -48,9 +49,10 @@ async def generate_trainer_plan(request: Request):
             cursor.execute('''
                 SELECT date, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status, sleep_deep_hours, sleep_light_hours, sleep_rem_hours, sleep_awake_hours, sleep_score
                 FROM garmin_health
+                WHERE user_id = ? OR user_id IS NULL
                 ORDER BY date DESC
                 LIMIT 7
-            ''')
+            ''', (current_user.id,))
             for r in cursor.fetchall():
                 garmin_summary.append(
                     f"Date: {r[0]}, Steps: {r[1]}, Sleep: {r[2]}h (Deep: {r[11]}h, REM: {r[13]}h, Light: {r[12]}h, Awake: {r[14]}h, Score: {r[15]}), Resting HR: {r[3]}, Calories: {r[4]}kcal, Workout: {r[5]} ({r[6]} min), Body Battery: {r[7]}, HRV: {r[8]}ms, Recovery time: {r[9]}h, Status: {r[10]}"
@@ -59,21 +61,18 @@ async def generate_trainer_plan(request: Request):
             cursor.execute('''
                 SELECT date, weight, fat_ratio, bone_mass, heart_pulse, sleep_duration, steps, calories, sleep_score
                 FROM withings_measurements
+                WHERE user_id = ? OR user_id IS NULL
                 ORDER BY date DESC
                 LIMIT 7
-            ''')
+            ''', (current_user.id,))
             for r in cursor.fetchall():
                 sleep_h = round(r[5] / 3600.0, 1) if r[5] else 0
                 withings_summary.append(
                     f"Date: {r[0]}, Weight: {r[1]} kg, Body fat: {r[2]}%, Bone mass: {r[3]} kg, Pulse: {r[4]} BPM, Sleep: {sleep_h}h (Score: {r[8]}), Steps: {r[6]}, Calories: {r[7]}kcal"
                 )
 
-        # Per-activity list: unified_sessions() (#188) merges Garmin + Strava, Garmin-first,
-        # so the model sees each session once instead of the same session twice (once from
-        # Garmin's daily rollup above, once from a separate Strava-only list) with slightly
-        # different numbers to reconcile itself.
         recent_start = (today_local() - datetime.timedelta(days=30)).strftime('%Y-%m-%d')
-        for s in unified_sessions(recent_start, today_local().strftime('%Y-%m-%d'))[-20:]:
+        for s in unified_sessions(recent_start, today_local().strftime('%Y-%m-%d'), user_id=current_user.id)[-20:]:
             dur_min = s.get("duration_minutes") or 0
             dist_km = s.get("distance_km") or 0
             strava_summary.append(
@@ -81,19 +80,12 @@ async def generate_trainer_plan(request: Request):
                 f"Distance: {dist_km} km, Time: {dur_min} min, Avg HR: {s.get('avg_hr')}, Max HR: {s.get('max_hr')}"
             )
 
-        # 5. Calculate trends
-        trends = calculate_trends()
+        trends = calculate_trends(user_id=current_user.id)
         trends_data_str = format_trends_summary(trends)
+        strength_logs_str = format_recent_strength_logs(user_id=current_user.id)
+        injuries_str = format_active_injuries(user_id=current_user.id)
 
-        # 5.4 Recent strength loads so the coach can apply progressive overload (Issue #34)
-        strength_logs_str = format_recent_strength_logs()
-
-        # 5.45 Open injuries so affected sessions get eased or swapped (Issue #38)
-        injuries_str = format_active_injuries()
-
-        # 5.47 A month of actually-completed training, so the plan progresses from what the
-        # user has really been doing instead of jumping from a 20-minute jog to an hour.
-        training_load = build_training_load_summary(TRAINING_LOAD_DAYS)
+        training_load = build_training_load_summary(TRAINING_LOAD_DAYS, user_id=current_user.id)
         training_load_str = format_training_load_summary(training_load)
         progression_rules = _format_progression_rules(training_load)
 
@@ -262,19 +254,15 @@ Instructions for the answer:
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                INSERT INTO trainer_plans (date, goal, advice_text, limitations)
-                VALUES (?, ?, ?, ?)
-            ''', (today_str, goal, advice_text, limitations))
+                INSERT INTO trainer_plans (user_id, date, goal, advice_text, limitations)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (current_user.id, today_str, goal, advice_text, limitations))
             conn.commit()
             plan_id = cursor.lastrowid
 
-        # 9. Automatically book the generated plan's workouts into the weekly schedule.
-        # Anchored on this week's Monday because the plan's weekday names are offsets from
-        # the start date; passing today would shift every session by today's weekday. Days
-        # that already passed are skipped rather than booked into the past.
         booking = None
         try:
-            booking = await core_book_plan_internal(plan_id, _current_week_monday())
+            booking = await core_book_plan_internal(plan_id, _current_week_monday(), user_id=current_user.id)
         except Exception as book_err:
             print(f"[TRAINER GENERATE] Auto-booking warning: {book_err}")
 
@@ -309,7 +297,7 @@ ONBOARDING_TEXT_FIELDS = ("goals", "limitations", "fitness_level", "availability
 ONBOARDING_NUMERIC_FIELDS = ("baseline_resting_hr", "baseline_sleep_hours", "baseline_hrv")
 
 
-def _collect_onboarding_signals(days: int = ONBOARDING_LOOKBACK_DAYS) -> dict:
+def _collect_onboarding_signals(days: int = ONBOARDING_LOOKBACK_DAYS, user_id: int = 1) -> dict:
     """Everything the connected devices can tell us about the user, as prompt-ready text."""
     days = max(14, min(int(days or ONBOARDING_LOOKBACK_DAYS), 365))
     cutoff = (today_local() - datetime.timedelta(days=days)).strftime('%Y-%m-%d')
@@ -322,8 +310,8 @@ def _collect_onboarding_signals(days: int = ONBOARDING_LOOKBACK_DAYS) -> dict:
             cursor.execute(
                 '''SELECT COUNT(*), AVG(steps), AVG(sleep_hours), AVG(resting_hr), AVG(hrv),
                           AVG(sleep_score), MAX(vo2max)
-                   FROM garmin_health WHERE date >= ?''',
-                (cutoff,)
+                   FROM garmin_health WHERE date >= ? AND (user_id = ? OR user_id IS NULL)''',
+                (cutoff, user_id)
             )
             row = cursor.fetchone() or []
             if row and row[0]:
@@ -337,9 +325,9 @@ def _collect_onboarding_signals(days: int = ONBOARDING_LOOKBACK_DAYS) -> dict:
                 )
             cursor.execute(
                 '''SELECT training_status, COUNT(*) FROM garmin_health
-                   WHERE date >= ? AND training_status IS NOT NULL AND training_status != ''
+                   WHERE date >= ? AND (user_id = ? OR user_id IS NULL) AND training_status IS NOT NULL AND training_status != ''
                    GROUP BY training_status ORDER BY COUNT(*) DESC LIMIT 5''',
-                (cutoff,)
+                (cutoff, user_id)
             )
             statuses = [f"{r[0]} ({r[1]} days)" for r in cursor.fetchall()]
             if statuses:
@@ -348,11 +336,9 @@ def _collect_onboarding_signals(days: int = ONBOARDING_LOOKBACK_DAYS) -> dict:
             print(f"[TRAINER ONBOARDING] Garmin read error: {e}")
 
         try:
-            # unified_sessions() (#188) merges Garmin + Strava, Garmin-first, so activity
-            # types reflect every completed session rather than only the ones Strava saw.
             end_str = today_local().strftime('%Y-%m-%d')
             by_type: dict = {}
-            for s in unified_sessions(cutoff, end_str):
+            for s in unified_sessions(cutoff, end_str, user_id=user_id):
                 minutes = s.get("duration_minutes") or 0
                 if minutes <= 0:
                     continue
@@ -380,8 +366,8 @@ def _collect_onboarding_signals(days: int = ONBOARDING_LOOKBACK_DAYS) -> dict:
         try:
             cursor.execute(
                 '''SELECT COUNT(*), AVG(weight), MIN(weight), MAX(weight), AVG(fat_ratio)
-                   FROM withings_measurements WHERE date >= ?''',
-                (cutoff,)
+                   FROM withings_measurements WHERE date >= ? AND (user_id = ? OR user_id IS NULL)''',
+                (cutoff, user_id)
             )
             row = cursor.fetchone() or []
             if row and row[0]:
@@ -399,16 +385,16 @@ def _collect_onboarding_signals(days: int = ONBOARDING_LOOKBACK_DAYS) -> dict:
         for t, v in activity_types.items()
     ]
 
-    load = build_training_load_summary(TRAINING_LOAD_DAYS)
+    load = build_training_load_summary(TRAINING_LOAD_DAYS, user_id=user_id)
     return {
         "window_days": days,
         "garmin": "\n".join(garmin_lines) or "No Garmin data available.",
         "withings": "\n".join(withings_lines) or "No Withings data available.",
         "strava": "\n".join(activity_lines) or "No Strava activities available.",
-        "trends": format_trends_summary(calculate_trends()),
+        "trends": format_trends_summary(calculate_trends(user_id=user_id)),
         "training_load": format_training_load_summary(load),
-        "injuries": format_active_injuries(),
-        "strength": format_recent_strength_logs(),
+        "injuries": format_active_injuries(user_id=user_id),
+        "strength": format_recent_strength_logs(user_id=user_id),
         "load": load,
         "activity_types": activity_types,
     }
@@ -446,11 +432,8 @@ _ONBOARDING_PROFILE_SCHEMA = {
 
 
 @router.post("/api/trainer/onboarding/start")
-async def start_trainer_onboarding(request: Request):
-    """Step 1 of onboarding: analyse the connected data and return the interview questions.
-
-    Everything the devices can answer is filled in up front; the questions cover only what
-    the data cannot know (intent, schedule, equipment, how the body actually feels)."""
+async def start_trainer_onboarding(request: Request, current_user: User = Depends(get_current_user)):
+    """Step 1 of onboarding: analyse the connected data and return the interview questions."""
     try:
         try:
             body = await request.json()
@@ -458,8 +441,8 @@ async def start_trainer_onboarding(request: Request):
             body = {}
         days = int(body.get("days") or ONBOARDING_LOOKBACK_DAYS)
 
-        signals = _collect_onboarding_signals(days)
-        profile = get_trainer_profile()
+        signals = _collect_onboarding_signals(days, user_id=current_user.id)
+        profile = get_trainer_profile(user_id=current_user.id)
         existing = ", ".join(
             f"{k}={v}" for k, v in profile.items()
             if k in ONBOARDING_TEXT_FIELDS + ONBOARDING_NUMERIC_FIELDS and v
@@ -567,20 +550,20 @@ def _coerce_onboarding_profile(proposed: dict) -> dict:
             datetime.datetime.strptime(values["event_date"][:10], "%Y-%m-%d")
             values["event_date"] = values["event_date"][:10]
         except ValueError:
-            values.pop("event_date")  # An unparseable date would break the date input.
+            values.pop("event_date")
     for f in ONBOARDING_NUMERIC_FIELDS:
         raw = (proposed or {}).get(f)
         try:
             num = float(raw)
         except (TypeError, ValueError):
             continue
-        if num > 0:  # 0 is the schema's "unknown", not a real baseline.
+        if num > 0:
             values[f] = round(num, 1)
     return values
 
 
 @router.post("/api/trainer/onboarding/complete")
-async def complete_trainer_onboarding(request: Request):
+async def complete_trainer_onboarding(request: Request, current_user: User = Depends(get_current_user)):
     """Step 2 of onboarding: merge the user's answers with the data and save the profile."""
     try:
         body = await request.json()
@@ -595,15 +578,14 @@ async def complete_trainer_onboarding(request: Request):
                 clean_answers.append({"question": question, "answer": answer, "field": str((a or {}).get("field") or "")})
 
         if not clean_answers:
-            # Nothing to merge - persist the data-derived proposal as-is rather than failing.
             values = _coerce_onboarding_profile(proposed)
             if not values:
                 raise HTTPException(status_code=400, detail="No answers and no usable proposed profile were provided.")
-            saved = _save_profile_values(values)
+            saved = _save_profile_values(values, user_id=current_user.id)
             return {"status": "success", "profile": saved, "summary":
                     "Profilen sparades utifrån din data. Inga frågor besvarades.", "answers_used": 0}
 
-        signals = _collect_onboarding_signals()
+        signals = _collect_onboarding_signals(user_id=current_user.id)
         answers_block = "\n".join(f"- {a['question']}\n  Svar: {a['answer']}" for a in clean_answers)
 
         prompt = f"""
@@ -644,7 +626,7 @@ Answer every free-text field in Swedish.
         if not values:
             raise HTTPException(status_code=500, detail="The onboarding produced no usable profile fields.")
 
-        saved = _save_profile_values(values)
+        saved = _save_profile_values(values, user_id=current_user.id)
         return {
             "status": "success",
             "profile": saved,

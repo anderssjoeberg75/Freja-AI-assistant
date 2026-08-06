@@ -152,16 +152,22 @@ KEY_ALIASES = {
 
 REVERSE_KEY_ALIASES = {v: k for k, v in KEY_ALIASES.items()}
 
-def get_api_key(key_name: str):
-    """Fetches and decrypts a single value from the api_keys table. Checks aliases if absent."""
+def get_api_key(key_name: str, user_id: int = 1):
+    """Fetches and decrypts a single value from the api_keys table for user_id. Checks aliases if absent."""
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT key_value FROM api_keys WHERE key_name = ?", (key_name,))
+        cursor.execute(
+            "SELECT key_value FROM api_keys WHERE key_name = ? AND (user_id = ? OR user_id IS NULL) ORDER BY (user_id = ?) DESC LIMIT 1",
+            (key_name, user_id, user_id)
+        )
         row = cursor.fetchone()
         if not row or row[0] is None:
             alt_key = KEY_ALIASES.get(key_name) or REVERSE_KEY_ALIASES.get(key_name)
             if alt_key:
-                cursor.execute("SELECT key_value FROM api_keys WHERE key_name = ?", (alt_key,))
+                cursor.execute(
+                    "SELECT key_value FROM api_keys WHERE key_name = ? AND (user_id = ? OR user_id IS NULL) ORDER BY (user_id = ?) DESC LIMIT 1",
+                    (alt_key, user_id, user_id)
+                )
                 row = cursor.fetchone()
     if not row or row[0] is None:
         return None

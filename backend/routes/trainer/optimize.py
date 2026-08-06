@@ -1,9 +1,8 @@
-"""Reviews already-booked workouts against recovery data and adjusts them."""
-
 import datetime
-import httpx
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from backend.database import get_db_connection
+from backend.models import User
+from backend.routes.auth import get_current_user
 from backend.services import llm_client
 from backend.services.time_utils import today_local
 from .shared import (
@@ -16,19 +15,10 @@ router = APIRouter()
 
 
 async def core_optimize_upcoming_workouts(
-    location: str = None, days_ahead: int = 7, trigger: str = "manual"
+    location: str = None, days_ahead: int = 7, trigger: str = "manual", user_id: int = 1
 ) -> dict:
-    """Re-tunes the upcoming F.R.E.J.A. PT sessions in the calendar to the user's
-    latest recovery data.
-
-    Reads the most recent Garmin snapshot plus the RHR/HRV trends, pulls every
-    workout event from today through ``days_ahead`` days out, and asks COACH AI
-    whether each one is appropriate given sleep/HRV/recovery and the user's goal.
-    Sessions that would risk injury or over-training are shortened, de-loaded, or
-    turned into active rest — directly in Google Calendar. Good recovery leaves
-    the plan untouched. Returns a summary of what changed (empty if nothing did).
-    """
-    profile = get_trainer_profile()
+    """Re-tunes the upcoming F.R.E.J.A. PT sessions in the calendar to user_id's recovery data."""
+    profile = get_trainer_profile(user_id=user_id)
     goal = str(profile.get("goals") or profile.get("event") or "").strip()[:MAX_INPUT_LEN]
     limitations = str(profile.get("limitations") or "").strip()[:MAX_INPUT_LEN]
 
@@ -36,7 +26,6 @@ async def core_optimize_upcoming_workouts(
     today_str = today.strftime("%Y-%m-%d")
     horizon_str = (today + datetime.timedelta(days=days_ahead)).strftime("%Y-%m-%d")
 
-    # Upcoming workouts (today .. horizon) that F.R.E.J.A. booked.
     from backend.routes.google_calendar import core_get_calendar_data, core_save_calendar_event
     all_events = core_get_calendar_data(days=max(days_ahead, 1))
     upcoming = [
@@ -50,23 +39,22 @@ async def core_optimize_upcoming_workouts(
             "status": "no_workouts",
             "trigger": trigger,
             "assessment": "",
-            # The briefing is displayed verbatim to the user, so it is written in Swedish.
             "briefing": "Inga inbokade träningspass hittades för den kommande perioden, så inget behövde justeras.",
             "changes": [],
             "changes_count": 0,
             "considered": 0,
         }
 
-    # Latest Garmin recovery snapshot + calculated trends.
     garmin_snapshot = "No Garmin data available."
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute('''
             SELECT date, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status, sleep_deep_hours, sleep_light_hours, sleep_rem_hours, sleep_awake_hours, sleep_score
             FROM garmin_health
+            WHERE user_id = ? OR user_id IS NULL
             ORDER BY date DESC
             LIMIT 1
-        ''')
+        ''', (user_id,))
         g = cursor.fetchone()
     if g:
         garmin_snapshot = (
@@ -78,10 +66,9 @@ async def core_optimize_upcoming_workouts(
     loc = (location or profile.get("location") or DEFAULT_LOCATION).strip() or DEFAULT_LOCATION
     weather_str = await fetch_7day_weather_forecast(loc)
 
-    trends = calculate_trends()
+    trends = calculate_trends(user_id=user_id)
     trends_data_str = format_trends_summary(trends)
 
-    # Compile the upcoming workouts for the prompt (id lets us map adjustments back).
     workout_lines = []
     for e in upcoming:
         dur = _event_duration_minutes(e)
@@ -118,31 +105,16 @@ GOAL: "{goal_str}"{limitations_prompt}
 {trends_data_str}
 
 [ACTIVE INJURY / PAIN LOG (dated entries the user is still bothered by)]:
-{format_active_injuries()}
+{format_active_injuries(user_id=user_id)}
 
 [BOOKED UPCOMING WORKOUTS (today through {horizon_str})]:
 {workouts_str}
 
 Rules:
 - Assess recovery from sleep, resting heart rate (RHR), HRV, Body Battery, recovery time and training status.
-- Treat the ACTIVE INJURY / PAIN LOG as a hard constraint: a session that would load an affected area must
-  be reduced, or turned into active rest / an alternative modality when the logged severity is high (7-10).
-  Say so in "reason" so the calendar records why.
-- If recovery is POOR (e.g. RHR up sharply >{RHR_ALERT_PCT:.0f}%, HRV down sharply <{HRV_ALERT_PCT:.0f}%,
-  short/poor sleep, low Body Battery, long recovery time, or a training status of "Övertränad",
-  "Oproduktiv" or "Ansträngd" - the Garmin sync stores these in Swedish): reduce the length and/or
-  intensity of the nearest sessions, or turn a hard session into active rest.
-- If recovery is GOOD: keep the sessions as they are (action="keep"). NEVER reduce without cause.
-- Never increase a single session by more than ~10-15%. Prioritise health over pushing towards the goal.
-- For EVERY booked session above, return one entry in "adjustments" with exactly the same event_id (integer).
-- action: "keep" (no change), "reduce" (shorter/easier session), or "rest" (turn into active rest / light mobility).
-- new_duration_minutes: the session's new length in minutes (for "keep" = the current length; for "rest" = a
-  short easy session, e.g. 15-25).
-- new_title: an optional new title, written in Swedish (e.g. "🧘 Aktiv vila: rörlighet" for rest, or
-  "🏃 Lugn löptur" when scaling down). Leave empty to keep the current title.
-- reason: one short Swedish sentence explaining why (it is shown in the calendar).
-- briefing: a finished SHORT markdown summary, in Swedish, shown directly to the user - what you changed and
-  why (or that everything can stay as it is).
+- Treat the ACTIVE INJURY / PAIN LOG as a hard constraint.
+- If recovery is POOR: reduce length/intensity or turn to active rest.
+- If recovery is GOOD: keep sessions as they are.
 """
 
     schema = {
@@ -155,11 +127,11 @@ Rules:
                 "items": {
                     "type": "OBJECT",
                     "properties": {
-                        "event_id": {"type": "INTEGER", "description": "Calendar id of the session (from the list above)."},
+                        "event_id": {"type": "INTEGER", "description": "Calendar id of the session."},
                         "action": {"type": "STRING", "description": "keep, reduce or rest."},
                         "new_duration_minutes": {"type": "INTEGER", "description": "The session's new length in minutes."},
-                        "new_title": {"type": "STRING", "description": "Optional new title in Swedish (empty = keep the existing one)."},
-                        "reason": {"type": "STRING", "description": "Short rationale, written in Swedish (shown in the calendar)."}
+                        "new_title": {"type": "STRING", "description": "Optional new title in Swedish."},
+                        "reason": {"type": "STRING", "description": "Short rationale, written in Swedish."}
                     },
                     "required": ["event_id", "action", "new_duration_minutes", "reason"]
                 }
@@ -196,10 +168,10 @@ Rules:
         except (TypeError, ValueError):
             new_dur = 0
         if action == "rest" and new_dur <= 0:
-            new_dur = 20  # light active-recovery default
+            new_dur = 20
         new_dur = max(1, min(new_dur, MAX_WORKOUT_MINUTES))
         if action != "rest" and new_dur == current_dur:
-            continue  # nothing to actually change
+            continue
 
         start_time = (ev.get("start_time") or "")[:16]
         try:
@@ -255,7 +227,7 @@ Rules:
 
 
 @router.post("/api/trainer/optimize")
-async def optimize_trainer_workouts(request: Request):
+async def optimize_trainer_workouts(request: Request, current_user: User = Depends(get_current_user)):
     """Manually trigger COACH AI's recovery-driven re-tuning of upcoming workouts."""
     try:
         try:
@@ -268,7 +240,7 @@ async def optimize_trainer_workouts(request: Request):
         except (TypeError, ValueError):
             days_ahead = 7
         days_ahead = max(1, min(days_ahead, 28))
-        return await core_optimize_upcoming_workouts(location=location, days_ahead=days_ahead, trigger="manual")
+        return await core_optimize_upcoming_workouts(location=location, days_ahead=days_ahead, trigger="manual", user_id=current_user.id)
     except HTTPException:
         raise
     except httpx.HTTPStatusError as e:

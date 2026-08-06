@@ -4,9 +4,11 @@ import datetime
 import json
 import os
 import asyncio
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from backend.config import PROJECT_ROOT
 from backend.database import get_db_connection, get_api_key, set_api_key
+from backend.models import User
+from backend.routes.auth import get_current_user
 from backend.services.sync_status import set_sync_state
 from backend.services.time_utils import today_local
 
@@ -1471,10 +1473,11 @@ async def run_garmin_sync_flow(email, password, days):
 
 @router.get("/api/garmin/sync")
 async def get_garmin_sync(
-    days: int = Query(None, description="Number of days to sync. If not provided, syncs since the last sync date (capped at 30).")
+    days: int = Query(None, description="Number of days to sync. If not provided, syncs since the last sync date (capped at 30)."),
+    current_user: User = Depends(get_current_user)
 ):
-    email = get_api_key('freja_garmin_email') or ""
-    password = get_api_key('freja_garmin_password') or ""
+    email = get_api_key('freja_garmin_email', user_id=current_user.id) or ""
+    password = get_api_key('freja_garmin_password', user_id=current_user.id) or ""
     
     if not email or not password:
         raise HTTPException(
@@ -1483,7 +1486,7 @@ async def get_garmin_sync(
         )
         
     if days is None:
-        last_sync_val = get_api_key("last_sync_garmin")
+        last_sync_val = get_api_key("last_sync_garmin", user_id=current_user.id)
         if last_sync_val:
             try:
                 # Parse the last sync date and calculate difference
@@ -1523,7 +1526,7 @@ async def get_garmin_sync(
     }
 
 @router.get("/api/garmin/delete")
-async def delete_garmin_log(date: str = Query(..., description="Date to delete")):
+async def delete_garmin_log(date: str = Query(..., description="Date to delete"), current_user: User = Depends(get_current_user)):
     date_to_delete = date.strip()
     if not date_to_delete:
         raise HTTPException(status_code=400, detail="Date is missing.")
@@ -1531,7 +1534,7 @@ async def delete_garmin_log(date: str = Query(..., description="Date to delete")
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('DELETE FROM garmin_health WHERE date = ?', (date_to_delete,))
+            cursor.execute('DELETE FROM garmin_health WHERE date = ? AND (user_id = ? OR user_id IS NULL)', (date_to_delete, current_user.id))
             deleted = cursor.rowcount
             conn.commit()
         if not deleted:
@@ -1542,13 +1545,10 @@ async def delete_garmin_log(date: str = Query(..., description="Date to delete")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# Garmin tokens last on the order of 6 months (#181); warn once a cached tokenstore
-# approaches that, rather than waiting for the failure.
 TOKEN_STALE_WARNING_DAYS = 150
 
 
 def _garmin_token_age_days():
-    """Age in days of the cached Garmin tokenstore, or None if it doesn't exist yet."""
     token_dir = _garmin_token_dir()
     if not os.path.isdir(token_dir):
         return None
@@ -1566,8 +1566,8 @@ def _garmin_token_age_days():
 
 
 @router.get("/api/garmin/credentials")
-async def get_garmin_credentials():
-    email = get_api_key('freja_garmin_email') or ""
+async def get_garmin_credentials(current_user: User = Depends(get_current_user)):
+    email = get_api_key('freja_garmin_email', user_id=current_user.id) or ""
     token_age_days = _garmin_token_age_days()
     return {
         "email": email,
@@ -1577,12 +1577,9 @@ async def get_garmin_credentials():
 
 
 @router.post("/api/garmin/reauth")
-async def post_garmin_reauth():
-    """Clears the cached tokenstore and performs a fresh login, so renewing an expired
-    Garmin session is a click in the settings panel rather than deleting a file over
-    SSH (#181)."""
-    email = get_api_key('freja_garmin_email') or ""
-    password = get_api_key('freja_garmin_password') or ""
+async def post_garmin_reauth(current_user: User = Depends(get_current_user)):
+    email = get_api_key('freja_garmin_email', user_id=current_user.id) or ""
+    password = get_api_key('freja_garmin_password', user_id=current_user.id) or ""
     if not email or not password:
         raise HTTPException(
             status_code=400,
@@ -1598,12 +1595,6 @@ async def post_garmin_reauth():
 
         from garminconnect import Garmin
         client = Garmin(email, password)
-        # Note: this deliberately does not pass return_on_mfa - an account with 2FA enabled
-        # will fail here with an auth-classified error rather than complete a two-step MFA
-        # flow. The installed client (garminconnect==0.3.6) does support resuming an MFA
-        # login (Garmin(..., return_on_mfa=True) + client.resume_login(client_state, code)),
-        # but that needs holding client_state safely between two HTTP calls and confirming
-        # 2FA is actually enabled on this account first - deferred rather than guessed at.
         client.login(tokenstore=token_dir)
         set_sync_state("garmin", "success")
         return {"status": "success", "message": "Garmin re-authentication succeeded."}
@@ -1611,9 +1602,10 @@ async def post_garmin_reauth():
         set_sync_state("garmin", _classify_garmin_error(e), str(e))
         raise HTTPException(status_code=400, detail=f"Garmin re-authentication failed: {e}")
 
+
 @router.post("/api/garmin/data")
 @router.post("/api/garmin/save")
-async def post_garmin_data(request: Request):
+async def post_garmin_data(request: Request, current_user: User = Depends(get_current_user)):
     try:
         data = await request.json()
         date_str = data.get('date')
@@ -1633,9 +1625,10 @@ async def post_garmin_data(request: Request):
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                INSERT INTO garmin_health (date, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO garmin_health (user_id, date, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(date) DO UPDATE SET
+                    user_id = excluded.user_id,
                     steps = excluded.steps,
                     sleep_hours = excluded.sleep_hours,
                     resting_hr = excluded.resting_hr,
@@ -1646,7 +1639,7 @@ async def post_garmin_data(request: Request):
                     hrv = excluded.hrv,
                     recovery_time = excluded.recovery_time,
                     training_status = excluded.training_status
-            ''', (date_str, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status))
+            ''', (current_user.id, date_str, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status))
             conn.commit()
         return {'status': 'success', 'message': 'Garmin log saved.'}
     except Exception as e:

@@ -1,9 +1,9 @@
-"""Books a generated plan's workouts into the calendar (replace, don't stack)."""
-
 import datetime
 import json
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from backend.database import get_db_connection
+from backend.models import User
+from backend.routes.auth import get_current_user
 from backend.services import plan_export
 from backend.services.time_utils import today_local
 from .shared import (
@@ -15,13 +15,7 @@ router = APIRouter()
 
 
 def _find_free_slot(workout_date: datetime.date, duration: int, day_events: list) -> datetime.datetime | None:
-    """Finds a start time on workout_date that doesn't overlap existing events.
-
-    Starts at the preferred hour and, on a clash, jumps to the end of the
-    conflicting event, retrying until the day-end limit. If no slot fits in the
-    preferred window, searches morning hours (06:00-08:00). Returns None if the
-    day has no free slot of `duration` minutes to avoid double-booking.
-    """
+    """Finds a start time on workout_date that doesn't overlap existing events."""
     dur = datetime.timedelta(minutes=duration)
     intervals = []
     for e in day_events:
@@ -30,7 +24,7 @@ def _find_free_slot(workout_date: datetime.date, duration: int, day_events: list
             en = datetime.datetime.strptime((e.get("end_time") or "")[:16], "%Y-%m-%dT%H:%M")
             intervals.append((s, en))
         except Exception:
-            continue  # all-day / malformed events don't block scheduling
+            continue
     intervals.sort()
 
     def _search_window(start_hour: int, end_hour: int) -> datetime.datetime | None:
@@ -40,7 +34,7 @@ def _find_free_slot(workout_date: datetime.date, duration: int, day_events: list
             candidate_end = start + dur
             conflict_end = None
             for (s, en) in intervals:
-                if start < en and candidate_end > s:  # overlap
+                if start < en and candidate_end > s:
                     conflict_end = en
                     break
             if conflict_end is None:
@@ -48,32 +42,22 @@ def _find_free_slot(workout_date: datetime.date, duration: int, day_events: list
             start = conflict_end
         return None
 
-    # First attempt: preferred hour to end of day
     slot = _search_window(DEFAULT_WORKOUT_HOUR, DAY_END_HOUR)
     if slot is not None:
         return slot
 
-    # Second attempt: early morning window (06:00 to DEFAULT_WORKOUT_HOUR)
     slot_morning = _search_window(6, DEFAULT_WORKOUT_HOUR)
     if slot_morning is not None:
         return slot_morning
 
-    # No free slot fits on this day
     return None
 
 
-async def core_book_plan_internal(plan_id: int, start_date: datetime.date, skip_past: bool = True) -> dict:
-    """Books a plan's workouts into the calendar, anchored on `start_date`.
-
-    `start_date` must be a Monday: the plan's Swedish weekday names are turned into absolute
-    offsets from it (Måndag = 0). `skip_past` drops sessions that would land before today,
-    which is what makes booking a plan mid-week sane - a plan generated on Thursday keeps
-    Friday/Saturday/Sunday and silently forgets the Monday session that already passed.
-    Callers that deliberately book a historical window pass skip_past=False.
-    """
+async def core_book_plan_internal(plan_id: int, start_date: datetime.date, skip_past: bool = True, user_id: int = 1) -> dict:
+    """Books a plan's workouts into the calendar, anchored on `start_date` for user_id."""
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT advice_text FROM trainer_plans WHERE id = ?", (plan_id,))
+        cursor.execute("SELECT advice_text FROM trainer_plans WHERE id = ? AND (user_id = ? OR user_id IS NULL)", (plan_id, user_id))
         row = cursor.fetchone()
 
     if not row:
@@ -88,13 +72,9 @@ async def core_book_plan_internal(plan_id: int, start_date: datetime.date, skip_
     if not workouts:
         return {"status": "success", "message": "No workouts to book.", "booked_count": 0, "replaced_count": 0}
 
-    # The plan's `day` field is a Swedish weekday name (enforced by the generate schema).
-    # Offsets are relative to the plan's start_date, which the caller supplies. The
-    # mapping is shared with the plan export so both schedule a plan identically.
     day_offsets = plan_export.SWEDISH_DAY_OFFSETS
 
     def _bookable_offset(w) -> int | None:
-        """The day offset for `w`, or None if it has no valid day or is a rest day."""
         off = day_offsets.get(str(w.get("day", "")).lower())
         if off is None:
             return None
@@ -112,21 +92,10 @@ async def core_book_plan_internal(plan_id: int, start_date: datetime.date, skip_
 
     bookable_offsets = [o for o in (_bookable_offset(w) for w in workouts) if o is not None]
     if not bookable_offsets:
-        # Nothing in this plan can actually be booked (unparseable day names, or every entry
-        # is a rest day). Bail out before touching any existing booking - a plan that books
-        # nothing must not delete something that was already booked (issue #63).
         return {"status": "success", "message": "No bookable workouts in this plan.", "booked_count": 0, "replaced_count": 0}
 
     from backend.routes.google_calendar import core_save_calendar_event, core_get_calendar_data
 
-    # --- Replace, don't stack: remove every PT session already booked from window_start
-    #     onward, regardless of which plan created it or how far into the future it runs.
-    #     Booking a *different* (or shorter) plan onto overlapping dates used to only clear
-    #     bookings within the new plan's own span, so a shorter replacement plan left the old
-    #     plan's later weeks dangling (issue #61) - there is no upper bound here on purpose.
-    #     Only future days are cleared when skip_past is set, so completed/past sessions stay
-    #     as history. Only PT bookings (this table) and their events are touched - the user's
-    #     own calendar entries are never removed. ---
     window_start = start_date
     if skip_past and window_start < today_local():
         window_start = today_local()
@@ -134,13 +103,12 @@ async def core_book_plan_internal(plan_id: int, start_date: datetime.date, skip_
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT id, event_id FROM trainer_bookings WHERE workout_date >= ?",
-            (window_start.isoformat(),)
+            "SELECT id, event_id FROM trainer_bookings WHERE workout_date >= ? AND (user_id = ? OR user_id IS NULL)",
+            (window_start.isoformat(), user_id)
         )
         prior = cursor.fetchall()
     rebooked = await _clear_bookings(prior)
 
-    # Existing calendar events used for conflict avoidance (mutated as we book).
     all_events = core_get_calendar_data(days=60)
 
     booked_count = 0
@@ -157,8 +125,8 @@ async def core_book_plan_internal(plan_id: int, start_date: datetime.date, skip_
         except (TypeError, ValueError):
             duration = 0
         if duration <= 0:
-            continue  # Skip rest day
-        duration = min(duration, MAX_WORKOUT_MINUTES)  # Sanity cap
+            continue
+        duration = min(duration, MAX_WORKOUT_MINUTES)
 
         try:
             week = max(0, min(51, int(w.get("week", 0) or 0)))
@@ -170,8 +138,6 @@ async def core_book_plan_internal(plan_id: int, start_date: datetime.date, skip_
             skipped_past += 1
             continue
 
-        # Find a non-conflicting slot; format at minute precision so the
-        # Google push (which appends ":00") produces a valid RFC3339 time.
         day_events = [e for e in all_events if (e.get("start_time") or "")[:10] == workout_date.isoformat()]
         slot_start = _find_free_slot(workout_date, duration, day_events)
         if slot_start is None:
@@ -183,9 +149,6 @@ async def core_book_plan_internal(plan_id: int, start_date: datetime.date, skip_
         start_dt = slot_start.strftime("%Y-%m-%dT%H:%M")
         end_dt = slot_end.strftime("%Y-%m-%dT%H:%M")
 
-        # Event title/description land in the user's calendar, so they stay Swedish.
-        # The 💪 prefix and the "F.R.E.J.A. PT" location are what is_workout_event()
-        # later matches on to tell PT sessions apart from ordinary meetings.
         summary = f"💪 {w.get('activity_type') or 'Träning'}: {w.get('title') or 'Pass'}"
         exercises_block = _format_exercises_for_calendar(w.get("exercises"))
         description = (
@@ -194,9 +157,6 @@ async def core_book_plan_internal(plan_id: int, start_date: datetime.date, skip_
         )
         location = WORKOUT_LOCATION_MARKER
 
-        # A failed sync must not leave a "booked" row with nothing on the real calendar
-        # (issue #59) - skip this workout and keep going rather than aborting the whole
-        # plan and losing sessions that would have booked fine (issue #62).
         try:
             result = await core_save_calendar_event(
                 summary=summary,
@@ -211,16 +171,14 @@ async def core_book_plan_internal(plan_id: int, start_date: datetime.date, skip_
             continue
         event_id = (result.get("event") or {}).get("id")
 
-        # Record the booking so it can be de-duplicated / adjusted later.
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "INSERT INTO trainer_bookings (plan_id, event_id, workout_date, week) VALUES (?, ?, ?, ?)",
-                (plan_id, event_id, workout_date.isoformat(), week)
+                "INSERT INTO trainer_bookings (user_id, plan_id, event_id, workout_date, week) VALUES (?, ?, ?, ?, ?)",
+                (user_id, plan_id, event_id, workout_date.isoformat(), week)
             )
             conn.commit()
 
-        # Make this new event visible to the next same-day workout.
         all_events.append({"start_time": f"{start_dt}:00", "end_time": f"{end_dt}:00"})
         booked_count += 1
 
@@ -242,7 +200,7 @@ async def core_book_plan_internal(plan_id: int, start_date: datetime.date, skip_
 
 
 @router.post("/api/trainer/plans/book")
-async def book_trainer_plan(request: Request):
+async def book_trainer_plan(request: Request, current_user: User = Depends(get_current_user)):
     try:
         body = await request.json()
         plan_id = body.get("plan_id")
@@ -256,9 +214,7 @@ async def book_trainer_plan(request: Request):
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid start date format (use YYYY-MM-DD).")
 
-        # An explicitly requested start date is honoured in full, including sessions in the
-        # past - the caller picked that date deliberately (e.g. re-booking a past week).
-        return await core_book_plan_internal(plan_id, start_date, skip_past=False)
+        return await core_book_plan_internal(plan_id, start_date, skip_past=False, user_id=current_user.id)
 
     except HTTPException:
         raise
