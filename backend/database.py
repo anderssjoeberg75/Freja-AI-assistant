@@ -185,14 +185,24 @@ def set_api_key(key_name: str, value: str, user_id: int = 1):
     with get_db_connection() as conn:
         cursor = conn.cursor()
         for k in keys_to_set:
-            cursor.execute(
-                """
-                INSERT INTO api_keys (user_id, key_name, key_value)
-                VALUES (?, ?, ?)
-                ON CONFLICT(user_id, key_name) DO UPDATE SET key_value = excluded.key_value
-                """,
-                (user_id, k, encrypted),
-            )
+            try:
+                cursor.execute(
+                    """
+                    INSERT INTO api_keys (user_id, key_name, key_value)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(user_id, key_name) DO UPDATE SET key_value = excluded.key_value
+                    """,
+                    (user_id, k, encrypted),
+                )
+            except (sqlite3.OperationalError, Exception):
+                cursor.execute(
+                    """
+                    INSERT INTO api_keys (user_id, key_name, key_value)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(key_name) DO UPDATE SET key_value = excluded.key_value, user_id = excluded.user_id
+                    """,
+                    (user_id, k, encrypted),
+                )
         conn.commit()
 
 
@@ -269,10 +279,17 @@ def init_db():
         row = db.execute(text("SELECT key_value FROM api_keys WHERE key_name = 'freja_access_token' AND (user_id = 1 OR user_id IS NULL)")).fetchone()
         if row is None or not row[0]:
             new_token = secrets.token_urlsafe(32)
-            db.execute(
-                text("INSERT INTO api_keys (user_id, key_name, key_value) VALUES (1, 'freja_access_token', :val) ON CONFLICT(user_id, key_name) DO UPDATE SET key_value = EXCLUDED.key_value"),
-                {"val": encrypt_value(new_token)}
-            )
+            try:
+                db.execute(
+                    text("INSERT INTO api_keys (user_id, key_name, key_value) VALUES (1, 'freja_access_token', :val) ON CONFLICT(user_id, key_name) DO UPDATE SET key_value = EXCLUDED.key_value"),
+                    {"val": encrypt_value(new_token)}
+                )
+            except Exception:
+                db.execute(
+                    text("INSERT INTO api_keys (user_id, key_name, key_value) VALUES (1, 'freja_access_token', :val) ON CONFLICT(key_name) DO UPDATE SET key_value = EXCLUDED.key_value"),
+                    {"val": encrypt_value(new_token)}
+                )
+            db.commit()
             db.commit()
             print("[FREJA] Generated a new secure access token.")
         else:

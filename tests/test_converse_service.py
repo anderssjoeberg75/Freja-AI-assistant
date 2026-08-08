@@ -18,6 +18,9 @@ def _seed_provider_gemini():
 @pytest.mark.asyncio
 async def test_generate_freja_reply_returns_text_and_persists_history(monkeypatch):
     _seed_provider_gemini()
+    with get_db_connection() as conn:
+        conn.cursor().execute("DELETE FROM chat_history")
+        conn.commit()
 
     captured = {}
 

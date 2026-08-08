@@ -39,6 +39,12 @@ _failed_attempts = defaultdict(list)  # ip -> [failure timestamps]
 _locked_until = {}  # ip -> unix timestamp when the lockout lifts
 
 
+def reset_auth_lockout():
+    """Resets in-memory lockout state between unit tests."""
+    _failed_attempts.clear()
+    _locked_until.clear()
+
+
 def _client_ip(request: Request) -> str:
     host = request.client.host if request.client else "unknown"
     if host.startswith("::ffff:"):

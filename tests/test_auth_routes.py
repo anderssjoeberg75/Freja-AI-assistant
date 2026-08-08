@@ -58,9 +58,13 @@ def test_register_and_login_flow():
 
 
 def test_user_chat_isolation():
-    # Register User A and User B
-    res_a = client.post("/api/auth/register", json={"email": "usera@example.com", "password": "passa123"}).json()
-    res_b = client.post("/api/auth/register", json={"email": "userb@example.com", "password": "passb123"}).json()
+    res_a = client.post("/api/auth/register", json={"email": "usera_iso@example.com", "password": "passa123"}).json()
+    if "access_token" not in res_a:
+        res_a = client.post("/api/auth/login", json={"email": "usera_iso@example.com", "password": "passa123"}).json()
+
+    res_b = client.post("/api/auth/register", json={"email": "userb_iso@example.com", "password": "passb123"}).json()
+    if "access_token" not in res_b:
+        res_b = client.post("/api/auth/login", json={"email": "userb_iso@example.com", "password": "passb123"}).json()
 
     token_a = res_a["access_token"]
     token_b = res_b["access_token"]

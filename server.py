@@ -177,9 +177,9 @@ def run_server():
     print(f"  Active Access Token: {masked_token}")
     print("  API keys database & security active (FastAPI Mode)")
     print("===========================================================")
-    # reload=True forces SelectorEventLoop on Windows, which doesn't support subprocesses (needed for Playwright).
-    # Thus, reload is disabled by default on Windows unless explicitly requested via FREJA_RELOAD.
-    reload_enabled = os.environ.get("FREJA_RELOAD", "").lower() in ("true", "1", "yes") if os.name == 'nt' else True
+    # Uvicorn auto-reload is opt-in via FREJA_RELOAD environment variable to avoid racing
+    # against Git updates / system restart handlers during automated deployments.
+    reload_enabled = os.environ.get("FREJA_RELOAD", "").lower() in ("true", "1", "yes")
     reload_dirs = [str(PROJECT_ROOT / "backend"), str(PROJECT_ROOT / "client")] if reload_enabled else None
     uvicorn.run("server:app", host="0.0.0.0", port=PORT, log_level="info", reload=reload_enabled, reload_dirs=reload_dirs)
 
