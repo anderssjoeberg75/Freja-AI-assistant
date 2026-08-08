@@ -351,18 +351,27 @@ def fetch_activity_details(client, cursor, limit=DETAIL_FETCH_CAP, since_date=No
     `trainer_strength_logs` in the same pass, sharing the same once-ever marker.
     Returns `{"fetched": N, "failed": N, "remaining": N}` - `remaining` lets the caller log
     a deferred count rather than a capped pass silently reading as complete."""
+    count_query = "SELECT COUNT(*) FROM garmin_activities WHERE detail_fetched_at IS NULL"
+    count_params = []
+    if since_date:
+        count_query += " AND date >= ?"
+        count_params.append(since_date)
+    cursor.execute(count_query, count_params)
+    total_pending = cursor.fetchone()[0]
+
     query = "SELECT activity_id, date, raw_type_key, lap_count FROM garmin_activities WHERE detail_fetched_at IS NULL"
     params = []
     if since_date:
         query += " AND date >= ?"
         params.append(since_date)
-    query += " ORDER BY date ASC"
+    query += " ORDER BY date ASC LIMIT ?"
+    params.append(limit)
     cursor.execute(query, params)
     pending = cursor.fetchall()
 
     fetched, failed = 0, 0
     now_str = datetime.datetime.now().isoformat()
-    for activity_id, activity_date, raw_type_key, lap_count in pending[:limit]:
+    for activity_id, activity_date, raw_type_key, lap_count in pending:
         try:
             detail = client.get_activity(activity_id) or {}
             summary = detail.get('summaryDTO') or {}
@@ -462,7 +471,7 @@ def fetch_activity_details(client, cursor, limit=DETAIL_FETCH_CAP, since_date=No
             print(f"[Garmin Sync] Error fetching activity detail for {activity_id}: {detail_err}")
             failed += 1
 
-    remaining = max(0, len(pending) - limit)
+    remaining = max(0, total_pending - len(pending))
     if remaining:
         print(f"[Garmin Sync] Activity detail pass deferred {remaining} activities to the next run.")
     return {"fetched": fetched, "failed": failed, "remaining": remaining}
@@ -1080,226 +1089,212 @@ def run_garmin_sync_task_blocking(email, password, days, end_date=None):
         # retried by a later sync.
         any_day_succeeded = False
 
+        any_day_succeeded = False
+        rows_to_insert = []
+
+        for date_str in dates_to_sync:
+            # Reset EVERY per-day field here, so a failed fetch leaves NULL instead of
+            # carrying over the previous day's value. Each metric below is assigned only
+            # inside its own try/if, so anything missing from this block silently
+            # duplicates yesterday's reading into today's row - which is worse than a
+            # gap, because a plausible number is invisible once it reaches the trend
+            # charts, the health baselines and the coach's recovery assessment.
+            # Keep this list exhaustive when adding a column.
+            steps = None
+            active_calories = None
+            sleep_hours = None
+            resting_hr = None
+            body_battery = None
+            hrv = None
+            recovery_time = None
+            training_status = None
+            stress_avg = None
+            stress_max = None
+            sleep_deep_hours = None
+            sleep_light_hours = None
+            sleep_rem_hours = None
+            sleep_awake_hours = None
+            vo2max = None
+            intensity_minutes = None
+            sleep_score = None
+            training_load_acute = None
+            training_load_chronic = None
+            acwr = None
+            acwr_status = None
+            load_aerobic_low = None
+            load_aerobic_high = None
+            load_anaerobic = None
+            training_readiness = None
+            training_readiness_level = None
+            training_readiness_feedback = None
+            # workout_type/workout_duration are the one exception: they are derived from
+            # the `activities` list fetched once above, not from a per-day call, so "no
+            # workout that day" is a real answer and 0 minutes is the truthful value.
+            workout_type = None
+            workout_duration = 0
+            try:
+                stats = client.get_stats(date_str)
+                if stats:
+                    active_calories = int(stats.get('activeCalories', 0) or 0)
+                    avg_s = stats.get('averageStressLevel')
+                    max_s = stats.get('maxStressLevel')
+                    stress_avg = int(avg_s) if isinstance(avg_s, (int, float)) and avg_s >= 0 else None
+                    stress_max = int(max_s) if isinstance(max_s, (int, float)) and max_s >= 0 else None
+                    mod = stats.get('moderateIntensityMinutes') or 0
+                    vig = stats.get('vigorousIntensityMinutes') or 0
+                    intensity_minutes = int(mod) + 2 * int(vig)
+            except Exception as stats_err:
+                print(f"Error fetching stats for {date_str}: {stats_err}")
+
+            day_steps = steps_by_date.get(date_str)
+            if day_steps:
+                steps = int(day_steps.get('totalSteps') or day_steps.get('steps') or 0)
+
+            try:
+                sleep_data = client.get_sleep_data(date_str)
+                if sleep_data:
+                    dto = sleep_data.get('dailySleepDTO', {}) or {}
+                    sleep_time_sec = dto.get('sleepTimeSeconds', 0) or 0
+                    sleep_hours = round(sleep_time_sec / 3600.0, 1)
+                    sleep_deep_hours = round((dto.get('deepSleepSeconds') or 0) / 3600.0, 2)
+                    sleep_light_hours = round((dto.get('lightSleepSeconds') or 0) / 3600.0, 2)
+                    sleep_rem_hours = round((dto.get('remSleepSeconds') or 0) / 3600.0, 2)
+                    sleep_awake_hours = round((dto.get('awakeSleepSeconds') or 0) / 3600.0, 2)
+                    score_val = (dto.get('sleepScores', {}) or {}).get('overall', {}).get('value')
+                    sleep_score = int(score_val) if isinstance(score_val, (int, float)) else None
+            except Exception as sleep_err:
+                print(f"Error fetching sleep for {date_str}: {sleep_err}")
+
+            try:
+                mm = client.get_max_metrics(date_str)
+                if mm:
+                    entry = mm[0] if isinstance(mm, list) and mm else mm
+                    generic = (entry or {}).get('generic', {}) or {}
+                    vo2_val = generic.get('vo2MaxPreciseValue') or generic.get('vo2MaxValue')
+                    vo2max = round(float(vo2_val), 1) if isinstance(vo2_val, (int, float)) else None
+            except Exception as vo2_err:
+                print(f"Error fetching VO2max for {date_str}: {vo2_err}")
+
+            try:
+                heart_rates = client.get_heart_rates(date_str)
+                if heart_rates:
+                    resting_hr = int(heart_rates.get('restingHeartRate', 0) or 0)
+            except Exception as hr_err:
+                print(f"Error fetching heart rates for {date_str}: {hr_err}")
+
+            day_activities = activities_by_date.get(date_str, [])
+            if day_activities:
+                dominant = max(day_activities, key=lambda a: a.get('duration', 0) or 0)
+                act_type = (dominant.get('activityType', {}) or {}).get('typeKey')
+                workout_type = _map_garmin_type(act_type)
+                workout_duration = int(round(
+                    sum(a.get('duration', 0) or 0 for a in day_activities) / 60.0
+                ))
+
+            try:
+                day_bb = bb_by_date.get(date_str)
+                if day_bb:
+                    bb_values = [v[1] for v in (day_bb.get('bodyBatteryValuesArray') or []) if isinstance(v, list) and len(v) > 1 and v[1] is not None]
+                    body_battery = max(bb_values) if bb_values else day_bb.get('highest')
+            except Exception as bb_err:
+                print(f"Error extracting body battery for {date_str}: {bb_err}")
+
+            try:
+                hrv_data = client.get_hrv_data(date_str)
+                if hrv_data and isinstance(hrv_data, dict):
+                    hrv_summary = hrv_data.get('hrvSummary', {})
+                    if hrv_summary:
+                        hrv = hrv_summary.get('lastNightAvg')
+            except Exception as hrv_err:
+                print(f"Error fetching HRV for {date_str}: {hrv_err}")
+
+            try:
+                ts_data = client.get_training_status(date_str)
+                if ts_data:
+                    if isinstance(ts_data, list) and len(ts_data) > 0:
+                        ts_data = ts_data[0]
+                    if isinstance(ts_data, dict):
+                        raw_status = ts_data.get('trainingStatus')
+                        if raw_status:
+                            status_mapping = {
+                                'PRODUCTIVE': 'Produktiv',
+                                'MAINTAINING': 'Underhållande',
+                                'UNPRODUCTIVE': 'Oproduktiv',
+                                'PEAKING': 'Toppform',
+                                'OVERREACHING': 'Övertränad',
+                                'RECOVERY': 'Återhämtning',
+                                'DETRAINING': 'Avtagande form',
+                                'STRAINED': 'Ansträngd'
+                            }
+                            training_status = status_mapping.get(raw_status.upper(), raw_status.capitalize())
+                        recovery_time = ts_data.get('recoveryTimeInHours')
+
+                        most_recent_status = ts_data.get('mostRecentTrainingStatus') or {}
+                        device_status_map = most_recent_status.get('latestTrainingStatusData') or {}
+                        status_entry = _latest_device_entry(device_status_map)
+                        if status_entry:
+                            acute_dto = status_entry.get('acuteTrainingLoadDTO') or {}
+                            training_load_acute = acute_dto.get('dailyTrainingLoadAcute')
+                            training_load_chronic = acute_dto.get('dailyTrainingLoadChronic')
+                            acwr = acute_dto.get('dailyAcuteChronicWorkloadRatio')
+                            acwr_status = acute_dto.get('acwrStatus')
+
+                        most_recent_balance = ts_data.get('mostRecentTrainingLoadBalance') or {}
+                        device_balance_map = most_recent_balance.get('metricsTrainingLoadBalanceDTOMap') or {}
+                        balance_entry = _latest_device_entry(device_balance_map)
+                        if balance_entry:
+                            load_aerobic_low = balance_entry.get('monthlyLoadAerobicLow')
+                            load_aerobic_high = balance_entry.get('monthlyLoadAerobicHigh')
+                            load_anaerobic = balance_entry.get('monthlyLoadAnaerobic')
+            except Exception as ts_err:
+                print(f"Error fetching training status for {date_str}: {ts_err}")
+
+            try:
+                tr_data = client.get_training_readiness(date_str)
+                if tr_data:
+                    if isinstance(tr_data, list) and len(tr_data) > 0:
+                        tr_data = tr_data[0]
+                    if isinstance(tr_data, dict):
+                        if recovery_time is None:
+                            recovery_time = tr_data.get('recoveryTime') or tr_data.get('recoveryTimeInHours')
+                            if not recovery_time and 'trainingReadinessDTO' in tr_data:
+                                recovery_time = tr_data['trainingReadinessDTO'].get('recoveryTime')
+                        score_val = tr_data.get('score')
+                        training_readiness = int(score_val) if isinstance(score_val, (int, float)) else None
+                        training_readiness_level = tr_data.get('level')
+                        training_readiness_feedback = tr_data.get('feedbackLong') or tr_data.get('feedbackShort')
+            except Exception as tr_err:
+                print(f"Error fetching training readiness for {date_str}: {tr_err}")
+
+            day_fields = (
+                steps, sleep_hours, resting_hr, active_calories, body_battery, hrv,
+                recovery_time, training_status, stress_avg, stress_max, sleep_deep_hours,
+                sleep_light_hours, sleep_rem_hours, sleep_awake_hours, vo2max,
+                intensity_minutes, sleep_score, training_load_acute, training_load_chronic,
+                acwr, load_aerobic_low, load_aerobic_high, load_anaerobic, training_readiness,
+            )
+            if any(v is not None for v in day_fields):
+                any_day_succeeded = True
+
+            rows_to_insert.append((
+                date_str, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status, stress_avg, stress_max, sleep_deep_hours, sleep_light_hours, sleep_rem_hours, sleep_awake_hours, vo2max, intensity_minutes, sleep_score, training_load_acute, training_load_chronic, acwr, acwr_status, load_aerobic_low, load_aerobic_high, load_anaerobic, training_readiness, training_readiness_level, training_readiness_feedback
+            ))
+
+        if dates_to_sync and not any_day_succeeded:
+            raise Exception(
+                "Garmin sync retrieved no health data for any day in the requested window - "
+                "the session may have expired or Garmin may be rate-limiting/blocking login."
+            )
+
         with get_db_connection() as conn:
             cursor = conn.cursor()
 
             try:
                 _upsert_garmin_activities(cursor, activities)
             except Exception as upsert_err:
-                # Must not fail the health-metric sync that already succeeded; a failed
-                # upsert here just leaves garmin_activities stale until the next run.
                 print(f"[Garmin Sync] Error upserting activities: {upsert_err}")
 
-            for date_str in dates_to_sync:
-                # Reset EVERY per-day field here, so a failed fetch leaves NULL instead of
-                # carrying over the previous day's value. Each metric below is assigned only
-                # inside its own try/if, so anything missing from this block silently
-                # duplicates yesterday's reading into today's row - which is worse than a
-                # gap, because a plausible number is invisible once it reaches the trend
-                # charts, the health baselines and the coach's recovery assessment.
-                # Keep this list exhaustive when adding a column.
-                steps = None
-                active_calories = None
-                sleep_hours = None
-                resting_hr = None
-                body_battery = None
-                hrv = None
-                recovery_time = None
-                training_status = None
-                stress_avg = None
-                stress_max = None
-                sleep_deep_hours = None
-                sleep_light_hours = None
-                sleep_rem_hours = None
-                sleep_awake_hours = None
-                vo2max = None
-                intensity_minutes = None
-                sleep_score = None
-                training_load_acute = None
-                training_load_chronic = None
-                acwr = None
-                acwr_status = None
-                load_aerobic_low = None
-                load_aerobic_high = None
-                load_anaerobic = None
-                training_readiness = None
-                training_readiness_level = None
-                training_readiness_feedback = None
-                # workout_type/workout_duration are the one exception: they are derived from
-                # the `activities` list fetched once above, not from a per-day call, so "no
-                # workout that day" is a real answer and 0 minutes is the truthful value.
-                workout_type = None
-                workout_duration = 0
-                try:
-                    stats = client.get_stats(date_str)
-                    if stats:
-                        active_calories = int(stats.get('activeCalories', 0) or 0)
-                        # All-day stress. Garmin returns -1 (no data) / -2 (too little data)
-                        # when there is no valid reading, so only keep non-negative values.
-                        # No verified date-ranged endpoint returns this per day (#178) -
-                        # get_weekly_stress is a weekly aggregate, not a daily one - so this
-                        # stays a per-day call.
-                        avg_s = stats.get('averageStressLevel')
-                        max_s = stats.get('maxStressLevel')
-                        stress_avg = int(avg_s) if isinstance(avg_s, (int, float)) and avg_s >= 0 else None
-                        stress_max = int(max_s) if isinstance(max_s, (int, float)) and max_s >= 0 else None
-                        # Intensity minutes toward the weekly goal: vigorous counts double,
-                        # the same weighting Garmin displays. Same reasoning as stress above -
-                        # get_weekly_intensity_minutes is weekly, not daily.
-                        mod = stats.get('moderateIntensityMinutes') or 0
-                        vig = stats.get('vigorousIntensityMinutes') or 0
-                        intensity_minutes = int(mod) + 2 * int(vig)
-                except Exception as stats_err:
-                    print(f"Error fetching stats for {date_str}: {stats_err}")
-                # Steps come from the ranged get_daily_steps call fetched once above (#178),
-                # not from get_stats - a miss here yields None via .get(), same as a failed
-                # per-day call would have.
-                day_steps = steps_by_date.get(date_str)
-                if day_steps:
-                    steps = int(day_steps.get('totalSteps') or day_steps.get('steps') or 0)
-                try:
-                    sleep_data = client.get_sleep_data(date_str)
-                    if sleep_data:
-                        dto = sleep_data.get('dailySleepDTO', {}) or {}
-                        sleep_time_sec = dto.get('sleepTimeSeconds', 0) or 0
-                        sleep_hours = round(sleep_time_sec / 3600.0, 1)
-                        # Sleep stages (seconds -> hours) from the same nightly record.
-                        sleep_deep_hours = round((dto.get('deepSleepSeconds') or 0) / 3600.0, 2)
-                        sleep_light_hours = round((dto.get('lightSleepSeconds') or 0) / 3600.0, 2)
-                        sleep_rem_hours = round((dto.get('remSleepSeconds') or 0) / 3600.0, 2)
-                        sleep_awake_hours = round((dto.get('awakeSleepSeconds') or 0) / 3600.0, 2)
-                        # Overall sleep score (0-100), when Garmin provides one.
-                        score_val = (dto.get('sleepScores', {}) or {}).get('overall', {}).get('value')
-                        sleep_score = int(score_val) if isinstance(score_val, (int, float)) else None
-                except Exception as sleep_err:
-                    print(f"Error fetching sleep for {date_str}: {sleep_err}")
-                try:
-                    # VO2max estimate (running). get_max_metrics returns a list; the value
-                    # lives under the 'generic' block.
-                    mm = client.get_max_metrics(date_str)
-                    if mm:
-                        entry = mm[0] if isinstance(mm, list) and mm else mm
-                        generic = (entry or {}).get('generic', {}) or {}
-                        vo2_val = generic.get('vo2MaxPreciseValue') or generic.get('vo2MaxValue')
-                        vo2max = round(float(vo2_val), 1) if isinstance(vo2_val, (int, float)) else None
-                except Exception as vo2_err:
-                    print(f"Error fetching VO2max for {date_str}: {vo2_err}")
-                try:
-                    heart_rates = client.get_heart_rates(date_str)
-                    if heart_rates:
-                        resting_hr = int(heart_rates.get('restingHeartRate', 0) or 0)
-                except Exception as hr_err:
-                    print(f"Error fetching heart rates for {date_str}: {hr_err}")
-                    
-                # garmin_health keeps one row per date, so multiple sessions on one day are
-                # rolled up rather than stored individually here - the full per-activity detail
-                # lives in garmin_activities (upserted above). Dominant = longest session (what
-                # a user would call "today's workout"); duration = the day's total, so a second
-                # session is no longer silently dropped (#177).
-                day_activities = activities_by_date.get(date_str, [])
-                if day_activities:
-                    dominant = max(day_activities, key=lambda a: a.get('duration', 0) or 0)
-                    act_type = (dominant.get('activityType', {}) or {}).get('typeKey')
-                    workout_type = _map_garmin_type(act_type)
-                    workout_duration = int(round(
-                        sum(a.get('duration', 0) or 0 for a in day_activities) / 60.0
-                    ))
-
-                try:
-                    # Fetched once for the whole window above (#178), not per day.
-                    day_bb = bb_by_date.get(date_str)
-                    if day_bb:
-                        # Extract the maximum value from bodyBatteryValuesArray (list of [timestamp, value] pairs)
-                        bb_values = [v[1] for v in (day_bb.get('bodyBatteryValuesArray') or []) if isinstance(v, list) and len(v) > 1 and v[1] is not None]
-                        body_battery = max(bb_values) if bb_values else day_bb.get('highest')
-                except Exception as bb_err:
-                    print(f"Error extracting body battery for {date_str}: {bb_err}")
-                try:
-                    hrv_data = client.get_hrv_data(date_str)
-                    if hrv_data and isinstance(hrv_data, dict):
-                        hrv_summary = hrv_data.get('hrvSummary', {})
-                        if hrv_summary:
-                            hrv = hrv_summary.get('lastNightAvg')
-                except Exception as hrv_err:
-                    print(f"Error fetching HRV for {date_str}: {hrv_err}")
-                    
-                try:
-                    ts_data = client.get_training_status(date_str)
-                    if ts_data:
-                        if isinstance(ts_data, list) and len(ts_data) > 0:
-                            ts_data = ts_data[0]
-                        if isinstance(ts_data, dict):
-                            raw_status = ts_data.get('trainingStatus')
-                            if raw_status:
-                                # Also persisted in Swedish and shown as-is in the HUD. The trainer
-                                # prompts reference these exact strings when judging recovery.
-                                status_mapping = {
-                                    'PRODUCTIVE': 'Produktiv',
-                                    'MAINTAINING': 'Underhållande',
-                                    'UNPRODUCTIVE': 'Oproduktiv',
-                                    'PEAKING': 'Toppform',
-                                    'OVERREACHING': 'Övertränad',
-                                    'RECOVERY': 'Återhämtning',
-                                    'DETRAINING': 'Avtagande form',
-                                    'STRAINED': 'Ansträngd'
-                                }
-                                training_status = status_mapping.get(raw_status.upper(), raw_status.capitalize())
-                            recovery_time = ts_data.get('recoveryTimeInHours')
-
-                            # Garmin's own training load (#179) - already present in the same
-                            # get_training_status response we already call; no extra request.
-                            most_recent_status = ts_data.get('mostRecentTrainingStatus') or {}
-                            device_status_map = most_recent_status.get('latestTrainingStatusData') or {}
-                            status_entry = _latest_device_entry(device_status_map)
-                            if status_entry:
-                                acute_dto = status_entry.get('acuteTrainingLoadDTO') or {}
-                                training_load_acute = acute_dto.get('dailyTrainingLoadAcute')
-                                training_load_chronic = acute_dto.get('dailyTrainingLoadChronic')
-                                acwr = acute_dto.get('dailyAcuteChronicWorkloadRatio')
-                                acwr_status = acute_dto.get('acwrStatus')
-
-                            most_recent_balance = ts_data.get('mostRecentTrainingLoadBalance') or {}
-                            device_balance_map = most_recent_balance.get('metricsTrainingLoadBalanceDTOMap') or {}
-                            balance_entry = _latest_device_entry(device_balance_map)
-                            if balance_entry:
-                                load_aerobic_low = balance_entry.get('monthlyLoadAerobicLow')
-                                load_aerobic_high = balance_entry.get('monthlyLoadAerobicHigh')
-                                load_anaerobic = balance_entry.get('monthlyLoadAnaerobic')
-                except Exception as ts_err:
-                    print(f"Error fetching training status for {date_str}: {ts_err}")
-                    
-                # Called unconditionally now (#180) - previously gated behind
-                # `if recovery_time is None`, so the readiness score itself was never stored
-                # on days get_training_status already supplied a recovery_time, and coverage
-                # was arbitrary. The recovery_time fallback below is preserved unchanged; it
-                # just no longer decides whether the call happens at all.
-                try:
-                    tr_data = client.get_training_readiness(date_str)
-                    if tr_data:
-                        if isinstance(tr_data, list) and len(tr_data) > 0:
-                            tr_data = tr_data[0]
-                        if isinstance(tr_data, dict):
-                            if recovery_time is None:
-                                recovery_time = tr_data.get('recoveryTime') or tr_data.get('recoveryTimeInHours')
-                                if not recovery_time and 'trainingReadinessDTO' in tr_data:
-                                    recovery_time = tr_data['trainingReadinessDTO'].get('recoveryTime')
-                            score_val = tr_data.get('score')
-                            training_readiness = int(score_val) if isinstance(score_val, (int, float)) else None
-                            training_readiness_level = tr_data.get('level')
-                            training_readiness_feedback = tr_data.get('feedbackLong') or tr_data.get('feedbackShort')
-                except Exception as tr_err:
-                    print(f"Error fetching training readiness for {date_str}: {tr_err}")
-                        
-                day_fields = (
-                    steps, sleep_hours, resting_hr, active_calories, body_battery, hrv,
-                    recovery_time, training_status, stress_avg, stress_max, sleep_deep_hours,
-                    sleep_light_hours, sleep_rem_hours, sleep_awake_hours, vo2max,
-                    intensity_minutes, sleep_score, training_load_acute, training_load_chronic,
-                    acwr, load_aerobic_low, load_aerobic_high, load_anaerobic, training_readiness,
-                )
-                if any(v is not None for v in day_fields):
-                    any_day_succeeded = True
-
+            for row in rows_to_insert:
                 cursor.execute('''
                     INSERT INTO garmin_health (date, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status, stress_avg, stress_max, sleep_deep_hours, sleep_light_hours, sleep_rem_hours, sleep_awake_hours, vo2max, intensity_minutes, sleep_score, training_load_acute, training_load_chronic, acwr, acwr_status, load_aerobic_low, load_aerobic_high, load_anaerobic, training_readiness, training_readiness_level, training_readiness_feedback)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -1333,15 +1328,9 @@ def run_garmin_sync_task_blocking(email, password, days, end_date=None):
                         training_readiness = COALESCE(excluded.training_readiness, garmin_health.training_readiness),
                         training_readiness_level = COALESCE(excluded.training_readiness_level, garmin_health.training_readiness_level),
                         training_readiness_feedback = COALESCE(excluded.training_readiness_feedback, garmin_health.training_readiness_feedback)
-                ''', (date_str, steps, sleep_hours, resting_hr, active_calories, workout_type, workout_duration, body_battery, hrv, recovery_time, training_status, stress_avg, stress_max, sleep_deep_hours, sleep_light_hours, sleep_rem_hours, sleep_awake_hours, vo2max, intensity_minutes, sleep_score, training_load_acute, training_load_chronic, acwr, acwr_status, load_aerobic_low, load_aerobic_high, load_anaerobic, training_readiness, training_readiness_level, training_readiness_feedback))
+                ''', row)
 
             conn.commit()
-
-        if dates_to_sync and not any_day_succeeded:
-            raise Exception(
-                "Garmin sync retrieved no health data for any day in the requested window - "
-                "the session may have expired or Garmin may be rate-limiting/blocking login."
-            )
     except Exception as e:
         raise e
 

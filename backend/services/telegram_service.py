@@ -45,31 +45,49 @@ def get_gemini_api_key():
     except Exception:
         return ""
 
-async def send_telegram_message(token, chat_id, text, _plain_text_fallback=None, _use_html=True):
+async def send_telegram_message(token, chat_id, text, _plain_text_fallback=None, _use_html=True, _max_retries=3):
     """Sends a message to the specified Telegram Chat ID (HTML-formatted by default).
 
-    Returns True if Telegram accepted the message. On an HTML-parsing rejection (e.g. a
-    malformed/nested tag markdown_to_html let through), retries once as plain text (no
-    parse_mode) so the user gets *something* instead of the reply silently vanishing - the
-    reply is already recorded in chat history as sent by the time this is called, so a
-    delivery failure here previously had no visible effect at all.
+    Returns True if Telegram accepted the message. Handles HTTP 429 rate limiting by
+    sleeping for `retry_after` seconds and retrying up to `_max_retries` times. On an
+    HTML-parsing rejection (HTTP 400), retries once as plain text.
     """
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     payload = {"chat_id": chat_id, "text": text}
     if _use_html:
         payload["parse_mode"] = "HTML"
-    try:
-        async with shared_client() as client:
-            res = await client.post(url, json=payload, timeout=10.0)
-            if res.status_code == 200:
-                return True
-            print(f"[TELEGRAM] Send message error: HTTP {res.status_code}: {res.text}")
-            if _use_html and _plain_text_fallback is not None and res.status_code == 400:
-                return await send_telegram_message(token, chat_id, _plain_text_fallback, _use_html=False)
+
+    for attempt in range(_max_retries):
+        try:
+            async with shared_client() as client:
+                res = await client.post(url, json=payload, timeout=10.0)
+                if res.status_code == 200:
+                    return True
+
+                if res.status_code == 429:
+                    retry_after = 1.0
+                    try:
+                        data = res.json()
+                        params = data.get("parameters", {})
+                        retry_after = float(params.get("retry_after", 1.0))
+                    except Exception:
+                        pass
+                    retry_after = min(max(retry_after, 0.5), 10.0)
+                    print(f"[TELEGRAM] Rate-limited (429). Retrying after {retry_after}s (attempt {attempt + 1}/{_max_retries})...")
+                    await asyncio.sleep(retry_after)
+                    continue
+
+                print(f"[TELEGRAM] Send message error: HTTP {res.status_code}: {res.text}")
+                if _use_html and _plain_text_fallback is not None and res.status_code == 400:
+                    return await send_telegram_message(token, chat_id, _plain_text_fallback, _use_html=False)
+                return False
+        except Exception as e:
+            print(f"[TELEGRAM] Send message exception: {e}")
+            if attempt < _max_retries - 1:
+                await asyncio.sleep(1.0)
+                continue
             return False
-    except Exception as e:
-        print(f"[TELEGRAM] Send message exception: {e}")
-        return False
+    return False
 
 def markdown_to_html(text):
     """Safely escapes HTML tags and translates standard Markdown bold/italic/code tags to HTML for Telegram."""

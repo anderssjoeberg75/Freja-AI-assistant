@@ -235,6 +235,38 @@ async def run_withings_sync_task(client_id, client_secret, refresh_token, days: 
         if not meas_call_ok:
             print(f"[WITHINGS SYNC] Measurements request returned status {meas_body.get('status')!r}: {meas_body}")
 
+        sleep_body = {}
+        try:
+            sleep_url = 'https://wbsapi.withings.net/v2/sleep'
+            payload_sleep = {
+                'action': 'getsummary',
+                'startdateymd': start_date_str,
+                'enddateymd': end_date_str
+            }
+            async with shared_client() as client:
+                res = await client.post(sleep_url, data=payload_sleep, headers={'Authorization': f"Bearer {access_token}"}, timeout=10.0)
+                res.raise_for_status()
+                sleep_body = res.json()
+            sleep_call_ok = sleep_body.get('status') == 0
+        except Exception as sleep_err:
+            print(f"Error fetching sleep from Withings: {sleep_err}")
+
+        act_body = {}
+        try:
+            act_url = 'https://wbsapi.withings.net/v2/measure'
+            payload_act = {
+                'action': 'getactivity',
+                'startdateymd': start_date_str,
+                'enddateymd': end_date_str
+            }
+            async with shared_client() as client:
+                res = await client.post(act_url, data=payload_act, headers={'Authorization': f"Bearer {access_token}"}, timeout=10.0)
+                res.raise_for_status()
+                act_body = res.json()
+            activity_call_ok = act_body.get('status') == 0
+        except Exception as act_err:
+            print(f"Error fetching activity from Withings: {act_err}")
+
         with get_db_connection() as conn:
             cursor = conn.cursor()
             if meas_body.get('status') == 0:
@@ -270,73 +302,45 @@ async def run_withings_sync_task(client_id, client_secret, refresh_token, days: 
                                 heart_pulse = COALESCE(excluded.heart_pulse, heart_pulse)
                         ''', (date_str, weight, fat_ratio, bone_mass, heart_pulse))
 
-            try:
-                sleep_url = 'https://wbsapi.withings.net/v2/sleep'
-                payload_sleep = {
-                    'action': 'getsummary',
-                    'startdateymd': start_date_str,
-                    'enddateymd': end_date_str
-                }
-                async with shared_client() as client:
-                    res = await client.post(sleep_url, data=payload_sleep, headers={'Authorization': f"Bearer {access_token}"}, timeout=10.0)
-                    res.raise_for_status()
-                    sleep_body = res.json()
-                sleep_call_ok = sleep_body.get('status') == 0
-                if sleep_call_ok:
-                    series = sleep_body.get('body', {}).get('series', [])
-                    for item in series:
-                        s_date = item.get('date')
-                        s_data = item.get('data', {})
-                        sleep_duration = s_data.get('total_sleep_time') or s_data.get('asleepduration')
-                        sleep_deep = s_data.get('deepsleepduration')
-                        sleep_rem = s_data.get('remsleepduration')
-                        sleep_score = s_data.get('sleep_score')
-                        if sleep_duration is not None or sleep_score is not None:
-                            cursor.execute('''
-                                INSERT INTO withings_measurements (date, sleep_duration, sleep_deep, sleep_rem, sleep_score)
-                                VALUES (?, ?, ?, ?, ?)
-                                ON CONFLICT(date) DO UPDATE SET
-                                    sleep_duration = COALESCE(excluded.sleep_duration, sleep_duration),
-                                    sleep_deep = COALESCE(excluded.sleep_deep, sleep_deep),
-                                    sleep_rem = COALESCE(excluded.sleep_rem, sleep_rem),
-                                    sleep_score = COALESCE(excluded.sleep_score, sleep_score)
-                            ''', (s_date, sleep_duration, sleep_deep, sleep_rem, sleep_score))
-            except Exception as sleep_err:
-                print(f"Error fetching sleep from Withings: {sleep_err}")
-                
-            try:
-                act_url = 'https://wbsapi.withings.net/v2/measure'
-                payload_act = {
-                    'action': 'getactivity',
-                    'startdateymd': start_date_str,
-                    'enddateymd': end_date_str
-                }
-                async with shared_client() as client:
-                    res = await client.post(act_url, data=payload_act, headers={'Authorization': f"Bearer {access_token}"}, timeout=10.0)
-                    res.raise_for_status()
-                    act_body = res.json()
-                activity_call_ok = act_body.get('status') == 0
-                if activity_call_ok:
-                    activities = act_body.get('body', {}).get('activities', [])
-                    for act in activities:
-                        a_date = act.get('date')
-                        steps = act.get('steps')
-                        distance = act.get('distance')
-                        calories = act.get('calories')
-                        elevation = act.get('elevation')
-                        if steps is not None:
-                            cursor.execute('''
-                                INSERT INTO withings_measurements (date, steps, distance, calories, elevation)
-                                VALUES (?, ?, ?, ?, ?)
-                                ON CONFLICT(date) DO UPDATE SET
-                                    steps = COALESCE(excluded.steps, steps),
-                                    distance = COALESCE(excluded.distance, distance),
-                                    calories = COALESCE(excluded.calories, calories),
-                                    elevation = COALESCE(excluded.elevation, elevation)
-                            ''', (a_date, steps, distance, calories, elevation))
-            except Exception as act_err:
-                print(f"Error fetching activity from Withings: {act_err}")
-                
+            if sleep_call_ok:
+                series = sleep_body.get('body', {}).get('series', [])
+                for item in series:
+                    s_date = item.get('date')
+                    s_data = item.get('data', {})
+                    sleep_duration = s_data.get('total_sleep_time') or s_data.get('asleepduration')
+                    sleep_deep = s_data.get('deepsleepduration')
+                    sleep_rem = s_data.get('remsleepduration')
+                    sleep_score = s_data.get('sleep_score')
+                    if sleep_duration is not None or sleep_score is not None:
+                        cursor.execute('''
+                            INSERT INTO withings_measurements (date, sleep_duration, sleep_deep, sleep_rem, sleep_score)
+                            VALUES (?, ?, ?, ?, ?)
+                            ON CONFLICT(date) DO UPDATE SET
+                                sleep_duration = COALESCE(excluded.sleep_duration, sleep_duration),
+                                sleep_deep = COALESCE(excluded.sleep_deep, sleep_deep),
+                                sleep_rem = COALESCE(excluded.sleep_rem, sleep_rem),
+                                sleep_score = COALESCE(excluded.sleep_score, sleep_score)
+                        ''', (s_date, sleep_duration, sleep_deep, sleep_rem, sleep_score))
+
+            if activity_call_ok:
+                activities = act_body.get('body', {}).get('activities', [])
+                for act in activities:
+                    a_date = act.get('date')
+                    steps = act.get('steps')
+                    distance = act.get('distance')
+                    calories = act.get('calories')
+                    elevation = act.get('elevation')
+                    if steps is not None:
+                        cursor.execute('''
+                            INSERT INTO withings_measurements (date, steps, distance, calories, elevation)
+                            VALUES (?, ?, ?, ?, ?)
+                            ON CONFLICT(date) DO UPDATE SET
+                                steps = COALESCE(excluded.steps, steps),
+                                distance = COALESCE(excluded.distance, distance),
+                                calories = COALESCE(excluded.calories, calories),
+                                elevation = COALESCE(excluded.elevation, elevation)
+                        ''', (a_date, steps, distance, calories, elevation))
+
             conn.commit()
 
         if not (meas_call_ok or sleep_call_ok or activity_call_ok):

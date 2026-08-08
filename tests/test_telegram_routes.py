@@ -106,3 +106,43 @@ def test_post_telegram_config_no_warning_without_env_vars(auth_headers, monkeypa
     )
     assert response.status_code == 200
     assert "env_shadowed" not in response.json()
+
+
+@pytest.mark.asyncio
+async def test_send_telegram_message_retries_on_429_rate_limit(monkeypatch):
+    """T-071: Verify send_telegram_message retries when Telegram returns HTTP 429."""
+    import backend.services.telegram_service as telegram_module
+    from unittest.mock import AsyncMock, patch
+
+    calls = []
+
+    class FakeResponse:
+        def __init__(self, code, data=None):
+            self.status_code = code
+            self._data = data or {}
+            self.text = "Rate limited"
+
+        def json(self):
+            return self._data
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, json=None, **k):
+            calls.append(json)
+            if len(calls) == 1:
+                return FakeResponse(429, {"parameters": {"retry_after": 0.01}})
+            return FakeResponse(200, {"ok": True})
+
+    monkeypatch.setattr(telegram_module, "shared_client", FakeClient)
+
+    with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+        ok = await telegram_module.send_telegram_message("fake_token", "123", "Hello World")
+        assert ok is True
+        assert len(calls) == 2
+        assert mock_sleep.called
+

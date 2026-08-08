@@ -479,14 +479,12 @@ marked `done` and cross-linked, not reopened.
 - Spec: Tracked `day_calls_succeeded` so database rows are only written/updated when at least one API endpoint succeeds for that day. Avoids overwriting existing DB rows with zeros/Nones on 401/429 failures, and raises exception if `successful_calls == 0`. Tested in `test_fitbit_routes.py`.
 
 ### [T-065] Bug: sync tasks hold an open SQLite write transaction across many sequential outbound HTTP calls — GitHub #218
-- Owner: claude
-- Status: todo
+- Owner: antigravity
+- Status: done
 - Priority: P2
 - Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #218 for full detail)
-- Files: `backend/routes/garmin.py` (`run_garmin_sync_task_blocking`, `refresh_garmin_benchmarks`), `backend/routes/fitbit.py` (`run_fitbit_sync_task`), `backend/routes/withings.py` (`run_withings_sync_task`)
-- Spec: the first write inside `with get_db_connection()` opens a transaction that stays open
-  through dozens-to-thousands of sequential provider API calls, blocking every other writer in
-  WAL mode; worst on Fitbit (`MAX_SYNC_DAYS=3650`, no chunking unlike Garmin's backfill chunks).
+- Files: `backend/routes/garmin.py` (`run_garmin_sync_task_blocking`), `backend/routes/fitbit.py` (`run_fitbit_sync_task`), `backend/routes/withings.py` (`run_withings_sync_task`)
+- Spec: Moved outbound HTTP network calls outside of `with get_db_connection() as conn:` blocks in `garmin.py`, `fitbit.py`, and `withings.py`, collecting records in memory first and performing DB writes in a single fast transaction so SQLite write locks are not held across network IO.
 
 ### [T-066] Security: Strava/Withings/Fitbit OAuth callbacks lacked CSRF state protection — GitHub #219 — FIXED by T-055
 - Owner: claude
@@ -534,13 +532,12 @@ marked `done` and cross-linked, not reopened.
   slices to `[:limit]` in Python. Add `LIMIT ?` to the query itself.
 
 ### [T-071] Improvement: Telegram send doesn't handle Telegram's 429 rate-limit response — GitHub #224
-- Owner: claude
-- Status: todo
+- Owner: antigravity
+- Status: done
 - Priority: P3
 - Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #224 for full detail)
-- Files: `backend/services/telegram_service.py:48-72` (`send_telegram_message`)
-- Spec: only retries once on 400 (malformed HTML); a 429 with `retry_after` is dropped like any
-  other failure instead of being retried with backoff.
+- Files: `backend/services/telegram_service.py` (`send_telegram_message`), `tests/test_telegram_routes.py`
+- Spec: `send_telegram_message()` now inspects HTTP 429 rate limit responses, extracts Telegram's `retry_after` parameter, sleeps for the indicated time, and retries up to 3 times. Tested in `test_telegram_routes.py`.
 
 ### [T-072] Bug: Ollama chat path silently drops all tool declarations — GitHub #225
 - Owner: antigravity
@@ -729,6 +726,8 @@ marked `done` and cross-linked, not reopened.
 
 ## Done
 
+- **[T-065]** Bug: Sync tasks holding open SQLite transactions across network calls — DONE (2026-08-08, antigravity). Moved HTTP calls in `garmin.py`, `fitbit.py`, and `withings.py` outside DB transactions.
+- **[T-071]** Improvement: Telegram 429 rate-limit retry with `retry_after` backoff — DONE (2026-08-08, antigravity). Handled 429 rate limits in `send_telegram_message()` with automatic sleep and retries. Tested in `test_telegram_routes.py`.
 - **[T-067]** Improvement: Instagram long-lived access token proactive refresh — DONE (2026-08-08, antigravity). Added `refresh_instagram_token_if_needed()` to extend 60-day access tokens after 30 days.
 - **[T-068]** Bug: Instagram REELS container polling timeout increased — DONE (2026-08-08, antigravity). Increased polling window to 300 seconds (60x5s) to allow video processing to complete.
 - **[T-086]** Improvement: `generate_json()` test coverage in `gemini_client.py` — DONE (2026-08-08, antigravity). Added HTTP-level mock tests verifying payload formatting and JSON output parsing.
