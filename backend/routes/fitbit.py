@@ -194,12 +194,14 @@ async def run_fitbit_sync_task(client_id: str, client_secret: str, refresh_token
         today = today_local()
         headers = {"Authorization": f"Bearer {access_token}"}
 
+        successful_calls = 0
         with get_db_connection() as conn:
             cursor = conn.cursor()
             async with shared_client() as client:
                 for i in range(days):
                     day_date = today - datetime.timedelta(days=i)
                     date_str = day_date.strftime('%Y-%m-%d')
+                    day_calls_succeeded = 0
 
                     # 1. Daily Activity (steps, calories, distance)
                     steps = 0
@@ -209,6 +211,8 @@ async def run_fitbit_sync_task(client_id: str, client_secret: str, refresh_token
                         act_url = f"https://api.fitbit.com/1/user/-/activities/date/{date_str}.json"
                         res = await client.get(act_url, headers=headers, timeout=8.0)
                         if res.status_code == 200:
+                            successful_calls += 1
+                            day_calls_succeeded += 1
                             data = res.json()
                             summary = data.get("summary", {})
                             steps = int(summary.get("steps", 0) or 0)
@@ -231,6 +235,8 @@ async def run_fitbit_sync_task(client_id: str, client_secret: str, refresh_token
                         sleep_url = f"https://api.fitbit.com/1.2/user/-/sleep/date/{date_str}.json"
                         res = await client.get(sleep_url, headers=headers, timeout=8.0)
                         if res.status_code == 200:
+                            successful_calls += 1
+                            day_calls_succeeded += 1
                             data = res.json()
                             sleep_list = data.get("sleep", [])
                             summary = data.get("summary", {})
@@ -255,6 +261,8 @@ async def run_fitbit_sync_task(client_id: str, client_secret: str, refresh_token
                         hr_url = f"https://api.fitbit.com/1/user/-/activities/heart/date/{date_str}/1d.json"
                         res = await client.get(hr_url, headers=headers, timeout=8.0)
                         if res.status_code == 200:
+                            successful_calls += 1
+                            day_calls_succeeded += 1
                             data = res.json()
                             hr_list = data.get("activities-heart", [])
                             if hr_list:
@@ -263,31 +271,36 @@ async def run_fitbit_sync_task(client_id: str, client_secret: str, refresh_token
                     except Exception as err:
                         print(f"[FITBIT SYNC HR ERROR] {date_str}: {err}")
 
-                    cursor.execute('''
-                        INSERT INTO fitbit_health (
-                            date, steps, sleep_hours, sleep_deep_hours, sleep_light_hours,
-                            sleep_rem_hours, sleep_awake_hours, sleep_score, resting_hr,
-                            active_calories, distance_km
-                        )
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        ON CONFLICT(date) DO UPDATE SET
-                            steps = excluded.steps,
-                            sleep_hours = excluded.sleep_hours,
-                            sleep_deep_hours = excluded.sleep_deep_hours,
-                            sleep_light_hours = excluded.sleep_light_hours,
-                            sleep_rem_hours = excluded.sleep_rem_hours,
-                            sleep_awake_hours = excluded.sleep_awake_hours,
-                            sleep_score = excluded.sleep_score,
-                            resting_hr = excluded.resting_hr,
-                            active_calories = excluded.active_calories,
-                            distance_km = excluded.distance_km
-                    ''', (
-                        date_str, steps, sleep_hours, deep_hours, light_hours,
-                        rem_hours, awake_hours, sleep_score, resting_hr,
-                        int(cals), distance_km
-                    ))
+                    if day_calls_succeeded > 0:
+                        cursor.execute('''
+                            INSERT INTO fitbit_health (
+                                date, steps, sleep_hours, sleep_deep_hours, sleep_light_hours,
+                                sleep_rem_hours, sleep_awake_hours, sleep_score, resting_hr,
+                                active_calories, distance_km
+                            )
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            ON CONFLICT(date) DO UPDATE SET
+                                steps = excluded.steps,
+                                sleep_hours = excluded.sleep_hours,
+                                sleep_deep_hours = excluded.sleep_deep_hours,
+                                sleep_light_hours = excluded.sleep_light_hours,
+                                sleep_rem_hours = excluded.sleep_rem_hours,
+                                sleep_awake_hours = excluded.sleep_awake_hours,
+                                sleep_score = excluded.sleep_score,
+                                resting_hr = excluded.resting_hr,
+                                active_calories = excluded.active_calories,
+                                distance_km = excluded.distance_km
+                        ''', (
+                            date_str, steps, sleep_hours, deep_hours, light_hours,
+                            rem_hours, awake_hours, sleep_score, resting_hr,
+                            int(cals), distance_km
+                        ))
 
             conn.commit()
+
+        if successful_calls == 0:
+            raise Exception("All Fitbit API requests failed (unauthorized, rate-limited, or network error).")
+
         set_sync_state("fitbit", "success")
     except Exception as e:
         print(f"[FITBIT SYNC TASK ERROR]: {e}")

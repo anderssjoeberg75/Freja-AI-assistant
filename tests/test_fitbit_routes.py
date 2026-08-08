@@ -97,3 +97,49 @@ async def test_run_fitbit_sync_task_mock_credentials():
 
     await fitbit_module.run_fitbit_sync_task('fitbit123', 'mock_secret', 'MOCK_REFRESH_TOKEN', 1)
     assert sync_states.get("fitbit") == "success"
+
+
+@pytest.mark.asyncio
+async def test_run_fitbit_sync_task_failed_api_calls_preserves_db():
+    import backend.routes.fitbit as fitbit_module
+    from backend.services.sync_status import sync_states
+    from unittest.mock import AsyncMock, patch
+
+    date_str = "2026-06-15"
+
+    with get_db_connection() as conn:
+        conn.execute("INSERT OR REPLACE INTO fitbit_health (date, steps) VALUES (?, ?)", (date_str, 9999))
+        conn.commit()
+
+    fake_response = AsyncMock()
+    fake_response.status_code = 401
+
+    mock_client = AsyncMock()
+    mock_client.get.return_value = fake_response
+
+    class MockContextManager:
+        async def __aenter__(self):
+            return mock_client
+        async def __aexit__(self, exc_type, exc, tb):
+            pass
+
+    try:
+        with patch("backend.routes.fitbit.shared_client", return_value=MockContextManager()), \
+             patch("backend.routes.fitbit.get_fitbit_access_token", AsyncMock(return_value="valid_token")), \
+             patch("backend.routes.fitbit.today_local") as mock_today:
+            from datetime import date
+            mock_today.return_value = date(2026, 6, 15)
+
+            await fitbit_module.run_fitbit_sync_task('valid_client', 'secret', 'refresh_token', 1)
+            assert sync_states.get("fitbit") == "error"
+
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT steps FROM fitbit_health WHERE date = ?", (date_str,))
+            row = cursor.fetchone()
+        assert row is not None and row[0] == 9999
+    finally:
+        with get_db_connection() as conn:
+            conn.execute("DELETE FROM fitbit_health WHERE date = ?", (date_str,))
+            conn.commit()
+

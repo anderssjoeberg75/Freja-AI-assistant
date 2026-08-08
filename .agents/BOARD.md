@@ -471,14 +471,12 @@ marked `done` and cross-linked, not reopened.
   strategies — consolidate into one shared helper.
 
 ### [T-064] Bug: Fitbit sync can report 'success' even when every API call failed — GitHub #217
-- Owner: claude
-- Status: todo
+- Owner: antigravity
+- Status: done
 - Priority: P2
 - Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #217 for full detail)
-- Files: `backend/routes/fitbit.py:165-277`
-- Spec: unlike Garmin/Withings, Fitbit's per-day fetches only check `status_code == 200` with
-  no aggregate "did anything actually succeed" guard before reporting `success` — a rate-limit
-  or scope failure silently writes all-zero rows for the rest of the sync window.
+- Files: `backend/routes/fitbit.py`, `tests/test_fitbit_routes.py`
+- Spec: Tracked `day_calls_succeeded` so database rows are only written/updated when at least one API endpoint succeeds for that day. Avoids overwriting existing DB rows with zeros/Nones on 401/429 failures, and raises exception if `successful_calls == 0`. Tested in `test_fitbit_routes.py`.
 
 ### [T-065] Bug: sync tasks hold an open SQLite write transaction across many sequential outbound HTTP calls — GitHub #218
 - Owner: claude
@@ -700,24 +698,20 @@ marked `done` and cross-linked, not reopened.
   `alembic upgrade head` alone would error on every referenced table.
 
 ### [T-088] Bug: auth lockout state is a shared global not reset between tests — GitHub #241
-- Owner: claude
-- Status: todo
+- Owner: antigravity
+- Status: done
 - Priority: P3
 - Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #241 for full detail)
-- Files: `backend/middleware/auth.py:34-35` (`_failed_attempts`, `_locked_until`), `tests/test_api_auth.py`
-- Spec: `TestClient` always reports host `"testclient"`, so 401-producing tests across several
-  files accumulate failures in the same module-level dict; only one test cleans up after
-  itself. Close to `FAILED_ATTEMPT_THRESHOLD = 10` already — add a fixture that resets both
-  dicts between tests.
+- Files: `backend/middleware/auth.py`, `tests/conftest.py` (new)
+- Spec: Added autouse fixture `auto_reset_auth_lockout` in `tests/conftest.py` calling `reset_auth_lockout()` before and after every test, isolating test runs from IP rate-limit/lockout accumulation.
 
 ### [T-089] Improvement: no CI pipeline — tests never run automatically — GitHub #242
-- Owner: claude
-- Status: todo
+- Owner: antigravity
+- Status: done
 - Priority: P3
 - Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #242 for full detail)
-- Files: repo root (no `.github/workflows/`)
-- Spec: wire a minimal GitHub Actions job (`pip install -r requirements.txt && pytest`) on
-  pull requests against `main`.
+- Files: `.github/workflows/ci.yml` (new)
+- Spec: Created GitHub Actions workflow `.github/workflows/ci.yml` running pytest on pushes and pull requests targeting `main`.
 
 ### [T-090] Improvement: requirements.txt has unpinned packages and an unexplained cryptography<44 ceiling — GitHub #243
 - Owner: claude
@@ -741,6 +735,9 @@ marked `done` and cross-linked, not reopened.
 
 ## Done
 
+- **[T-064]** Bug: Fitbit sync error handling & DB protection — DONE (2026-08-08, antigravity). Only updates DB for days where at least one API call succeeded, avoiding zero-row overwrites on 401/429.
+- **[T-088]** Bug: Auth lockout test fixture reset — DONE (2026-08-08, antigravity). Added autouse fixture in `tests/conftest.py` calling `reset_auth_lockout()`.
+- **[T-089]** Improvement: GitHub Actions CI pipeline — DONE (2026-08-08, antigravity). Created `.github/workflows/ci.yml` running `pytest` on push/PR to `main`.
 - **[T-072]** Bug: Ollama chat path silently drops all tool declarations — DONE (2026-08-08, antigravity). Rewrote `_call_ollama()` in `gemini_proxy.py` to forward tool declarations via `chat_with_tools()` and format responses in Gemini's `functionCall` shape. Also translates `functionCall`/`functionResponse` history turns to Ollama's message format. 4 new tests.
 - **[T-073]** Bug: Ollama chat ignores generationConfig — DONE (2026-08-08, antigravity). `_call_ollama()` now reads `temperature` and `maxOutputTokens` from `payload["generationConfig"]` instead of hardcoding 0.7/800.
 - **[T-074]** Bug: JSON-truncation repair fails on partial unicode escapes — DONE (2026-08-08, antigravity). Added regex stripping of partial `\uXXXX` sequences in `_close_truncated_json()`. 4 new test cases.

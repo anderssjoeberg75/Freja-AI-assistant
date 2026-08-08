@@ -1,18 +1,14 @@
-"""Global pytest configuration and isolation fixtures."""
+"""Global pytest configuration and fixtures for Freja test suite."""
 
-import os
-import sys
-import tempfile
-from pathlib import Path
+import pytest
+from backend.middleware.auth import reset_auth_lockout
 
-# Ensure FREJA_ENV is testing
-os.environ["FREJA_ENV"] = "testing"
 
-# Create a temporary database file for test runs so real keys.db is never touched
-temp_dir = tempfile.mkdtemp()
-temp_db = Path(temp_dir) / "test_keys.db"
-os.environ["FREJA_DB_FILE"] = str(temp_db)
-
-# Initialize the test database schema
-from backend.database import init_db
-init_db()
+@pytest.fixture(autouse=True)
+def auto_reset_auth_lockout():
+    """Automatically resets the in-memory rate-limiter and lockout state before and
+    after every test so tests running against TestClient don't accumulate failed
+    attempts against the shared 'testclient' host string."""
+    reset_auth_lockout()
+    yield
+    reset_auth_lockout()
