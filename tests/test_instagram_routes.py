@@ -1,3 +1,4 @@
+import time
 import pytest
 from fastapi.testclient import TestClient
 from server import app
@@ -12,6 +13,7 @@ def clean_instagram_keys():
         "freja_instagram_access_token": get_api_key("freja_instagram_access_token"),
         "freja_instagram_business_account_id": get_api_key("freja_instagram_business_account_id"),
         "freja_instagram_username": get_api_key("freja_instagram_username"),
+        "freja_instagram_token_updated_at": get_api_key("freja_instagram_token_updated_at"),
     }
     
     # Clear keys for clean testing
@@ -108,6 +110,32 @@ def test_instagram_disconnect(db_token):
     assert not get_api_key("freja_instagram_access_token")
     assert not get_api_key("freja_instagram_business_account_id")
     assert not get_api_key("freja_instagram_username")
+    assert not get_api_key("freja_instagram_token_updated_at")
+
+
+@pytest.mark.asyncio
+async def test_refresh_instagram_token_if_needed():
+    from backend.services.instagram_service import refresh_instagram_token_if_needed
+    from unittest.mock import AsyncMock, MagicMock
+
+    set_api_key("freja_instagram_access_token", "old_token")
+    set_api_key("freja_instagram_business_account_id", "12345")
+    set_api_key("freja_instagram_client_id", "cid_123")
+    set_api_key("freja_instagram_client_secret", "csec_123")
+    # Token set 40 days ago (> 30 days)
+    set_api_key("freja_instagram_token_updated_at", str(int(time.time() - 40 * 86400)))
+
+    fake_response = MagicMock()
+    fake_response.status_code = 200
+    fake_response.json.return_value = {"access_token": "new_refreshed_token"}
+
+    mock_client = MagicMock()
+    mock_client.get = AsyncMock(return_value=fake_response)
+
+    refreshed = await refresh_instagram_token_if_needed(mock_client)
+    assert refreshed is True
+    assert get_api_key("freja_instagram_access_token") == "new_refreshed_token"
+
 
 
 @pytest.mark.asyncio

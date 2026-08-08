@@ -160,6 +160,7 @@ async def instagram_callback(request: Request, code: str = Query(None), state: s
             set_api_key("freja_instagram_access_token", long_token)
             set_api_key("freja_instagram_business_account_id", ig_id)
             set_api_key("freja_instagram_username", ig_username)
+            set_api_key("freja_instagram_token_updated_at", str(int(time.time())))
             
             logger.info(f"Successfully integrated Instagram account '{ig_username}' (ID: {ig_id})")
             return RedirectResponse("/admin?status=instagram_linked")
@@ -189,4 +190,5 @@ async def instagram_disconnect():
     set_api_key("freja_instagram_access_token", "")
     set_api_key("freja_instagram_business_account_id", "")
     set_api_key("freja_instagram_username", "")
+    set_api_key("freja_instagram_token_updated_at", "")
     return {"status": "disconnected"}

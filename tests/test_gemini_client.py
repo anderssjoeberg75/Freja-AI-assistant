@@ -76,3 +76,83 @@ async def test_check_health_reports_a_missing_api_key(monkeypatch):
     status = await gc.check_health()
     assert status["ok"] is False
     assert "No Gemini API key" in status["detail"]
+
+
+@pytest.mark.asyncio
+async def test_generate_json_success(monkeypatch):
+    """T-086: Verify generate_json builds payload with responseMimeType and responseSchema,
+    sends POST request via shared_client, and parses JSON output."""
+    import backend.services.gemini_client as gc
+
+    set_api_key("freja_gemini_apikey", "test_gemini_key")
+
+    captured_url = None
+    captured_payload = None
+
+    class FakeResponse:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {
+                "candidates": [{
+                    "content": {
+                        "parts": [{"text": '{"result": "success", "count": 42}'}]
+                    }
+                }]
+            }
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, json=None, timeout=None):
+            nonlocal captured_url, captured_payload
+            captured_url = url
+            captured_payload = json
+            return FakeResponse()
+
+    monkeypatch.setattr(gc, "shared_client", lambda: FakeClient())
+
+    schema = {"type": "OBJECT", "properties": {"result": {"type": "STRING"}, "count": {"type": "INTEGER"}}}
+    result = await gc.generate_json("Generate test JSON", schema=schema, system_instruction="System prompt")
+
+    assert result == {"result": "success", "count": 42}
+    assert "test_gemini_key" in captured_url
+    assert captured_payload["generationConfig"]["responseMimeType"] == "application/json"
+    assert captured_payload["generationConfig"]["responseSchema"] == schema
+    assert captured_payload["systemInstruction"]["parts"][0]["text"] == "System prompt"
+
+
+@pytest.mark.asyncio
+async def test_generate_json_empty_response(monkeypatch):
+    """Verify generate_json raises Exception when candidates text is empty."""
+    import backend.services.gemini_client as gc
+
+    set_api_key("freja_gemini_apikey", "test_gemini_key")
+
+    class FakeResponse:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"candidates": []}
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, json=None, timeout=None):
+            return FakeResponse()
+
+    monkeypatch.setattr(gc, "shared_client", lambda: FakeClient())
+
+    with pytest.raises(Exception, match="Gemini returned an empty response"):
+        await gc.generate_json("hello")
+

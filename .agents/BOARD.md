@@ -501,24 +501,20 @@ marked `done` and cross-linked, not reopened.
   here; close GitHub issue #219 referencing T-055.
 
 ### [T-067] Improvement: Instagram's long-lived access token is never refreshed — GitHub #220
-- Owner: claude
-- Status: todo
+- Owner: antigravity
+- Status: done
 - Priority: P2
 - Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #220 for full detail)
-- Files: `backend/routes/instagram.py` (token exchange), `backend/services/instagram_service.py`
-- Spec: the 60-day long-lived token is stored but never proactively refreshed or checked for
-  staleness (unlike Garmin's `TOKEN_STALE_WARNING_DAYS`) — every Instagram tool call starts
-  failing roughly every 60 days with no warning.
+- Files: `backend/routes/instagram.py`, `backend/services/instagram_service.py`, `tests/test_instagram_routes.py`
+- Spec: Added `refresh_instagram_token_if_needed()` in `instagram_service.py` to automatically refresh 60-day long-lived access tokens via `grant_type=fb_exchange_token` when older than 30 days. Stores `freja_instagram_token_updated_at` in DB on token acquisition and refresh. Unit tested in `test_instagram_routes.py`.
 
 ### [T-068] Bug: Instagram REELS container polling window (60s) likely too short — GitHub #221
-- Owner: claude
-- Status: todo
+- Owner: antigravity
+- Status: done
 - Priority: P2
 - Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #221 for full detail)
-- Files: `backend/services/instagram_service.py:25-27,92-108` (`_await_container_ready`)
-- Spec: `_CONTAINER_POLL_ATTEMPTS * _CONTAINER_POLL_INTERVAL` caps at 60s despite the code's own
-  comment expecting video/reels to need much longer — legitimate reel uploads likely time out
-  and leave an orphaned, unpublished container.
+- Files: `backend/services/instagram_service.py` (`_await_container_ready`)
+- Spec: Increased `_CONTAINER_POLL_ATTEMPTS` to 60 and `_CONTAINER_POLL_INTERVAL` to 5.0s, giving a total polling window of 300 seconds (5 minutes) for video/reels media containers to complete processing before timing out.
 
 ### [T-069] Bug: Fitbit sync doesn't validate credentials before enqueueing the background task — GitHub #222
 - Owner: antigravity
@@ -678,14 +674,12 @@ marked `done` and cross-linked, not reopened.
 - Spec: Added `aria-label` attributes to icon-only buttons in `app.js` and `ui-dashboards.js`.
 
 ### [T-086] Improvement: generate_json() in gemini_client.py has zero real test coverage — GitHub #239
-- Owner: claude
-- Status: todo
+- Owner: antigravity
+- Status: done
 - Priority: P3
 - Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #239 for full detail)
-- Files: `backend/services/gemini_client.py:90-125`, `tests/test_llm_client.py`
-- Spec: every test exercising the Gemini fallback path mocks `gemini_client.generate_json`
-  itself away — the real URL/payload/response-parsing logic is never actually invoked by any
-  test. Add a test mocking at the httpx level instead.
+- Files: `backend/services/gemini_client.py`, `tests/test_gemini_client.py`
+- Spec: Added direct HTTP-level mocked unit tests (`test_generate_json_success` and `test_generate_json_empty_response`) in `tests/test_gemini_client.py` testing request URL, payload structure (`responseMimeType`, `responseSchema`), and response parsing.
 
 ### [T-087] Bug: alembic upgrade head would fail on a genuinely fresh database — GitHub #240
 - Owner: claude
@@ -735,6 +729,9 @@ marked `done` and cross-linked, not reopened.
 
 ## Done
 
+- **[T-067]** Improvement: Instagram long-lived access token proactive refresh — DONE (2026-08-08, antigravity). Added `refresh_instagram_token_if_needed()` to extend 60-day access tokens after 30 days.
+- **[T-068]** Bug: Instagram REELS container polling timeout increased — DONE (2026-08-08, antigravity). Increased polling window to 300 seconds (60x5s) to allow video processing to complete.
+- **[T-086]** Improvement: `generate_json()` test coverage in `gemini_client.py` — DONE (2026-08-08, antigravity). Added HTTP-level mock tests verifying payload formatting and JSON output parsing.
 - **[T-064]** Bug: Fitbit sync error handling & DB protection — DONE (2026-08-08, antigravity). Only updates DB for days where at least one API call succeeded, avoiding zero-row overwrites on 401/429.
 - **[T-088]** Bug: Auth lockout test fixture reset — DONE (2026-08-08, antigravity). Added autouse fixture in `tests/conftest.py` calling `reset_auth_lockout()`.
 - **[T-089]** Improvement: GitHub Actions CI pipeline — DONE (2026-08-08, antigravity). Created `.github/workflows/ci.yml` running `pytest` on push/PR to `main`.

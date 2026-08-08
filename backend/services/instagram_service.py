@@ -13,17 +13,18 @@ Design notes:
 
 import logging
 import asyncio
+import time
 import httpx
 from backend.services.http_client import shared_client
 from backend.config import GRAPH_BASE_URL
-from backend.database import get_api_key
+from backend.database import get_api_key, set_api_key
 
 logger = logging.getLogger("freja.instagram")
 
 # Meta processes uploaded media asynchronously behind a "container". Images are usually
-# FINISHED on the first check; video/reels can take much longer, hence the generous window.
-_CONTAINER_POLL_ATTEMPTS = 20
-_CONTAINER_POLL_INTERVAL = 3.0
+# FINISHED on the first check; video/reels can take much longer, hence the 5-minute window.
+_CONTAINER_POLL_ATTEMPTS = 60
+_CONTAINER_POLL_INTERVAL = 5.0
 _DEFAULT_TIMEOUT = 20.0
 
 
@@ -32,6 +33,60 @@ def get_instagram_config() -> tuple[str, str]:
     token = get_api_key("freja_instagram_access_token") or ""
     ig_id = get_api_key("freja_instagram_business_account_id") or ""
     return token, ig_id
+
+
+async def refresh_instagram_token_if_needed(client: httpx.AsyncClient | None = None) -> bool:
+    """Proactively refreshes the 60-day long-lived access token if it is older than 30 days.
+
+    Meta allows long-lived tokens to be refreshed once per day as long as they are still
+    valid. Refreshing at the 30-day mark ensures the integration never expires."""
+    token, ig_id = get_instagram_config()
+    if not token:
+        return False
+
+    client_id = get_api_key("freja_instagram_client_id") or get_api_key("freja_facebook_client_id") or ""
+    client_secret = get_api_key("freja_instagram_client_secret") or get_api_key("freja_facebook_client_secret") or ""
+    if not client_id or not client_secret:
+        return False
+
+    updated_at_raw = get_api_key("freja_instagram_token_updated_at") or ""
+    try:
+        updated_at = float(updated_at_raw) if updated_at_raw else 0.0
+    except ValueError:
+        updated_at = 0.0
+
+    thirty_days = 30 * 86400
+    if updated_at > 0 and (time.time() - updated_at) < thirty_days:
+        return False
+
+    params = {
+        "grant_type": "fb_exchange_token",
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "fb_exchange_token": token,
+    }
+    url = f"{GRAPH_BASE_URL}/oauth/access_token"
+
+    try:
+        if client:
+            resp = await client.get(url, params=params, timeout=15.0)
+        else:
+            async with shared_client() as new_client:
+                resp = await new_client.get(url, params=params, timeout=15.0)
+
+        if resp.status_code == 200:
+            new_token = resp.json().get("access_token")
+            if new_token:
+                set_api_key("freja_instagram_access_token", new_token)
+                set_api_key("freja_instagram_token_updated_at", str(int(time.time())))
+                logger.info("Successfully refreshed Instagram long-lived access token.")
+                return True
+        else:
+            logger.warning(f"Failed to refresh Instagram token (HTTP {resp.status_code}): {resp.text}")
+    except Exception as e:
+        logger.warning(f"Error while refreshing Instagram access token: {e}")
+
+    return False
 
 
 def _require_config(need_account: bool = True) -> tuple[str, str, dict | None]:
