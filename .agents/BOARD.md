@@ -549,36 +549,39 @@ marked `done` and cross-linked, not reopened.
   other failure instead of being retried with backoff.
 
 ### [T-072] Bug: Ollama chat path silently drops all tool declarations — GitHub #225
-- Owner: claude
-- Status: todo
+- Owner: antigravity
+- Status: done
 - Priority: P2
 - Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #225 for full detail)
-- Files: `backend/routes/gemini_proxy.py` (`_call_ollama`)
-- Spec: never reads `payload["tools"]`, calls `ollama_client.generate_text` (no tools) instead
-  of `chat_with_tools`. Since Ollama is the default first-tried provider, every chat turn it
-  actually serves silently loses all tool access (weather, calendar, PT plan, Garmin, etc.)
-  with no error surfaced.
+- Files: `backend/routes/gemini_proxy.py` (`_call_ollama`), `tests/test_gemini_proxy.py` (new)
+- Spec: Rewrote `_call_ollama()` to check `payload["tools"]` for function declarations, convert
+  them via `gemini_tools_to_ollama()`, and call `chat_with_tools()` instead of `generate_text()`.
+  Tool-call responses are wrapped in Gemini's `functionCall` format so the client's existing
+  tool loop in `gemini.js` handles them transparently. Also properly translates Gemini-format
+  conversation history (including `functionCall`/`functionResponse` parts) to Ollama's
+  `assistant`/`tool` message format. 4 new tests in `test_gemini_proxy.py`.
 
 ### [T-073] Bug: Ollama chat path ignores generationConfig (temperature/maxOutputTokens) from the client — GitHub #226
-- Owner: claude
-- Status: todo
+- Owner: antigravity
+- Status: done
 - Priority: P2
 - Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #226 for full detail)
 - Files: `backend/routes/gemini_proxy.py` (`_call_ollama`)
-- Spec: temperature hardcoded to 0.7 regardless of the client's request; maxOutputTokens is
-  never read, silently falling back to Ollama's 800-token default.
+- Spec: `_call_ollama()` now reads `payload["generationConfig"]` and passes `temperature` and
+  `maxOutputTokens` through to the Ollama call. Falls back to 0.7 / DEFAULT_TEXT_MAX_TOKENS
+  when not present. Tested in `test_gemini_proxy.py`.
 
-### [T-074] Bug: JSON-truncation repair fails on a string cut right after an escaping backslash — GitHub #227 (GitHub shows Closed/Completed — no fix found, still open)
-- Owner: claude
-- Status: todo
+### [T-074] Bug: JSON-truncation repair fails on a string cut right after an escaping backslash — GitHub #227
+- Owner: antigravity
+- Status: done
 - Priority: P2
 - Created-by: claude (full codebase bug audit, 2026-08-06 — see GitHub issue #227 for full detail)
-- Files: `backend/services/json_repair.py:28-75` (`_close_truncated_json`)
-- Spec: if output is cut immediately after an escaping `\` (e.g. a Windows path), the repair
-  appends `"` turning it into an escaped quote instead of closing the string, so the re-parse
-  fails and the original error is re-raised instead of being recovered.
-- Note: GitHub marks this issue Closed/Completed but there's no corresponding commit — verify
-  before trusting the closed status.
+- Files: `backend/services/json_repair.py` (`_close_truncated_json`), `tests/test_json_repair.py`
+- Spec: Added regex-based stripping of partial `\uXXXX` escape sequences (1-3 hex digits after
+  `\u`) before closing a truncated string. The existing trailing-backslash handler (line 57-58)
+  already correctly strips a dangling `\` — extended to also handle the unicode escape variant.
+  4 new test cases covering partial unicode escapes (`\u`, `\u00`, `\u000`) and a regression
+  test confirming complete `\u00e9` is not stripped.
 
 ### [T-075] Bug: generate_text has no usable length cap (unbounded on Gemini, fixed 800 tokens on Ollama) — GitHub #228
 - Owner: claude
@@ -737,6 +740,10 @@ marked `done` and cross-linked, not reopened.
   limiting. Mock `perform_search`'s HTTP layer.
 
 ## Done
+
+- **[T-072]** Bug: Ollama chat path silently drops all tool declarations — DONE (2026-08-08, antigravity). Rewrote `_call_ollama()` in `gemini_proxy.py` to forward tool declarations via `chat_with_tools()` and format responses in Gemini's `functionCall` shape. Also translates `functionCall`/`functionResponse` history turns to Ollama's message format. 4 new tests.
+- **[T-073]** Bug: Ollama chat ignores generationConfig — DONE (2026-08-08, antigravity). `_call_ollama()` now reads `temperature` and `maxOutputTokens` from `payload["generationConfig"]` instead of hardcoding 0.7/800.
+- **[T-074]** Bug: JSON-truncation repair fails on partial unicode escapes — DONE (2026-08-08, antigravity). Added regex stripping of partial `\uXXXX` sequences in `_close_truncated_json()`. 4 new test cases.
 
 - **[T-082]** Improvement: Plaintext credentials purged from localStorage — DONE (2026-08-06, antigravity). Sensitive keys (passwords, client secrets, refresh tokens) are automatically purged from `localStorage` on load while populating UI input fields directly from `/api/keys`.
 

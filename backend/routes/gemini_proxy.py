@@ -1,5 +1,6 @@
 """Gemini API secure proxy route."""
 
+import json
 import re
 import httpx
 from backend.services.http_client import shared_client
@@ -111,6 +112,9 @@ async def proxy_gemini_generate(
             return response.json()
 
     async def _call_ollama():
+        import logging
+        logger = logging.getLogger("freja.gemini_proxy")
+
         sys_instruction = _instruction_for("ollama", ollama_client.get_ollama_model())
         if not sys_instruction and "systemInstruction" in payload and "parts" in payload["systemInstruction"]:
             sys_parts = payload["systemInstruction"]["parts"]
@@ -121,26 +125,127 @@ async def proxy_gemini_generate(
         if not contents:
             raise HTTPException(status_code=400, detail="Missing contents in request payload.")
 
-        latest_user_text = ""
-        full_prompt_lines = []
+        # T-073: respect the client's generationConfig instead of hardcoding values
+        gen_config = payload.get("generationConfig", {})
+        temperature = gen_config.get("temperature", 0.7)
+        max_output_tokens = gen_config.get("maxOutputTokens", ollama_client.DEFAULT_TEXT_MAX_TOKENS)
+
+        # T-072: check whether the client sent tool declarations
+        gemini_tools = payload.get("tools", [])
+        tool_declarations = []
+        for tool_block in gemini_tools:
+            if isinstance(tool_block, dict) and "functionDeclarations" in tool_block:
+                tool_declarations.extend(tool_block["functionDeclarations"])
+
+        # Build Ollama-style messages from the Gemini-format conversation history
+        ollama_messages = []
+        if sys_instruction:
+            ollama_messages.append({"role": "system", "content": sys_instruction})
+
         for turn in contents:
             role = turn.get("role", "user")
             parts = turn.get("parts", [])
+
+            # Handle function response parts (tool results coming back from the client)
+            func_response = next((p.get("functionResponse") for p in parts
+                                  if isinstance(p, dict) and "functionResponse" in p), None)
+            if func_response:
+                ollama_messages.append({
+                    "role": "tool",
+                    "content": json.dumps(func_response.get("response", {})),
+                })
+                continue
+
+            # Handle function call parts (model's previous tool call, echoed back)
+            func_call = next((p.get("functionCall") for p in parts
+                              if isinstance(p, dict) and "functionCall" in p), None)
+            if func_call:
+                ollama_messages.append({
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [{
+                        "function": {
+                            "name": func_call.get("name", ""),
+                            "arguments": func_call.get("args", {}),
+                        }
+                    }],
+                })
+                continue
+
+            # Regular text turn
             text = "".join([p.get("text", "") for p in parts if isinstance(p, dict)])
             if text:
-                if role == "user":
-                    latest_user_text = text
-                    full_prompt_lines.append(f"User: {text}")
-                elif role in ("model", "assistant"):
-                    full_prompt_lines.append(f"Assistant: {text}")
+                ollama_role = "user" if role == "user" else "assistant"
+                ollama_messages.append({"role": ollama_role, "content": text})
+
+        # If we have tool declarations, use the tool-calling path
+        if tool_declarations:
+            ollama_tools = ollama_client.gemini_tools_to_ollama(tool_declarations)
+            logger.debug("Ollama chat with %d tools, temp=%.2f, max_tokens=%d",
+                         len(ollama_tools), temperature, max_output_tokens)
+
+            result_msg = await ollama_client.chat_with_tools(
+                messages=ollama_messages,
+                tools=ollama_tools,
+                temperature=temperature,
+                timeout=60.0,
+                max_tokens=max_output_tokens,
+            )
+
+            # If the model wants to call a tool, format in Gemini's functionCall shape
+            # so the client's existing tool loop in gemini.js handles it transparently
+            tool_calls = result_msg.get("tool_calls")
+            if tool_calls and len(tool_calls) > 0:
+                tc = tool_calls[0]
+                func = tc.get("function", {})
+                logger.info("Ollama requested tool call: %s", func.get("name", "unknown"))
+                return {
+                    "candidates": [{
+                        "content": {
+                            "parts": [{
+                                "functionCall": {
+                                    "name": func.get("name", ""),
+                                    "args": func.get("arguments", {}),
+                                }
+                            }],
+                            "role": "model"
+                        },
+                        "finishReason": "STOP"
+                    }]
+                }
+
+            # No tool call — return the text reply
+            return {
+                "candidates": [{
+                    "content": {
+                        "parts": [{"text": result_msg.get("content", "")}],
+                        "role": "model"
+                    },
+                    "finishReason": "STOP"
+                }]
+            }
+
+        # No tools in the payload — plain text generation (original path)
+        # Still build a single prompt string for generate_text compatibility
+        latest_user_text = ""
+        full_prompt_lines = []
+        for msg in ollama_messages:
+            if msg["role"] == "system":
+                continue
+            if msg["role"] == "user":
+                latest_user_text = msg["content"]
+                full_prompt_lines.append(f"User: {msg['content']}")
+            elif msg["role"] == "assistant":
+                full_prompt_lines.append(f"Assistant: {msg['content']}")
 
         full_context_prompt = "\n".join(full_prompt_lines) if len(full_prompt_lines) > 1 else latest_user_text
 
         ollama_text = await ollama_client.generate_text(
             prompt=full_context_prompt,
             system_instruction=sys_instruction,
-            temperature=0.7,
-            timeout=60.0
+            temperature=temperature,
+            timeout=60.0,
+            max_tokens=max_output_tokens,
         )
 
         return {

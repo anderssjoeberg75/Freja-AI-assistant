@@ -74,3 +74,33 @@ def test_recovers_from_truncation_after_escaping_backslash():
 def test_raises_the_original_error_for_empty_input():
     with pytest.raises(json.JSONDecodeError):
         parse_llm_json("")
+
+
+def test_recovers_from_partial_unicode_escape_two_hex():
+    # T-074: truncation mid-unicode escape sequence should strip the incomplete
+    # escape rather than leaving broken JSON.
+    truncated = '{"text": "caf\\u00'
+    result = parse_llm_json(truncated)
+    assert result == {"text": "caf"}
+
+
+def test_recovers_from_partial_unicode_escape_no_hex():
+    # Truncation right after backslash-u with no hex digits at all.
+    truncated = '{"text": "caf\\u'
+    result = parse_llm_json(truncated)
+    assert result == {"text": "caf"}
+
+
+def test_recovers_from_partial_unicode_escape_three_hex():
+    # Truncation with 3 of 4 required hex digits.
+    truncated = '{"text": "caf\\u000'
+    result = parse_llm_json(truncated)
+    assert result == {"text": "caf"}
+
+
+def test_complete_unicode_escape_not_stripped():
+    # A complete backslash-u escape must NOT be stripped.
+    well_formed = '{"text": "caf\\u00e9"}'
+    result = parse_llm_json(well_formed)
+    assert result == {"text": "caf\u00e9"}
+

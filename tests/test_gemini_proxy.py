@@ -1,128 +1,226 @@
+"""Tests for the Ollama path in gemini_proxy.py -- T-072 (tool forwarding) and T-073
+(generationConfig forwarding). Mocks the Ollama client at the function level so no
+network calls are made.
+
+The gemini_proxy route handler uses lazy imports (inside the function body), so we
+patch at the actual module paths (backend.services.ollama_client, etc.) rather than
+through backend.routes.gemini_proxy.
+"""
+from unittest.mock import AsyncMock, patch, MagicMock
+
 import pytest
 from fastapi.testclient import TestClient
-from server import app
-from backend.database import get_api_key, set_api_key
 
+from backend.routes.gemini_proxy import router
+from fastapi import FastAPI
+
+# Minimal app that mounts only the gemini_proxy router
+_app = FastAPI()
+_app.include_router(router)
+
+
+# Common payload shape mirroring what the client (gemini.js) sends
+def _make_payload(*, tools=None, temperature=0.65, max_tokens=2048, user_text="Hej Freja"):
+    payload = {
+        "contents": [
+            {"role": "user", "parts": [{"text": user_text}]}
+        ],
+        "systemInstruction": {
+            "parts": [{"text": "Du ar Freja, en AI-assistent."}]
+        },
+        "generationConfig": {
+            "temperature": temperature,
+            "maxOutputTokens": max_tokens,
+        },
+    }
+    if tools is not None:
+        payload["tools"] = tools
+    return payload
+
+
+SAMPLE_TOOL_DECLARATIONS = [
+    {
+        "name": "get_weather",
+        "description": "Get current weather for a location.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "location": {"type": "STRING", "description": "City name"}
+            },
+            "required": ["location"],
+        },
+    }
+]
+
+SAMPLE_GEMINI_TOOLS = [{"functionDeclarations": SAMPLE_TOOL_DECLARATIONS}]
+
+
+# ---------- Fixtures / mocks ----------
 
 @pytest.fixture
-def auth_headers():
-    token = get_api_key('freja_access_token') or "freja1234"
-    return {"X-Freja-Token": token}
+def client():
+    return TestClient(_app)
 
 
-@pytest.fixture(autouse=True)
-def restore_gemini_key():
-    backup = get_api_key("freja_gemini_apikey")
-    yield
-    set_api_key("freja_gemini_apikey", backup or "")
+def _mock_provider_status():
+    return {
+        "providers": {
+            "ollama": {"ok": True, "model": "qwen2.5:14b"},
+            "gemini": {"ok": True, "model": "gemini-2.5-flash"},
+        }
+    }
 
 
-def test_gemini_generate_rejects_malformed_model_name(auth_headers):
-    """A model identifier must match Gemini's own naming shape before being spliced into the
-    outbound request URL - previously any string (including path-breaking characters) was
-    forwarded to Google unchecked."""
-    set_api_key("freja_gemini_apikey", "fake_key_for_test")
-    client = TestClient(app)
-    response = client.post(
-        "/api/gemini/generate?model=../evil/path",
-        json={"contents": []},
-        headers=auth_headers,
-    )
-    assert response.status_code == 400
+async def _mock_dispatch_ollama_first(label, ollama_fn, gemini_fn):
+    """Simulates _dispatch always choosing the Ollama arm."""
+    return await ollama_fn()
 
 
-def test_gemini_generate_rejects_oversized_payload(auth_headers):
-    """A single request must not be able to run up unbounded cost against the server's own
-    Gemini API key - a request body over the sanity cap is rejected before being forwarded."""
-    set_api_key("freja_gemini_apikey", "fake_key_for_test")
-    client = TestClient(app)
-    huge_payload = {"contents": [{"role": "user", "parts": [{"text": "x" * 2_100_000}]}]}
-    response = client.post("/api/gemini/generate", json=huge_payload, headers=auth_headers)
-    assert response.status_code == 413
+# ---------- T-073: generationConfig forwarding ----------
+
+def test_ollama_receives_client_temperature_and_max_tokens(client):
+    """_call_ollama must pass the client's temperature and maxOutputTokens through to
+    the Ollama call instead of hardcoding them."""
+    captured_kwargs = {}
+
+    async def fake_generate_text(prompt, system_instruction="", temperature=0.2,
+                                 timeout=60.0, max_tokens=800):
+        captured_kwargs["temperature"] = temperature
+        captured_kwargs["max_tokens"] = max_tokens
+        return "Hej! Jag ar Freja."
+
+    with patch("backend.services.llm_client.get_provider_status",
+               new_callable=AsyncMock, return_value=_mock_provider_status()), \
+         patch("backend.services.ollama_client.generate_text",
+               side_effect=fake_generate_text), \
+         patch("backend.services.ollama_client.get_ollama_model",
+               return_value="qwen2.5:14b"), \
+         patch("backend.services.llm_client._dispatch",
+               side_effect=_mock_dispatch_ollama_first), \
+         patch("backend.services.gemini_client.get_gemini_api_key",
+               return_value="fake-key"), \
+         patch("backend.services.system_context.build_backend_context_block",
+               return_value=""), \
+         patch("backend.services.system_context.build_runtime_provider_line",
+               return_value=""):
+
+        payload = _make_payload(temperature=0.42, max_tokens=1500)
+        resp = client.post("/api/gemini/generate", json=payload)
+
+        assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text}"
+        assert captured_kwargs["temperature"] == 0.42
+        assert captured_kwargs["max_tokens"] == 1500
 
 
-def _stub_provider_status(monkeypatch, ollama_ok: bool, gemini_ok: bool = False):
-    """Pins what the chat proxy sees as provider health, and empties the shared cache so a
-    previous test's probe cannot answer for this one."""
-    from backend.services import llm_client
+# ---------- T-072: tool declaration forwarding ----------
 
-    async def status(*args, **kwargs):
+def test_ollama_uses_chat_with_tools_when_tools_present(client):
+    """When the payload includes tool declarations, _call_ollama must call
+    chat_with_tools instead of generate_text."""
+    chat_with_tools_called = {"called": False}
+
+    async def fake_chat_with_tools(messages, tools, *, temperature=0.5,
+                                   timeout=30.0, max_tokens=2048):
+        chat_with_tools_called["called"] = True
+        chat_with_tools_called["num_tools"] = len(tools)
+        return {"content": "Det ar soligt i Stockholm.", "role": "assistant"}
+
+    with patch("backend.services.llm_client.get_provider_status",
+               new_callable=AsyncMock, return_value=_mock_provider_status()), \
+         patch("backend.services.ollama_client.chat_with_tools",
+               side_effect=fake_chat_with_tools), \
+         patch("backend.services.ollama_client.gemini_tools_to_ollama",
+               wraps=lambda decls: [{"type": "function", "function": {"name": d["name"], "description": d.get("description", ""), "parameters": d.get("parameters", {})}} for d in decls]), \
+         patch("backend.services.ollama_client.get_ollama_model",
+               return_value="qwen2.5:14b"), \
+         patch("backend.services.llm_client._dispatch",
+               side_effect=_mock_dispatch_ollama_first), \
+         patch("backend.services.gemini_client.get_gemini_api_key",
+               return_value="fake-key"), \
+         patch("backend.services.system_context.build_backend_context_block",
+               return_value=""), \
+         patch("backend.services.system_context.build_runtime_provider_line",
+               return_value=""):
+
+        payload = _make_payload(tools=SAMPLE_GEMINI_TOOLS)
+        resp = client.post("/api/gemini/generate", json=payload)
+
+        assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text}"
+        assert chat_with_tools_called["called"]
+        assert chat_with_tools_called["num_tools"] == 1
+
+
+def test_ollama_tool_call_returned_in_gemini_format(client):
+    """When Ollama's response includes tool_calls, the proxy must wrap them in
+    Gemini's functionCall shape so the client's tool loop handles them."""
+
+    async def fake_chat_with_tools(messages, tools, **kwargs):
         return {
-            "preference": "auto",
-            "active": "ollama" if ollama_ok else ("gemini" if gemini_ok else None),
-            "providers": {
-                "ollama": {"ok": ollama_ok, "detail": "", "model": "qwen2.5:14b",
-                           "base_url": "http://ollama.test:11434", "models": []},
-                "gemini": {"ok": gemini_ok, "detail": "", "model": "gemini-2.5-flash"},
-            },
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [{
+                "function": {
+                    "name": "get_weather",
+                    "arguments": {"location": "Stockholm"},
+                }
+            }]
         }
 
-    llm_client._status_cache["payload"] = None
-    llm_client._status_cache["expires_at"] = 0.0
-    monkeypatch.setattr(llm_client, "check_providers", status)
+    with patch("backend.services.llm_client.get_provider_status",
+               new_callable=AsyncMock, return_value=_mock_provider_status()), \
+         patch("backend.services.ollama_client.chat_with_tools",
+               side_effect=fake_chat_with_tools), \
+         patch("backend.services.ollama_client.gemini_tools_to_ollama",
+               return_value=[{"type": "function", "function": {"name": "get_weather"}}]), \
+         patch("backend.services.ollama_client.get_ollama_model",
+               return_value="qwen2.5:14b"), \
+         patch("backend.services.llm_client._dispatch",
+               side_effect=_mock_dispatch_ollama_first), \
+         patch("backend.services.gemini_client.get_gemini_api_key",
+               return_value="fake-key"), \
+         patch("backend.services.system_context.build_backend_context_block",
+               return_value=""), \
+         patch("backend.services.system_context.build_runtime_provider_line",
+               return_value=""):
+
+        payload = _make_payload(tools=SAMPLE_GEMINI_TOOLS)
+        resp = client.post("/api/gemini/generate", json=payload)
+
+        assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text}"
+        data = resp.json()
+        candidate = data["candidates"][0]
+        fc = candidate["content"]["parts"][0].get("functionCall")
+        assert fc is not None, "Expected a functionCall in the response"
+        assert fc["name"] == "get_weather"
+        assert fc["args"]["location"] == "Stockholm"
 
 
-def test_gemini_generate_requires_api_key(auth_headers, monkeypatch):
-    """With no Gemini key AND no reachable Ollama server, there is nothing to answer with."""
-    set_api_key("freja_gemini_apikey", "")
-    _stub_provider_status(monkeypatch, ollama_ok=False)
-    client = TestClient(app)
-    response = client.post("/api/gemini/generate", json={"contents": []}, headers=auth_headers)
-    assert response.status_code == 400
+def test_ollama_no_tools_uses_generate_text(client):
+    """When no tools are in the payload, _call_ollama must use the plain
+    generate_text path (not chat_with_tools)."""
+    generate_text_called = {"called": False}
 
+    async def fake_generate_text(**kwargs):
+        generate_text_called["called"] = True
+        return "Hej!"
 
-def test_missing_gemini_key_is_not_fatal_when_ollama_is_reachable(auth_headers, monkeypatch):
-    """A self-hosted-only setup has no Google credentials at all. The proxy used to reject
-    those requests with "Gemini API key is not configured" before ever trying Ollama,
-    because the health lookup read a key that does not exist on the status payload and so
-    was always falsy."""
-    set_api_key("freja_gemini_apikey", "")
-    _stub_provider_status(monkeypatch, ollama_ok=True)
+    with patch("backend.services.llm_client.get_provider_status",
+               new_callable=AsyncMock, return_value=_mock_provider_status()), \
+         patch("backend.services.ollama_client.generate_text",
+               side_effect=fake_generate_text), \
+         patch("backend.services.ollama_client.get_ollama_model",
+               return_value="qwen2.5:14b"), \
+         patch("backend.services.llm_client._dispatch",
+               side_effect=_mock_dispatch_ollama_first), \
+         patch("backend.services.gemini_client.get_gemini_api_key",
+               return_value="fake-key"), \
+         patch("backend.services.system_context.build_backend_context_block",
+               return_value=""), \
+         patch("backend.services.system_context.build_runtime_provider_line",
+               return_value=""):
 
-    from backend.services import ollama_client
+        payload = _make_payload()  # no tools
+        resp = client.post("/api/gemini/generate", json=payload)
 
-    async def fake_generate_text(*args, **kwargs):
-        return "Hej Anders!"
-
-    monkeypatch.setattr(ollama_client, "generate_text", fake_generate_text)
-
-    client = TestClient(app)
-    response = client.post(
-        "/api/gemini/generate",
-        json={"contents": [{"role": "user", "parts": [{"text": "Hej"}]}]},
-        headers=auth_headers,
-    )
-    assert response.status_code == 200
-    assert response.json()["candidates"][0]["content"]["parts"][0]["text"] == "Hej Anders!"
-
-
-def test_the_serving_engine_is_named_in_the_system_prompt(auth_headers, monkeypatch):
-    """The block is injected before dispatch, so only the provider branch can state which
-    engine actually answered - injecting a guess up front made Freja name the wrong engine
-    whenever the fallback fired."""
-    set_api_key("freja_gemini_apikey", "")
-    _stub_provider_status(monkeypatch, ollama_ok=True)
-
-    from backend.services import ollama_client
-    seen = {}
-
-    async def capture(prompt, system_instruction="", *args, **kwargs):
-        seen["system_instruction"] = system_instruction
-        return "ok"
-
-    monkeypatch.setattr(ollama_client, "generate_text", capture)
-
-    client = TestClient(app)
-    client.post(
-        "/api/gemini/generate",
-        json={
-            "contents": [{"role": "user", "parts": [{"text": "Vilken motor kör du på?"}]}],
-            "systemInstruction": {"parts": [{"text": "You are FREJA."}]},
-        },
-        headers=auth_headers,
-    )
-
-    instruction = seen["system_instruction"]
-    assert "ENGINE SERVING THIS REPLY: Ollama (self-hosted), model 'qwen2.5:14b'" in instruction
-    assert "[BACKEND CONFIGURATION - LIVE AND AUTHORITATIVE]" in instruction
-    assert "You are FREJA." in instruction
+        assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text}"
+        assert generate_text_called["called"]

@@ -55,7 +55,17 @@ def _close_truncated_json(text: str):
     repaired = text
     if in_string:
         if escape:
+            # The last character was a backslash starting an escape sequence that was
+            # never completed (e.g. trailing `\` or `\u00`). Strip the incomplete
+            # escape: the backslash itself, plus any partial `\uXXXX` hex digits that
+            # may follow it in the already-consumed text.
             repaired = repaired[:-1]
+        # Also strip any partial `\uXXXX` escape that the parser already consumed
+        # (escape=False because `\` toggled it on, then the hex char toggled it off,
+        # but the sequence is incomplete). Pattern: string ends with `\u`, `\u0`,
+        # `\u00`, or `\u000` — 1-4 hex chars after `\u`, totalling < 6 chars.
+        import re
+        repaired = re.sub(r'\\u[0-9a-fA-F]{0,3}$', '', repaired)
         repaired += '"'
 
     repaired = repaired.rstrip().rstrip(",")
